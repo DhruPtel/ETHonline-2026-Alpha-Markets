@@ -1,7 +1,13 @@
 # PHASE-1.md — Data layer + agent
 
 **Revises:** `PLAN-v4-alpha-markets.md` §9 Phase 1, with everything Phase 0 measured folded in.
-**Status:** ready to start. Phase 0 closed with 8 PASS, 1 PARTIAL.
+**Status:** ready to start. Phase 0 closed with **7 PASS and 2 not run** — SM-06 (agent tool call) is
+written and has never executed; SM-09's browser checklist is written and not yet walked.
+`tracking/smoke-results.md` is authoritative for this count.
+
+⚠️ **SM-06 has never run, and Unit 10 promotes it into `loop.ts`.** The tool loop it proves is the
+thing Unit 10 is built from, so running SM-06 before Unit 10 costs minutes and removes the only
+untested assumption underneath that unit.
 
 ---
 
@@ -161,24 +167,27 @@ degrade rather than crash.
 
 ### 8 · `src/graph/evidence.ts` — SCAFFOLD, ~70 lines
 
-Deployment hash, document name, variables, block number, timestamp, row count, completeness, and a
-**hash of the response** (PLAN-v4 §5.18, amended 2026-09-06).
+**Two tiers, and the caller picks** (PLAN-v4 §5.18, decided 2026-09-06):
 
-⚠️ **A record, not a copy.** Small by design — enough to answer *what did you query, and when*, and
-enough to re-run it. **Not the raw response.**
+- **Record** *(default)* — deployment hash, document name, variables, block number, timestamp, row
+  count, completeness, **hash of the response**. Small.
+- **Record + raw response** — **settlement-backing queries only.** Any query whose result a market
+  resolves against.
 
-⚠️ **Never read back as data.** Provenance only.
+⚠️ **This resolves the tension rather than deferring it.** A hash proves *integrity* — this is the
+response we saw — but not *content*. Once the source prunes at ~100 minutes the value cannot be
+re-derived, and a re-run returns different data rather than the same data. Most queries never back a
+market and a hash is enough for them; the few that do are exactly the ones where "what came back"
+must be provable years later, so those keep the bytes.
 
-⚠️ **Open tension, flagged not resolved.** This unit previously stored the raw response, on the
-grounds that pruning removes source state within ~100 minutes — so without it a settlement claim
-"quietly becomes trust us." A hash proves *integrity* (this is the response we saw) but not
-*content*: once the source is pruned, the numbers cannot be re-derived from a hash, and re-running
-returns different data rather than the same data. **Storing a record and being able to reconstruct
-what we saw are different capabilities, and §5.18 now buys the first.** Decide before Phase 3
-whether settlement needs the second.
+⚠️ **The tier is a parameter, not an inference.** Phase 4's resolver passes it; report generation
+does not. Inferring it from the query shape would mean a settlement quietly losing its proof because
+a document got reused somewhere new.
 
-*Proof:* a query produces an evidence record that identifies exactly what was queried, and its hash
-matches a re-fetch at the same block while the source is still retained.
+⚠️ **Never read back as data.** Provenance only, in both tiers.
+
+*Proof:* a default query produces a record whose hash matches a re-fetch at the same block; a query
+flagged settlement-backing additionally stores bytes that reproduce the figures without the network.
 
 ### 9 · `src/graph/corroborate.ts` — **LOGIC**, ~100 lines ★
 
@@ -280,8 +289,15 @@ Deploy a corrected Messari subgraph fixing aave-v3's accumulator, and implement 
 `Market.interest`, which is present but never converted or aggregated.
 
 ⚠️ **Unmeasured indexing time.** Could be an hour, could be days. Messari's mappings build `Market`
-entities from initialization events at protocol deployment, so a late `startBlock` may produce an
-empty subgraph — that's SM-07's unrun question.
+entities from initialization events at protocol deployment, so a late `startBlock` may produce a
+subgraph that indexes cleanly and returns nothing — a failure that looks like success until you
+query it.
+
+⚠️ **No smoke test covers this.** It is an open question, not something Phase 0 established — SM-07
+tested ATS issuance and transfer on Hedera and has nothing to say about subgraph indexing. The risk
+is recorded in `tracking/DECISIONS.md` under *"Morpho via its own published subgraph"*, as the
+reason that alternative was rejected. **Nothing scheduled measures it**, which is part of why this
+unit is last.
 
 **Placed last so that if it stalls, Phase 1 is already complete and we move to Phase 2 and come back.**
 

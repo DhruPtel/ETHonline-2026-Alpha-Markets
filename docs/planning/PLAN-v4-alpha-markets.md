@@ -535,10 +535,25 @@ health-check time, not in the request path.
   250 rows. **`paginate.ts` pages until the population is exhausted or a budget is hit, and reports
   completeness honestly either way.** `first ≤ 250` is the per-request cap that keeps any single
   response small; it says nothing about how many pages get fetched.
-- ⚠️ **Evidence is a record, not a copy.** It is deliberately **small**: deployment hash, document
-  name, variables, block number, timestamp, row count, completeness, and a **hash of the response** —
-  enough to answer *what did you query, and when*, and enough to re-run it. **Not the raw response.**
-  A per-observation byte cap applies to that record, and it should never come close to binding.
+- ⚠️ **Evidence has two tiers, and the caller picks** *(decided 2026-09-06)*.
+
+  | tier | contents | when |
+  |---|---|---|
+  | **Record** *(default)* | deployment hash, document name, variables, block number, timestamp, row count, completeness, **hash of the response** | every query |
+  | **Record + raw response** | the above, plus the response bytes | **settlement-backing queries only** |
+
+  **A hash proves integrity, not content.** It proves *this is the response we saw*; it cannot answer
+  a dispute about what the number **was**, because once the source prunes — ~100 minutes — the value
+  cannot be re-derived and a re-run returns different data rather than the same data. That is
+  acceptable for the overwhelming majority of queries, which never back a market, and unacceptable
+  for the few that do.
+
+  ⚠️ **The tier is set by the caller, never inferred.** Phase 4's resolver passes it; report
+  generation does not. Inferring it from the query shape would mean a settlement quietly losing its
+  proof because a document was reused somewhere new.
+
+  A per-observation byte cap applies to the record and should never come close to binding. The raw
+  response is exempt from that cap and bounded by `paginate.ts`'s page size instead.
 - **Oversize or budget-truncated populations →** `INCOMPLETE`, never a successful total.
 - ⚠️ **Untrusted strings:** `Market.name` and `Token.symbol` are indexer-supplied and reach reports and
   HTML. Purchased reports are untrusted data to the buyer agent. Escape and bound both.
