@@ -553,3 +553,84 @@ to a measured fact with the 10^12 factor attached. Added the payable call to `do
 open Circle item is unchanged and is not this script's problem: **a spend cap still has to be set on
 the wallet set in the console**, because Circle's limits are server-side policy and this run moved
 2.5 USDC with nothing standing in its way.
+
+## 2026-09-06 — Unit 8: SM-04, archive access confirmed and a corroboration bug found before it was written
+
+Wrote `scripts/smoke/04-archive-rpc.ts` and **SM-04 passes**. Alchemy's free tier is genuinely
+archive-capable: every historical read succeeded, from head−100 down to block 5,920,937 via WETH, and
+an `eth_getBalance` at **block 1** was served. Nothing was refused at any depth. **R27's fallback —
+restrict corroboration to the retained window and mark `NOT_CHECKED` — is not needed for Ethereum**,
+and the reconciliation engine's one independent check has a confirmed source. The credential turned
+out to be `ALCHEMY_API_KEY` rather than the `ETHEREUM_RPC_URL` that `.env.example` documents, so the
+script accepts either rather than failing on a name.
+
+**The test caught a bug in itself first.** The depth ladder originally probed WETH at block 1, got
+back a bare `0x`, and reported a false archive failure — because `eth_call` returns `0x` both when a
+node cannot serve the block and when the contract did not exist yet, and WETH was deployed at block
+4,719,568. Those two are indistinguishable from outside. The committed version separates `ok`,
+`no-code` and `refused`, counts only a JSON-RPC error against archive capability, and tests genesis
+depth with `eth_getBalance`, which is meaningful at every block.
+
+**The real finding is that the obvious corroboration check is wrong.** Comparing
+`aToken.totalSupply()` at the subgraph's `_meta.block` against its stored `inputTokenBalance` agreed
+*exactly* on the first run and differed by 157.70 USDC on the second — same code, minutes apart.
+Walking the blocks explains it: Aave's aToken `totalSupply()` accrues about **31.54 USDC per block**
+straight from `block.timestamp`, with no events involved, while the subgraph writes
+`inputTokenBalance` only when a handler runs. They are the same quantity read at two different
+moments. The first run agreed only because an event happened to land on the indexing head.
+
+So a strict equality check at `_meta.block` **passes intermittently**, and most reliably when the
+chain is busy — which is when corroboration matters least. It would have read as flakiness in the
+adapter for however long it took someone to walk the blocks by hand.
+
+**It can be made exact.** `Market.indexLastUpdatedTimestamp` marks when the balance was written;
+resolving it to block 25920948 and reading there gives `totalSupply() == inputTokenBalance` to the
+unit. That is a better check than any tolerance, because a tolerance wide enough to absorb interest
+accrual is also wide enough to hide the errors the check exists to catch. **This contradicts §5.14's
+"compare with tolerances", so it is raised rather than amended** — how corroboration compares is a
+plan-level decision, and the script still reports the diff at `_meta.block` exactly as the unit
+specified. Also worth confirming before anyone leans on it: `indexLastUpdatedTimestamp` is an
+Aave-shaped field, and Compound and Morpho may expose nothing equivalent.
+
+One more number worth having: aave-v3-ethereum is running **0 to 1 blocks behind chain head**, not
+the hundreds §5.14 anticipated. That does not make archive optional — a check that only works while
+the subgraph is caught up fails exactly when the subgraph is struggling — but it does mean the common
+case is comfortable. Repointed the `smoke:04` script entry from the old `04-multi-deployment.ts` name
+to the new file.
+
+## 2026-09-06 — Unit 8b: the write-time field surveyed, and the check catches Morpho
+
+Checked whether `indexLastUpdatedTimestamp` is an Aave-shaped field before building on it, and the
+answer is **partly**. aave-v3 and aave-v2 both expose it and both corroborate **exactly**. compound-v2
+has no equivalent at all — `_rewardLastUpdatedTimestamp` is a rewards timestamp and using it would be
+inventing a check rather than performing one. morpho-blue calls it `lastUpdate` instead.
+
+The surprise is **compound-v3, which makes corroboration a per-market capability rather than a
+per-deployment one.** Of its ten largest markets, three carry a timestamp and seven are `null` — the
+base-asset markets have it, the collateral-only ones do not. So the corroboration flag cannot sit in
+deployment config next to the revenue flag; it has to be decided per market at query time. That is a
+smaller, more awkward answer than either of the two we expected.
+
+**The strongest number in the survey is aave-v2's.** Its largest market's write-time field resolved to
+block 25,912,723 while `_meta` sat at 25,921,008 — **8,285 blocks, 27.7 hours** behind. A pruned node
+retains about 128. aave-v3's 0-to-1-block lag makes archive access look optional; aave-v2 on the same
+chain at the same moment shows it is not, because the correct comparison block is a property of how
+recently that market traded, not of how current the subgraph is. A quiet market can be arbitrarily far
+back.
+
+**And the check caught something on its first real outing.** Morpho Blue accrues only on interaction,
+so its `totalSupplyAssets` is identical at `lastUpdate`'s block and at `_meta.block` — the alignment
+problem simply does not exist there. The numbers disagree anyway, in 2 of the 3 largest markets: USDC/PAXG
+by exactly −10,000,000, and USDT/wstETH by −26,932,262,884 (~0.02%), with the subgraph reading higher
+than the chain both times. The on-chain `lastUpdate` mirrors the subgraph's exactly, so the field is
+faithful and it is the balance that differs. This is the deployment `DECISIONS.md` already flags as
+returning a wrong number, reached independently — from the chain this time rather than from
+cross-protocol comparison. **Cause not established**, possibly virtual accrual in the mapping, and
+recorded as something to settle before Morpho appears in any published report rather than guessed at.
+
+Amended §5.14 to drop "compare with tolerances" in favour of exact equality at the write-time block
+with `NOT_CHECKED` where the field is absent, retired R27 for Ethereum, and recorded the decision with
+its costs in `DECISIONS.md` — the honest ones being that compound-v2 loses corroboration entirely and
+that archive access moves from convenient to mandatory. Renamed the credential to `ETHEREUM_RPC_URL`
+and dropped the dual-name acceptance from the script: taking either spelling was kind now and
+confusing later.

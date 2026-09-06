@@ -16,7 +16,7 @@ action lands here; when a test forces a choice, the choice is recorded in `DECIS
 | **SM-01** | JCS canonicalizer | Our canonicalizer matches the RFC 8785 reference vectors, so a report hash is reproducible and the vectors can be shared with Foundry | **PASS** | 2026-09-05 |
 | **SM-02** | Multi-protocol query | One query document returns populated fields plus `_meta` from live Messari lending subgraphs across independent deployments | **PASS** | 2026-09-05 |
 | **SM-03** | Snapshot window | A snapshot query 12 months back returns rows **and** their timestamps fall inside the requested window | **PASS** | 2026-09-05 |
-| **SM-04** | Archive RPC *(rescoped)* | A subgraph value at block N and an `eth_call` for the same value at block N agree — so historical state is actually servable | BLOCKED — no archive RPC | — |
+| **SM-04** | Archive RPC *(rescoped)* | A subgraph value at block N and an `eth_call` for the same value at block N agree — so historical state is actually servable | **PASS** — archive to block 1; ⚠️ agreement is exact only at the field's *write* block, not at `_meta.block` | 2026-09-06 |
 | **SM-05** | x402 payment on Hedera **testnet** | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | **PASS** — settled in HBAR, not USDC | 2026-09-06 |
 | **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
 | **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | **PASS** — balance moved 1 → 0 / 0 → 1 | 2026-09-06 |
@@ -34,9 +34,11 @@ written there was no Anthropic credential on this machine; **`ANTHROPIC_API_KEY`
 so the test can run.** It gets a section here the first time it actually does; until then it has
 proved nothing.
 
-⛔ **SM-04 is blocked on provisioning, not on a decision.** It needs an archive-capable Ethereum RPC.
-`ETHEREUM_RPC_URL` is in `.env.example`, unset, with the archive requirement in a comment. Until one
-exists, R27 (non-archive RPC) stays live and corroboration has no confirmed source.
+✅ **SM-04 is unblocked and passing (2026-09-06).** Alchemy's free tier serves historical state to
+block 1 — nothing was refused at any depth — so R27's fallback is not needed for Ethereum and
+corroboration has a confirmed source. ⚠️ The test also found that comparing at `_meta.block` is the
+wrong comparison; see the SM-04 section. **The credential is `ALCHEMY_API_KEY`, not the
+`ETHEREUM_RPC_URL` `.env.example` documents** — the script accepts either.
 
 ---
 
@@ -320,6 +322,194 @@ morpho-blue                    0.000e+0     0/31         ok        0.00%   BROKE
   number that cannot be true. Rates feed both reports and market subjects, so this needs an answer
   before either ships.
   **When:** Phase 1 or 2, adapter layer
+  **Status:** open
+
+---
+
+## SM-04 — Archive RPC
+
+**Run:** 2026-09-06
+**Result:** **PASS**
+**Script:** `scripts/smoke/04-archive-rpc.ts`
+**RPC:** Alchemy free tier, `eth-mainnet.g.alchemy.com`
+**Subgraph:** aave-v3-ethereum `JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk`, market *Aave Ethereum USDC*
+
+**What it proved:** Ethereum state is servable at blocks a subgraph has long since passed, so the
+corroboration check in §5.14 — the only genuinely independent verification the engine has — is
+buildable. **And the naive form of that check is wrong**, for a reason that would have looked like
+flakiness rather than a bug.
+
+### Findings
+
+#### Alchemy's free tier is genuinely archive-capable
+
+Every historical read succeeded, to 20 million blocks deep:
+
+| probe | block | result |
+|---|---|---|
+| aToken `totalSupply()` at head−100 / −1k / −10k / −100k | 25,920,837 → 25,820,937 | all ok |
+| WETH `totalSupply()` at head−1M / −5M / −10M / −20M | 24,920,937 → 5,920,937 | all ok |
+| `eth_getBalance` at **block 1** | 1 | ok |
+
+**Nothing was refused.** The `~128 block` retention limit that R27 is about does not apply to this
+provider. **R27 can be retired for Ethereum**, and §5.14's fallback — restrict corroboration to the
+retained window and mark `NOT_CHECKED` — is not needed.
+
+⚠️ **The depth ladder needs two kinds of call to mean anything.** `eth_call` against a contract
+returns a bare `0x` both when the node cannot serve that block *and* when the contract did not exist
+yet — indistinguishable from outside. The first version of this test probed WETH at block 1, got
+`0x` because WETH was deployed at block 4,719,568, and **reported a false archive failure**. The
+committed script separates three outcomes — `ok`, `no-code`, `refused` — and only a JSON-RPC error
+counts against archive capability; genesis depth is tested with `eth_getBalance`, which is meaningful
+at every block because every address has a balance at every block.
+
+#### ⚠️ The numbers disagree at `_meta.block` — and the subgraph is not the one that is wrong
+
+Comparing `aToken.totalSupply()` at the subgraph's `_meta.block` against its stored
+`inputTokenBalance` gave **different answers on different runs of the same test**:
+
+| run | subgraph `_meta.block` | difference |
+|---|---|---|
+| first | 25,920,931 | **0 — exact agreement** |
+| second | 25,920,936 | **+157,699,605** (+157.70 USDC, 0.00000684%), chain higher |
+
+That is not noise, and it is not a mapping bug. Walking `totalSupply()` back block by block:
+
+```
+block 25920947  2305321098238505    +31,539,921 per block
+block 25920946  2305321066698584    +31,539,921
+block 25920945  2305321035158663    +31,539,921
+                     …every block, with no events involved
+```
+
+**Aave's aToken `totalSupply()` accrues continuously from `block.timestamp`** — roughly 31.54 USDC
+per block on this market — while the subgraph writes `inputTokenBalance` only when a handler runs.
+So the two are the same quantity read at two different moments, and the gap grows linearly with time
+since the market's last event. The first run agreed exactly only by coincidence: an event happened
+to land on `_meta.block`.
+
+⚠️ **A strict equality check at `_meta.block` therefore passes intermittently** — and passes most
+often when the chain is busy, which is when a corroboration check matters least. It would have been
+read as flakiness in the corroboration adapter for as long as it took someone to walk the blocks.
+
+#### The check can be exact, if it reads at the right block
+
+`Market.indexLastUpdatedTimestamp` identifies the moment the balance was written. Resolving it to a
+block and reading there:
+
+```
+block 25920948   timestamp 1788729503 == indexLastUpdatedTimestamp
+                 totalSupply()      2305321311011136
+                 inputTokenBalance  2305321311011136    EXACT
+```
+
+**This is the shape corroboration should take:** read the field's own write-time, not the
+subgraph's indexing head. It converts a tolerance-based comparison into an exact one, which is worth
+a great deal — a tolerance wide enough to absorb interest accrual is also wide enough to absorb the
+kind of error the check exists to catch.
+
+✅ **§5.14 is amended (2026-09-06).** It previously said "Compare compatible semantics with
+tolerances"; corroboration now resolves the write-time block, reads there, and asserts **equality**,
+with `NOT_CHECKED` where the field does not exist. The committed script still reports the diff at
+`_meta.block` as the unit specified — it is the evidence for the amendment, not the implementation
+of it, which lands with `graph/corroborate.ts` in Phase 1.
+
+#### The write-time field across all five deployments — corroboration is a per-MARKET capability
+
+Surveyed after the run, because the exact-comparison design is worthless if the field only exists on
+Aave:
+
+| deployment | schema | write-time field | corroboration |
+|---|---|---|---|
+| aave-v3-ethereum | 3.1.0 | `indexLastUpdatedTimestamp` | **EXACT** — verified to the unit |
+| aave-v2-ethereum | 3.1.0 | `indexLastUpdatedTimestamp` | **EXACT** — verified to the unit |
+| compound-v3-ethereum | 3.1.0 | `indexLastUpdatedTimestamp`, **`null` on most markets** | **per-market** — exact where set, `NOT_CHECKED` where null |
+| compound-v2-ethereum | 2.0.1 | **none** | **`NOT_CHECKED`** |
+| morpho-blue | 3.0.0 | **`lastUpdate`** — its own name | needs no alignment, and disagrees anyway *(below)* |
+
+- ⚠️ **compound-v3 makes this per-market, not per-deployment.** Of its ten largest markets, three
+  carry a timestamp and seven are `null` — the base-asset markets have it, the collateral-only ones
+  do not. So the corroboration flag cannot live on the deployment config beside the revenue flag; it
+  has to be decided per market, at query time.
+- **compound-v2 has no equivalent at all.** `_rewardLastUpdatedTimestamp` is a rewards field and
+  means something else entirely; using it would be inventing a check rather than performing one.
+- ⚠️ **`NOT_CHECKED` where the field is missing — never a tolerance.** A check that silently weakens
+  for some protocols is worse than one that admits its limits.
+
+#### ⚠️ aave-v2's field was 27.7 hours behind the indexing head
+
+`indexLastUpdatedTimestamp` on the largest aave-v2 market resolved to block 25,912,723 while `_meta`
+was at 25,921,008 — **8,285 blocks, ~27.7 hours**.
+
+**This is the single strongest argument for archive access in the project.** A pruned node retains
+~128 blocks; this field sits 65× further back. The `0–1 block` lag on aave-v3 makes archive look
+optional, and aave-v2 on the same chain at the same moment shows it is not. The correct comparison
+block is a property of *how recently that market traded*, not of how current the subgraph is — a
+quiet market can be arbitrarily far back.
+
+#### ⚠️ The check caught Morpho — its subgraph disagrees with its own contract
+
+Morpho Blue accrues only on interaction, so `totalSupplyAssets` is identical at `lastUpdate`'s block
+and at `_meta.block`. The block-alignment problem does not exist there. **They disagree anyway**, in
+2 of the 3 largest markets:
+
+| market | subgraph `inputTokenBalance` | chain `totalSupplyAssets` | difference |
+|---|---|---|---|
+| USDC / sdeUSD | 4339128990972897 | 4339128990972897 | **exact** |
+| USDC / PAXG | 6212914546395500 | 6212914536395500 | **−10,000,000** *(a suspiciously round number)* |
+| USDT / wstETH | 123543053372901 | 123516121110017 | **−26,932,262,884** (~0.02%) |
+
+The subgraph reads **higher** than the chain in both, and the difference is identical at both blocks,
+so it is not an alignment artifact. The on-chain `lastUpdate` matches the subgraph's `lastUpdate`
+exactly, so the field itself is mirrored faithfully — it is the *balance* that differs.
+
+**This is the first time the corroboration check has caught anything**, and it caught the deployment
+`tracking/DECISIONS.md` already flags as returning a wrong number — reached independently, from the
+chain rather than from cross-protocol comparison. ⚠️ **Cause not established.** It may be virtual
+accrual in the mapping; that needs a source read, not a guess. **Do not build on Morpho balances
+until it is.**
+
+#### The subgraph is not lagging, which does not make archive optional
+
+`_meta.block` was **0 to 1 blocks** behind chain head across every run — aave-v3-ethereum is
+essentially at head. On that evidence alone a pruned node would serve corroboration today.
+
+That is a property of this moment, not a guarantee. A check that only works while the subgraph is
+caught up fails exactly when the subgraph is struggling, which is precisely when its numbers most
+need an independent opinion. Archive access is what makes the check unconditional, and we have it.
+
+### To do
+
+- **What:** Decide whether corroboration reads at `indexLastUpdatedTimestamp`'s block (exact) or at
+  `_meta.block` with a tolerance, and amend §5.14 to match.
+  **Why:** Measured above: the same comparison passes or fails depending on whether an event landed
+  on the indexing head. Exact-at-write-time removes the ambiguity; a tolerance sized for accrual is
+  wide enough to hide real errors. This is a design decision, not an implementation detail.
+  **When:** Phase 1, with `graph/corroborate.ts`
+  **Status:** **DECIDED 2026-09-06 — exact equality at the write-time block, no tolerance.** §5.14
+  amended and `tracking/DECISIONS.md` records what it cost.
+
+- **What:** Establish why Morpho's `inputTokenBalance` reads higher than the contract's
+  `totalSupplyAssets`, and whether Morpho balances are usable at all.
+  **Why:** Measured above, on 2 of 3 top markets, with alignment ruled out. The likely explanation is
+  virtual accrual in the mapping, but that is a guess and this is a number the product would price
+  against. It also compounds the existing Morpho finding in `tracking/DECISIONS.md`.
+  **When:** before Morpho appears in any published report
+  **Status:** open
+
+- **What:** Carry the corroboration flag **per market**, not per deployment.
+  **Why:** compound-v3 sets `indexLastUpdatedTimestamp` on its base-asset markets and leaves it
+  `null` on the collateral-only ones — 3 of its 10 largest have it. A deployment-level flag beside
+  the revenue flag would be wrong for seven of them.
+  **When:** Phase 1, with the corroboration adapter
+  **Status:** open
+
+- **What:** Retire R27 for Ethereum, or restate it as provider-specific.
+  **Why:** Measured archive access to block 1 on the provisioned RPC. R27's branch — restrict to the
+  retained window, mark `NOT_CHECKED` — is dead code for this provider. It stays live only as a
+  swap-provider risk. ⚠️ Arc's own RPC **is** pruned (`4444 pruned history unavailable`, SM-08), so
+  the risk is real elsewhere.
+  **When:** Phase 1
   **Status:** open
 
 ---

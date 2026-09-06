@@ -376,13 +376,46 @@ population** — those are the only two blocking conditions.
 
 `graph/corroborate.ts` fetches the observation; `engine/checks/crosscheck.ts` compares.
 
-⚠️ **Historical `eth_call` needs an archive-capable RPC.** Subgraph heads routinely lag chain head by
->128 blocks; a non-archive RPC serves state only for the last ~128. **Verify with one `eth_call` at
-`head-1000` in SM-04** *(amended 2026-09-05 — this was SM-02; see §8)*, or restrict corroboration to
-the retained window and mark `NOT_CHECKED`.
+✅ **Archive access is confirmed** *(SM-04, 2026-09-06)*. `ETHEREUM_RPC_URL` (Alchemy free tier)
+serves historical state to **block 1** — nothing refused at any depth. R27's fallback is not needed
+for Ethereum.
 
-⚠️ Compare compatible semantics with tolerances. Indexed *through* block B ≠ every field *refreshed at*
-B.
+⚠️ **Amendment, 2026-09-06 — corroboration compares EXACTLY, at the block the value was written.
+There is no tolerance.** §5.14 previously read "Compare compatible semantics with tolerances."
+SM-04 overturned it. Indexed *through* block B ≠ every field *refreshed at* B: an Aave aToken's
+`totalSupply()` accrues ~31.5 USDC **per block** from `block.timestamp` while the subgraph writes
+`inputTokenBalance` only when a handler runs, so a comparison at `_meta.block` passes or fails
+depending on whether an event happened to land on the indexing head. **A tolerance wide enough to
+absorb interest accrual is wide enough to hide the errors the check exists to catch** — that is the
+whole check defeated to work around a block-alignment problem that has an exact solution.
+
+**The procedure:** read the field's own write-time from the subgraph, resolve it to a block,
+`eth_call` there, and assert **equality**. Verified exact on aave-v3 and aave-v2.
+
+⚠️ **Corroboration is a per-market capability, not a per-deployment one**, and the adapter carries a
+corroboration flag the way it already carries the revenue flag. Measured across all five deployments:
+
+| deployment | write-time field | corroboration |
+|---|---|---|
+| aave-v3-ethereum | `indexLastUpdatedTimestamp` | **EXACT**, verified |
+| aave-v2-ethereum | `indexLastUpdatedTimestamp` | **EXACT**, verified — and **27.7 h / 8,285 blocks** behind head, which is why archive is not optional |
+| compound-v3-ethereum | `indexLastUpdatedTimestamp` — **`null` on most markets**, set on a few | **per-market**: exact where set, `NOT_CHECKED` where null |
+| compound-v2-ethereum | none — `_rewardLastUpdatedTimestamp` is a rewards field, not a balance write-time | **`NOT_CHECKED`** |
+| morpho-blue | `lastUpdate` — its own name, mirrors the contract's `lastUpdate` faithfully | see below |
+
+⚠️ **`NOT_CHECKED` is a legitimate third state and the only honest one where the field is missing.**
+Never fall back to a tolerance there — say the value could not be verified. A check that silently
+weakens for some protocols is worse than one that admits its limits.
+
+⚠️ **Morpho needs no block alignment and disagrees anyway.** Morpho Blue accrues only on interaction,
+so `totalSupplyAssets` is identical at `lastUpdate`'s block and at `_meta.block` — the alignment
+problem does not exist there. But **2 of its 3 largest markets disagree with the contract**
+(USDC/PAXG by `-10,000,000`, a suspiciously round number; USDT/wstETH by `-26,932,262,884`, ~0.02%),
+with the subgraph reading **higher** than the chain in both. Not a block-alignment artifact — the
+same difference appears at both blocks. This corroborates the existing Morpho finding in
+`tracking/DECISIONS.md` from an independent direction, and is the first time this check has caught
+anything. **Cause not yet established** — it may be virtual accrual in the mapping. Do not build on
+Morpho's balances until it is.
 
 ### 5.15 The common-block window is ~100–120 minutes — with a decision rule
 
@@ -708,7 +741,7 @@ attribution.
 | R23 | Deployed bundle exceeds limit | Split heavy routes | Large Functions (beta) |
 | R25 | 🆕 No common block across protocols | Per-protocol as-of with disclosed skew | **Decline the comparison** |
 | R26 | 🆕 `initialize()` crash loop | Lazy init + try/catch → 503 + health check | — |
-| R27 | 🆕 Non-archive RPC | Restrict corroboration to the retained window, mark `NOT_CHECKED` | Swap provider |
+| R27 | ~~Non-archive RPC~~ **RETIRED for Ethereum 2026-09-06** — SM-04 measured archive to block 1 on the provisioned RPC. Stays live only as a swap-provider risk. ⚠️ Arc's own RPC **is** pruned (`4444 pruned history unavailable`, SM-08) | Swap provider |
 | R28 | 🆕 SM-09 fails under `next build` | Narrow to agent-only staking with a second Circle wallet | ⚠️ Weakens A5 — Arc still sees value move |
 
 ---

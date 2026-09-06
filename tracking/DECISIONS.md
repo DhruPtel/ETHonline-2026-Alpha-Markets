@@ -269,3 +269,38 @@ there is no creation bytecode for Sourcify to fetch. The runtime match is what a
 render source and decode events, and it is sufficient for the requirement.
 **Affects:** §13 definition of done ("≥1 ResolverProxy verified on HashScan") · §12 U11, now closed ·
 report tokenization (Phase 3)
+
+---
+
+## Corroboration compares exactly, at the block the value was written
+
+**Date:** 2026-09-06
+**Decision:** `graph/corroborate.ts` resolves the block at which the subgraph last wrote the value it
+is checking, reads the chain **at that block**, and asserts **equality**. No tolerance. Where a
+deployment or market exposes no write-time field, the result is **`NOT_CHECKED`** — never a
+tolerance-based approximation.
+**Why:** SM-04 measured the alternative and it does not work. Comparing at `_meta.block` gave exact
+agreement on one run and a 157.70 USDC difference on the next, minutes apart, because an Aave aToken's
+`totalSupply()` accrues ~31.5 USDC **per block** from `block.timestamp` while the subgraph writes
+`inputTokenBalance` only when a handler runs. A check that passes intermittently — and most reliably
+when the chain is busy, which is when corroboration matters least — would have been read as flakiness
+in the adapter. **The tolerance that would fix it is the problem:** wide enough to absorb interest
+accrual is wide enough to hide the errors the check exists to catch, and corroboration is the only
+genuinely independent verification the engine has. Everything else comes out of the same mapping code.
+**Cost, and it is real:**
+- **Corroboration becomes a per-market capability**, not a per-deployment one. compound-v3 sets
+  `indexLastUpdatedTimestamp` on its base-asset markets and leaves it `null` on collateral-only ones —
+  3 of its 10 largest have it. The flag cannot sit in deployment config beside the revenue flag.
+- **compound-v2 loses corroboration entirely.** No equivalent field exists; `_rewardLastUpdatedTimestamp`
+  is a rewards timestamp and using it would be inventing a check rather than performing one.
+- **Two extra round trips per check** — read the write-time, resolve it to a block — before the
+  `eth_call` that does the work.
+- **Archive access becomes mandatory rather than convenient.** aave-v2's write-time field measured
+  **8,285 blocks / 27.7 hours** behind the indexing head; a pruned node retains ~128. The correct
+  block is a property of how recently a market traded, so a quiet market can be arbitrarily far back.
+**Alternative rejected:** Compare at `_meta.block` with a tolerance. Rejected because the tolerance
+has to exceed the accrual over an unbounded interval — the time since that market's last event — so
+it is not a fixed number, and any value large enough to be safe is large enough to be useless.
+**Affects:** §5.14 *(amended in this commit — "compare with tolerances" removed)* · R27 *(retired for
+Ethereum)* · `graph/corroborate.ts` and `engine/checks/crosscheck.ts` (Phase 1) · the deployment
+adapter, which now carries a per-market corroboration flag

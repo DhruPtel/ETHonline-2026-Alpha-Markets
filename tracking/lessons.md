@@ -468,3 +468,42 @@ for the test instead of a round one. The two sources disagree and neither announ
 The pattern, twice in one test: **the numbers a system reports about itself are not the numbers it
 enforces.** Arc's RPC understates its own `eth_getLogs` limits in the error strings, and Arc's token
 metadata understates the scale of its own transfer events. Both were only found by measuring.
+
+## 2026-09-06 — A bare `0x` means two different things, and one of them is a lie
+
+**Expected.** SM-04's depth ladder asks a simple question: how far back will this RPC serve state?
+Walk `eth_call` backwards, see where it stops answering, report the depth.
+
+**What happened.** It reported a false failure. The ladder probed WETH's `totalSupply()` at **block
+1**, got back `"0x"`, counted it as a refusal, and printed `FAIL SM-04` — on a provider that had just
+served every other depth including 20 million blocks back.
+
+`eth_call` returns a bare `0x` for **two unrelated conditions**:
+
+| condition | response |
+|---|---|
+| the node cannot serve state that old | `0x` |
+| there is no contract code at that address, at that block | `0x` |
+
+WETH was deployed at block 4,719,568. At block 1 it is not a contract, it is an empty account — so
+the empty return was correct and meant nothing about archive retention. **The probe designed to
+distinguish node capability from contract age was itself defeated by that exact confusion**, which is
+the part worth writing down: the comment above it claimed WETH "exists at every depth worth probing,"
+and block 1 quietly wasn't.
+
+**What changes.**
+
+- **Three outcomes, not two.** The committed probe classifies `ok` / `no-code` / `refused`, and
+  **only a JSON-RPC error counts against archive capability**. An empty result is data about the
+  address, not about the node.
+- **Test genesis depth with `eth_getBalance`, not `eth_call`.** Every address has a balance at every
+  block, so an error is unambiguous — there is no "the account didn't exist" reading to confuse it
+  with. That is what now establishes full-archive access.
+- **A ladder needs a probe that is valid at every rung.** Choosing a contract for a depth test means
+  the test is bounded by that contract's deployment block, whether or not anyone noticed.
+
+The near-miss shape is the same as SM-01's: **the test was wrong, not the thing under test.** There
+it was a JSON round-trip reordering keys and accusing a correct canonicalizer; here it was an empty
+return accusing a working archive node. Both would have been reported as an external failure. Worth
+the habit — when a smoke test fails against something that has no other reason to be broken, suspect
+the probe first.
