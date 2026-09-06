@@ -175,3 +175,159 @@ the number would make a wrong answer ambiguous between a broken tool and a confu
 shell, and no `ant` CLI. The script's guard exits cleanly with the right message, which is all that
 could be verified. SM-06 stays NOT RUN in `smoke-results.md` and gets no findings section until it
 actually executes.
+
+## 2026-09-05 — Unit 4: SM-01, RFC 8785 conformance
+
+Wrote `scripts/smoke/01-canonicalize.ts`, the one smoke test that needs no network and no keys. It
+runs the `canonicalize` package (approved, added) against every test vector RFC 8785 publishes —
+the §3.2.2 worked example checked as the UTF-8 bytes §3.2.4 prints in hex, the §3.2.3 property-sorting
+vector, all 24 IEEE 754 number samples from Appendix B, and the §3.2.2.3 requirement that NaN and
+Infinity raise rather than serialize. Then it hashes a realistic report — protocol slug, block,
+deployment hash, figures, verdict — and shows the properties settlement depends on: reordering every
+key gives a byte-identical hash, attaching the ATS token address changes nothing because lifecycle
+fields are stripped before hashing, and moving one cent changes the hash completely.
+
+29 checks, all passing. Figures are strings because the gateway returns 23-decimal BigDecimals that a
+JS number would silently round, and unavailable data is an explicit `null` rather than an omitted key
+— an absent key and a null key canonicalize to different bytes, so omission would hash two identical
+reports differently. That was the decision the unit asked for.
+
+The interesting part was a failure that wasn't. The property-sorting vector came back red on the
+first run, with an actual order that looked precisely like a canonicalizer sorting escaped text
+instead of raw code units — a real, known JCS bug class. It was the test that was wrong:
+`Object.values(JSON.parse(canonical))` reorders integer-like keys to the front in JavaScript, so
+reading the order back through an object destroyed the ordering being measured. The byte-compared
+vector in the same run was passing at the same moment, which is the contradiction that gave it away.
+Written up in `tracking/lessons.md`, because a Foundry-side verifier written the same way would
+disagree with a hash that is perfectly correct.
+
+## 2026-09-06 — Decisions get a home, and three plan amendments
+
+Created `tracking/DECISIONS.md` and seeded it with six choices that had been made but written down
+nowhere, or written down only as a to-do item in passing. The format is fixed: date, decision, why
+including what we give up, the alternative rejected, and which plan section it affects. CLAUDE.md's
+tracking section now names it alongside logs and lessons, with the rule for what belongs in it —
+a choice that would mean *rewriting* to undo rather than renaming, which is the same line CLAUDE.md
+already draws for what to stop and ask about.
+
+The plan said `DECISIONS.md` belongs at the repo root and we put it in `tracking/` instead, so that
+is itself the first entry. The other five: the three-state revenue flag with its absolute render
+rule; reading Morpho through its own published subgraph rather than deploying Messari's; Next 16 as
+the baseline because `@x402/next` has never supported Next 15; x402 on Hedera testnet; and the
+SM-02/SM-04 rescope.
+
+**Three of those contradicted PLAN-v4, so the plan was amended in the same pass rather than left
+disagreeing with the repo.** §1's chain table said x402 runs on Hedera mainnet with testnet as an
+available fallback — R12 is now marked TAKEN in the risk register and §1 carries the amendment and
+the four values R12 requires to move together. §8's SM-02 and SM-04 swapped scope: SM-02 is the
+multi-protocol query and is now PASS on its full scope rather than half of it, and SM-04 became the
+archive-RPC test, which also meant fixing §5.14's pointer at the old row. §6's repo tree moved
+`DECISIONS.md` out of root and gained a `tracking/` line. U4 in §12 is marked answered — SM-03
+settled it and the plan hadn't caught up.
+
+The thing worth knowing for next session is what was sitting in `.env` and nowhere else. Five Hedera
+variables — seller and buyer account ids and keys, plus the network — had been provisioned, and
+`.env` is gitignored, so the *names* existed in exactly one untracked file. They are now in
+`.env.example` with the R12 configuration in a comment block above them: facilitator
+`api.testnet.blocky402.com`, network string `hedera:testnet`, USDC `0.0.429274`. `ETHEREUM_RPC_URL`
+went in at the same time, unset, with a comment saying it must be archive-capable — SM-04 cannot run
+without one, so it is BLOCKED rather than NOT RUN, and R27 stays live.
+
+Two smaller corrections. `ANTHROPIC_API_KEY` is now set, so SM-06 is no longer blocked on a missing
+credential — it is still NOT RUN, but the reason changed and `smoke-results.md` says so. And the
+"Open plan questions" section at the foot of that file became "Resolved plan questions"; the two
+questions are kept next to the answer rather than deleted, because the amendment reads better beside
+what prompted it.
+
+Documentation only this run — no code, no dependencies. Nothing was executed and no test status
+changed on the strength of a run.
+
+## 2026-09-06 — Unit 5: SM-05, the x402 handshake on Hedera testnet
+
+Wrote `scripts/smoke/05-x402-purchase.ts` — the first test where value is supposed to move. It runs
+three steps and any of them can stop the run: confirm the facilitator advertises our network, get
+both accounts associated with testnet USDC, then run the handshake against an in-process seller.
+Added `@x402/core` and `@x402/hedera`, both pinned exact at 2.25.0 (no carets — these ship breaking
+changes inside minor releases and must move together). Every Hedera SDK type comes from
+`@x402/hedera`'s re-exports rather than `@hiero-ledger/sdk` directly, so there is only one copy of
+the SDK installed and nothing can cross-fail at runtime.
+
+**It does not pass, and the reason is funding.** The buyer holds 0 USDC. Steps 1 and 2 are green and
+step 3 is written but has never signed a real payment, so no transaction has settled and there is no
+id to look up on HashScan. The script stops at the balance check by design rather than working
+around it.
+
+Two things came out of step 1 that were worth the trip. The facilitator does advertise
+`hedera:testnet` with feePayer `0.0.7162784` — and `docs/research/x402-protocol-spec.md:258` states
+the opposite, that Blocky402 is mainnet-only. That note had queried the mainnet host and generalised
+to the vendor. It matters because R12, and therefore the entire testnet decision, rests on exactly
+that support existing; believing the note would have left us waiting on mainnet HBAR for nothing.
+
+The other surprise was in step 2, and it changed the script. The buyer's association returned SUCCESS
+from a consensus node while Mirror Node, queried a moment later, still reported it unassociated. It
+is ingestion lag rather than a failure — but `@x402/hedera` deliberately preflights against Mirror
+Node, so a payment fired straight after associating can fail with "recipient not associated" when it
+demonstrably is. The script now polls for the association to land before reading any balance, and
+prints association and balance as two separate facts so a missing association can never be mistaken
+for an empty wallet. Both written up in `tracking/lessons.md`.
+
+Without spending anything, the seller half of step 3 was verified end to end: `initialize()` caches
+`/supported`, `"$0.02"` resolves to 20000 atomic units of `0.0.429274` out of the package's own
+default-asset table rather than a hardcoded token id, the fee payer is copied into the requirements,
+and the unpaid request returns a 402 the buyer decodes correctly. What remains untested is sign →
+verify → settle → content.
+
+On the two things the unit asked to be noted: the native transaction id is read out of the signed
+bytes with `inspectHederaTransaction()` and printed **before** `settlePayment` is called, which is
+the only defence against a settle failure returning `{success: false, transaction: ""}` after the
+money has already moved — though that path has not been exercised against a real settlement yet. And
+the seller genuinely never needs the fee-payer key: `x402ResourceServer` is constructed from the
+facilitator URL and the seller's account id alone. The seller's own key appears in the script only to
+sign its own token association, which is account setup and not part of the payment path.
+
+No new environment variables were needed — everything came from the five Hedera vars already in
+`.env.example`. The file is 334 lines, longer than `03-snapshot-window.ts` at 255 and the longest
+thing in the repo. Most of it is printing and failure branches rather than logic — being able to read
+every step is the point of the test — but it is over the ceiling and the unit was defined as one file,
+so it could not be split without going back for a new unit.
+
+## 2026-09-06 — Unit 5b: SM-05 passes, settling in HBAR
+
+Switched the payment asset from testnet USDC to native HBAR and **SM-05 passes**. A real payment
+settled on Hedera testnet through Blocky402: transaction
+`0.0.7162784@1788681755.933988660`. The buyer received a 402, signed a partial transfer, the
+facilitator co-signed as fee payer and submitted, and `"hello"` came back through the gate. This is
+the first test in the project where value actually moved.
+
+The switch was forced rather than chosen — Circle's testnet faucet is not delivering USDC and Discord
+requests are unanswered, which is the second time an unbounded external dependency has sat in front of
+a Phase 0 gate. HBAR needs no faucet and no association. Nothing the test exists to prove changed with
+the asset: same facilitator, same network, same challenge, same signing, same settlement. Recorded in
+`tracking/DECISIONS.md` with the two costs it carries, and the association code is kept and skipped
+rather than deleted so that pricing in USDC again is a price change and not a rewrite.
+
+Two things had to be worked around, both of which taught us something. The price cannot be a dollar
+string for HBAR — `"$0.02"` resolves through the package's default-asset table, which on this network
+knows only USDC, and throws — so the price is an explicit `AssetAmount` in tinybars. More interestingly,
+**the client's spend controls refused the payment outright** before anything was signed, because they
+allow only assets the library recognizes as defaults. That default is fail-closed and it is the only
+thing standing between an autonomous buyer and paying whatever it is asked in an asset nobody declared,
+so HBAR was opted in with its own atomic per-payment cap rather than switching the control off. Worth
+knowing that the research note calling the upstream buyer script uncapped is out of date at 2.25.0.
+
+The money moved exactly as designed, and the Mirror Node transaction record proves it rather than a
+balance diff: buyer −100000 tinybars, seller +100000, and the entire 246876-tinybar network fee borne
+by the facilitator `0.0.7162784`. **The buyer paid the price and no fees at all.** Worth noticing that
+the fee was 2.5× the payment — on sales this small the facilitator subsidises more than the sale, and
+their sustainability terms are unknowable from outside, so that is now a tracked to-do rather than a
+pleasant surprise.
+
+The native transaction id was read out of the signed bytes and printed before `settlePayment` was
+called, and it matched the settled id exactly — so the defence against a settle failure returning an
+empty transaction string is now demonstrated against a real settlement rather than a local signature.
+
+Mirror Node's ingestion lag bit a second time, at the other end of the payment: the first passing run
+reported both balances unchanged and a nonsensical negative fee, because it read them before the
+transfer had been ingested. Same root cause as the association lag from the previous run, so the
+after-balances now poll too. That is twice in two runs from one source, which is why it is a lesson
+and not just a fix.

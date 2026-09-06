@@ -3,35 +3,106 @@
 Outcomes and consequences for the nine tests in PLAN-v4 §8. One section per test, added when the
 test runs.
 
-The division of labour between the three tracking files: `logs.md` is the narrative record of each
-run of work, `lessons.md` holds insight where reality disagreed with the plan, and **this file holds
-the consequences** — what each test proved and what work it generated. When a lesson implies an
-action, the insight stays in `lessons.md` and the action lands here.
+The division of labour across the four tracking files: `logs.md` is the narrative record of each run
+of work, `lessons.md` holds insight where reality disagreed with the plan, `DECISIONS.md` holds the
+choices we made and what we gave up, and **this file holds the consequences** — what each test proved
+and what work it generated. When a lesson implies an action, the insight stays in `lessons.md` and the
+action lands here; when a test forces a choice, the choice is recorded in `DECISIONS.md`.
 
 ## Status
 
 | # | Test | What it proves | Status | Date |
 |---|---|---|---|---|
-| **SM-01** | JCS canonicalizer | Our canonicalizer matches the RFC 8785 reference vectors, so a report hash is reproducible and the vectors can be shared with Foundry | NOT RUN | — |
+| **SM-01** | JCS canonicalizer | Our canonicalizer matches the RFC 8785 reference vectors, so a report hash is reproducible and the vectors can be shared with Foundry | **PASS** | 2026-09-05 |
 | **SM-02** | Multi-protocol query | One query document returns populated fields plus `_meta` from live Messari lending subgraphs across independent deployments | **PASS** | 2026-09-05 |
 | **SM-03** | Snapshot window | A snapshot query 12 months back returns rows **and** their timestamps fall inside the requested window | **PASS** | 2026-09-05 |
-| **SM-04** | Same document, four deployments | One document runs unchanged across four deployments, including one a schema version behind | NOT RUN | — |
-| **SM-05** | x402 payment on Hedera | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | NOT RUN | — |
-| **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN | written 2026-09-05 |
+| **SM-04** | Archive RPC *(rescoped)* | A subgraph value at block N and an `eth_call` for the same value at block N agree — so historical state is actually servable | BLOCKED — no archive RPC | — |
+| **SM-05** | x402 payment on Hedera **testnet** | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | **PASS** — settled in HBAR, not USDC | 2026-09-06 |
+| **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
 | **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | NOT RUN | — |
 | **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | NOT RUN | — |
 | **SM-09** | Browser stake | MetaMask adds Arc via `wallet_addEthereumChain` and completes a stake under `next build` | NOT RUN | — |
 
-⚠️ **Two rows above don't line up with PLAN-v4 §8 and need a decision — see [Open plan
-questions](#open-plan-questions) at the foot of this file.** SM-02 as written in the plan has a
-second half we never ran, and SM-04's scope is already covered by the script we wrote for SM-02.
+✅ **The SM-02 / SM-04 mismatch is resolved (2026-09-05).** SM-02 keeps the multi-protocol query and
+loses the archive `eth_call` it never ran; SM-04 stops being a duplicate of that query and becomes
+the archive-RPC test. PLAN-v4 §8 and §5.14 are amended to match, and the reasoning is in
+`tracking/DECISIONS.md`. **SM-02 is now PASS on its full scope**, not on half of it.
 
-⏸ **SM-06 is written but has never executed.** `scripts/smoke/06-agent-tool-call.ts` typechecks and
-its credential guard fires correctly, but there is no Anthropic credential on this machine —
-`ANTHROPIC_API_KEY` is absent from `.env` and the shell, and the `ant` CLI is not installed. It gets
-a section here the first time it actually runs; until then it has proved nothing.
+⏸ **SM-06 is written and has still never executed — but it is no longer blocked.**
+`scripts/smoke/06-agent-tool-call.ts` typechecks and its credential guard fires correctly. When it was
+written there was no Anthropic credential on this machine; **`ANTHROPIC_API_KEY` is now set in `.env`,
+so the test can run.** It gets a section here the first time it actually does; until then it has
+proved nothing.
+
+⛔ **SM-04 is blocked on provisioning, not on a decision.** It needs an archive-capable Ethereum RPC.
+`ETHEREUM_RPC_URL` is in `.env.example`, unset, with the archive requirement in a comment. Until one
+exists, R27 (non-archive RPC) stays live and corroboration has no confirmed source.
 
 ---
+
+## SM-01 — JCS canonicalizer
+
+**Run:** 2026-09-05
+**Result:** PASS
+**Script:** `scripts/smoke/01-canonicalize.ts` — offline, no network, no keys
+
+**What it proved:** The `canonicalize` package conforms to RFC 8785 on every vector the RFC
+publishes, and a report hashed through it is stable under key reordering, blind to lifecycle
+fields, and sensitive to a one-cent change. The hash is the only thing that crosses chains — into
+the ATS creation event on Hedera and `commitPrediction` on Arc — so byte-level agreement with an
+outside verifier is what makes a settlement dispute resolvable.
+
+### Findings
+
+29 checks, all passing. Every vector is transcribed from RFC 8785 itself with the section cited:
+
+| vector | source | result |
+|---|---|---|
+| Worked example, compared as UTF-8 bytes | §3.2.2 input, §3.2.4 published hex | pass |
+| Property sorting on UTF-16 code units | §3.2.3 | pass |
+| Number serialization, 24 IEEE 754 samples | Appendix B | 24/24 pass |
+| NaN and Infinity must raise, not serialize | §3.2.2.3 | pass (both throw) |
+
+- **The worked example is checked as bytes, not as a string literal.** The RFC publishes the
+  expected output in hex; re-escaping it by hand into TypeScript is exactly how a conformance test
+  acquires a bug of its own. That instinct paid off — see the near-miss below.
+- **All 24 Appendix B number samples pass**, including the ones that matter for money: `1e+23`
+  versus `9.999999999999997e+22` on adjacent bit patterns, and `1424953923781206.2` for a value that
+  is exactly `…06.25` and must round to even.
+- **NaN and Infinity both throw**, as §3.2.2.3 requires, rather than serialising to `null`.
+- **Report hash behaves.** Reordering every key top to bottom gives a byte-identical hash
+  (`49cfaa6c…3db9b7`); moving one cent on one figure gives a completely different one
+  (`b3688035…bfe3ec`); attaching `atsTokenAddress` changes nothing because it is stripped.
+
+**Near-miss worth recording.** The §3.2.3 vector failed on the first run, and the failure was in the
+test, not the library. The check read the sorted order back with `Object.values(JSON.parse(canonical))`
+— and JavaScript enumerates integer-like keys before string keys regardless of insertion order, so
+the key `"1"` jumped to the front and the round trip destroyed the ordering under test. The
+canonical *text* had been correct all along. Fixed by reading the order out of the text. This is
+tracked as a lesson because any verifier written the same way will disagree with a correct
+canonicalizer.
+
+### To do
+
+- **What:** When the Foundry-side verifier is written, assert against canonical **bytes**, never
+  against a re-parsed object, and share these RFC vectors between the two test suites.
+  **Why:** The near-miss above is a live trap on the verification side. A Solidity/Foundry check that
+  round-trips through any JSON object model can reorder integer-like keys and disagree with a hash
+  that is actually correct — which is indistinguishable, from the outside, from our hasher being
+  broken. PLAN-v4 §8 already calls for sharing golden vectors with Foundry; this is the reason.
+  **When:** Phase 4, alongside the resolver
+  **Status:** open
+
+- **What:** Freeze the report field set, including which fields are explicitly `null` and which are
+  lifecycle-excluded, when the wire contracts are frozen.
+  **Why:** SM-01 fixes the rule — explicit `null` for unavailable data, never omission, because an
+  absent key and a null key canonicalize to different bytes and would hash two identical reports
+  differently. That only holds if the field set is fixed. `LIFECYCLE` currently holds one entry
+  (`atsTokenAddress`); anything else that comes into existence after the hash is committed belongs
+  in it.
+  **When:** Phase 1, with the wire contracts (PLAN-v4 §5.18, "freeze wire contracts Day 1")
+  **Status:** open
+
 
 ## SM-02 — Multi-protocol query
 
@@ -106,12 +177,15 @@ morpho-blue            Morpho Blue    3.0.0       13062587242.45     11422333149
   **When:** Phase 1, adapter layer
   **Status:** open
 
-- **What:** Run the archive `eth_call` at `head-1000` that PLAN-v4 §8 makes the second half of SM-02,
-  and record the result or `NOT_CHECKED`.
-  **Why:** It was never run. RPC corroboration is what G2.1 leans on to say The Graph is verified
-  rather than merely trusted, and we don't yet know whether we have an archive-capable RPC.
-  **When:** blocked on the plan question below
-  **Status:** open
+- **What:** ~~Run the archive `eth_call` at `head-1000` that PLAN-v4 §8 makes the second half of
+  SM-02.~~ **Moved to SM-04.**
+  **Why:** The question is unchanged and still matters — RPC corroboration is what G2.1 leans on to
+  say The Graph is verified rather than merely trusted. What changed is where it lives: §8 was
+  amended on 2026-09-05 so that SM-02 is the multi-protocol query and **SM-04 is the archive-RPC
+  test**. It is no longer a loose end hanging off a passing test; it is its own row, blocked on
+  provisioning an archive-capable `ETHEREUM_RPC_URL`.
+  **When:** SM-04, once the RPC exists
+  **Status:** **moved** (2026-09-05)
 
 ---
 
@@ -250,19 +324,152 @@ morpho-blue                    0.000e+0     0/31         ok        0.00%   BROKE
 
 ---
 
-## Open plan questions
+## SM-05 — x402 payment on Hedera testnet
 
-Raised rather than resolved, because both change what gets built.
+**Run:** 2026-09-06
+**Result:** **PASS**
+**Script:** `scripts/smoke/05-x402-purchase.ts`
+**Settled transaction:** `0.0.7162784@1788681755.933988660`
+**HashScan:** https://hashscan.io/testnet/transaction/0.0.7162784@1788681755.933988660
 
-**1. SM-02's second half was never run.** PLAN-v4 §8 defines SM-02 as "Query one subgraph; **plus one
-`eth_call` at `head-1000`**", with the pass signal "Populated field + `_meta`; archive RPC confirmed
-or `NOT_CHECKED` decided". We built and passed the subgraph half. The archive `eth_call` half has not
-been attempted and `.env.example` has no RPC URL. SM-02 is marked PASS above on the query half alone.
+**What it proved:** A real x402 payment settles end to end on Hedera testnet through Blocky402 — the
+buyer receives a 402, signs a partial transfer, the facilitator co-signs as fee payer and submits, and
+the gated content comes back. **Value moved.** This is the first test in the project where it has.
 
-**2. SM-04's scope is already covered.** §8 defines SM-04 as "Same document, four deployments". That
-is exactly what `scripts/smoke/02-query-subgraph.ts` does, with five. Writing
-`scripts/smoke/04-multi-deployment.ts` as specified would duplicate a passing test.
+⚠️ **It settled in HBAR, not USDC.** Circle's testnet faucet is not delivering, so the asset was
+switched to native HBAR (`0.0.0`); the handshake, facilitator, network and settlement path are
+identical and only the asset differs. Recorded in `tracking/DECISIONS.md`.
 
-The two are probably one decision: whether SM-02 keeps its archive-RPC half and SM-04 is retired as
-redundant, or SM-02 stays the multi-protocol query and SM-04 becomes the archive-RPC test. Either
-way the plan gets amended and this file's status table changes with it.
+### Findings
+
+**Step 1 — the facilitator supports our network.** `exact` / `hedera:testnet` with
+`extra.feePayer: 0.0.7162784`, matching §7. That field is load-bearing — the scheme copies it into
+every challenge and the client throws without it — so the script aborts if it is missing.
+
+⚠️ **`docs/research/x402-protocol-spec.md:258` is wrong and must not be trusted on this point.** It
+states "**Blocky402 does not support `hedera:testnet` — mainnet only**". Measured live, it does. The
+note queried only `api.blocky402.com` — the mainnet host — and generalised from one host to the
+vendor. **R12, and therefore the whole testnet decision, rests on that support existing**, so
+believing it would have left us waiting on mainnet HBAR for nothing.
+
+**Step 2 — nothing to do for HBAR.** HBAR is native to every account: no faucet, no association, no
+third party. The `TokenAssociateTransaction` path is kept and skipped rather than deleted, gated on
+the asset, so pricing in USDC again turns it back on. It was exercised earlier against USDC and works:
+SUCCESS on first run, "already associated" on re-run, idempotent.
+
+**Step 3 — the handshake, in full.** Priced at 100000 tinybars (0.001 HBAR):
+
+```
+unpaid request           → 402
+challenge                  amount 100000 · asset 0.0.0 · payTo 0.0.10387690
+                           feePayer 0.0.7162784 · maxTimeoutSeconds 120
+buyer signs partially      tx 0.0.7162784@1788681755.933988660
+                           0.0.10387690 +100000 · 0.0.10387696 −100000
+seller verify              isValid=true payer=0.0.10387696
+seller native tx           recorded BEFORE settle
+seller settle              success=true
+paid request             → 200, paymentStatus=settled, body "hello"
+```
+
+**Money moved exactly as designed, confirmed against the Mirror Node transaction record:**
+
+```
+on-chain result   SUCCESS
+network fee       0.00246876 HBAR paid by 0.0.7162784   ← the facilitator
+  0.0.802        +246876      (network)
+  0.0.7162784    -246876      (facilitator — the entire fee)
+  0.0.10387690   +100000      (seller — the price)
+  0.0.10387696   -100000      (buyer — the price, and nothing else)
+```
+
+- **The buyer paid the price and zero fees.** Balance delta −0.00100000 HBAR against a price of
+  0.00100000. The facilitator bore the whole 0.00246876 network fee — **2.5× the payment itself**,
+  which is worth knowing: on a payment this small the facilitator subsidises more than the sale.
+- **The native transaction id is recovered and printed before `settlePayment` is called**, read from
+  the signed bytes with `inspectHederaTransaction()`. It matched the settled id exactly. This is the
+  defence against a Hedera settle failure returning `{ success: false, transaction: "" }` after a
+  successful broadcast — the case where money has moved and the response carries nothing to reconcile
+  against. Now demonstrated against a real settlement, not just a locally signed transaction.
+- **The seller never needs the fee-payer key — confirmed by construction.** `x402ResourceServer` is
+  built from the facilitator URL and the seller's account id alone. The seller's own key appears in
+  the script only to sign its own token association, which is account setup and not the payment path.
+- **`paymentStatus: "settled"` means finality, not broadcast.** Settlement resolves only after a
+  SUCCESS consensus receipt.
+
+**Two things that had to be worked around, both worth carrying forward:**
+
+- **The price cannot be a dollar string for HBAR.** `"$0.02"` resolves through `DEFAULT_ASSETS`, which
+  on this network knows only USDC, and throws. An explicit `AssetAmount` in atomic units bypasses it.
+- **The client's spend controls are on by default and refused HBAR outright** — *"All payment
+  requirements were rejected by spendControls"* — because they allow only assets `findDefaultAsset`
+  recognizes. HBAR is now opted in with its own atomic per-payment cap rather than disabling the
+  control. **The default is fail-closed and worth keeping:** it is the only thing between an
+  autonomous buyer and paying whatever it is asked in an asset nobody declared. The research note
+  saying the upstream buyer script has no spend cap is out of date — at 2.25.0 there is one, on by
+  default.
+
+**Mirror Node lag bit twice, at both ends of the payment.** Association appeared to fail immediately
+after succeeding, and post-settlement balances read unchanged with a nonsensical negative fee. Both
+are REST ingestion lag behind consensus, and both now poll. This matters beyond the script because
+**the facilitator preflights against Mirror Node**. Written up in `lessons.md`.
+
+### To do
+
+- **What:** Fund the buyer with testnet USDC and re-run priced in USDC.
+  **Why:** The product should price in USD — "$0.50" is legible to a buyer, "50,000,000 tinybars" is
+  not, and USD pricing is what the `"$…"` money path exists for. This is no longer a blocker for
+  SM-05, which has passed; it is the switch back to the intended asset. The association code is kept
+  and skipped precisely so this is a price change rather than a rewrite.
+  **When:** Phase 3, `payments/tiers.ts`
+  **Status:** open
+
+- **What:** Carry the Mirror Node ingestion lag into the payment path, not just this script.
+  **Why:** Any flow that provisions an account and immediately pays through the facilitator hits the
+  same window, and the facilitator's own preflight reads that source. The buyer agent's first purchase
+  after funding is exactly that shape.
+  **When:** Phase 3, `payments/buyer.ts`
+  **Status:** open
+
+- **What:** Configure spend controls deliberately for every asset the buyer is allowed to pay in,
+  with per-asset atomic caps.
+  **Why:** The default refused HBAR, which is the correct behaviour and caught a real gap. R8 wants a
+  cap on agent spending and this is where it lives on the client side. `spendControls: false` must
+  never appear in product code.
+  **When:** Phase 3, `payments/buyer.ts`
+  **Status:** open
+
+- **What:** Decide who bears the network fee at production volume.
+  **Why:** Blocky402 paid 0.00246876 HBAR to move 0.001 HBAR. Their sustainability terms are unknown
+  and unresolvable from outside; if that fee payer runs dry or rate-limits, every payment stops. R2's
+  self-facilitation branch is the fallback and it costs H1.2.
+  **When:** Phase 3
+  **Status:** open
+
+- **What:** Correct `docs/research/x402-protocol-spec.md:258`, or mark it superseded.
+  **Why:** It asserts the opposite of what we measured, on the point R12 depends on.
+  **When:** Phase 0
+  **Status:** open
+
+---
+
+## Resolved plan questions
+
+Both questions this section raised were answered on 2026-09-05. Kept rather than deleted, because the
+amendment they produced is easier to read next to what prompted it.
+
+**1. SM-02's second half was never run.** §8 defined SM-02 as "Query one subgraph; **plus one
+`eth_call` at `head-1000`**". We built and passed the subgraph half; the archive `eth_call` was never
+attempted and `.env.example` had no RPC URL.
+
+**2. SM-04's scope was already covered.** §8 defined SM-04 as "Same document, four deployments" —
+exactly what `scripts/smoke/02-query-subgraph.ts` does, with five.
+
+**✅ Answered together, as suspected they would be: SM-02 keeps its scope and SM-04 becomes the
+archive-RPC test.** SM-02 is the multi-protocol query, now PASS on its full scope rather than half of
+it. SM-04 is: read a value from a subgraph at block N, `eth_call` the same value at block N, confirm
+they agree — it needs an archive-capable RPC, which we do not have, so `ETHEREUM_RPC_URL` is now in
+`.env.example` unset and SM-04 is BLOCKED rather than NOT RUN.
+
+The alternative — keeping SM-02's archive half and retiring SM-04 as redundant — was rejected because
+it leaves a passing test permanently half-run and buries a question §5.14 depends on inside a row
+about something else. PLAN-v4 §8 and §5.14 are amended; full reasoning in `tracking/DECISIONS.md`.

@@ -97,3 +97,161 @@ as a market subject, and gating the field before it reaches a report — are tra
 The broader pattern is worth naming, because it has now shown up twice in two days: **a standardized
 schema guarantees the field exists and parses, and guarantees nothing about whether it is true.**
 Every figure that reaches a report or a settlement needs a range it must fall inside.
+
+## 2026-09-05 — You cannot check canonical key order by parsing the JSON back
+
+**Expected.** SM-01 verifies RFC 8785's property-sorting vector by canonicalizing the RFC's input
+object and confirming the values come out in the order the RFC publishes. The obvious way to read
+that order back is `Object.values(JSON.parse(canonical))`.
+
+**What happened.** It failed, and it failed convincingly — the expected order began "Carriage
+Return", "One" and the actual began "One", "Carriage Return", which looks exactly like a
+canonicalizer sorting on the escaped form (`\r` starts with backslash, 0x5C, which sorts after `1`,
+0x31) instead of the raw code unit the RFC requires. That is a real and known class of JCS bug, the
+library is a third-party dependency, and the finding was one write-up away from being reported as a
+conformance failure in `canonicalize`.
+
+It was not. **JavaScript enumerates integer-like keys before string keys, regardless of insertion
+order.** `JSON.parse` on the correct canonical text `{"\r":"cr","1":"one"}` produces an object whose
+first key is `"1"`, because `"1"` is an array-index-like property name and the language specifies
+that those come first in ascending numeric order. The round trip through an object destroyed the
+ordering the test was trying to observe. The canonical text had been right the whole time.
+
+Two things saved it. The §3.2.4 vector in the same run compares **UTF-8 bytes** against the hex the
+RFC publishes, and it passed — so the same canonicalizer was simultaneously proving itself correct
+on a byte comparison while appearing to fail on an object comparison, which is a contradiction that
+demands explanation rather than a bug report. And the minimal isolation case printed the raw output
+string, where `{"\r":"A","1":"B"}` is visibly in the right order.
+
+**What changes.** Two rules for everything downstream of the hash:
+
+- **Verify canonical output as bytes or as text. Never through a parsed object.** Any object model —
+  JavaScript's, or whatever the Foundry-side verifier uses — is free to reorder keys on parse. A
+  verifier written the way this test was first written will disagree with a correct hash, and from
+  the outside that is indistinguishable from our hasher being broken. This is the concrete reason
+  PLAN-v4 §8 wants the golden vectors shared with Foundry, and it is tracked as a to-do under SM-01.
+- **Report field names should avoid integer-like keys entirely.** Nothing in the current report shape
+  uses one, and nothing should — a key like `"1"` or `"2024"` would sit in a different place in a
+  parsed object than in the canonical bytes, for no benefit.
+
+The wider point, which is now the third instance this week: **a green test and a red test are both
+claims that need checking.** The Morpho TVL was wrong while every field name was right; aave-v3's
+revenue was absurd while the arithmetic summed; and here a correct library looked broken because the
+measuring instrument was. Fixing the vector, as CLAUDE.md warns against, would have hidden a real
+trap instead of recording it.
+
+## 2026-09-06 — A research note said the facilitator doesn't do testnet. It does.
+
+**Expected.** SM-05's first step was meant to be a formality: confirm Blocky402 advertises
+`hedera:testnet` before doing anything expensive. `docs/research/x402-protocol-spec.md:258` says
+flatly: "**Blocky402 does not support `hedera:testnet` — mainnet only.** Our testnet dev loop has to
+run against `https://x402.org/facilitator` with a different feePayer."
+
+**What happened.** `GET https://api.testnet.blocky402.com/supported` returns 200 with
+`exact` / `hedera:testnet` / `extra.feePayer: 0.0.7162784`. Testnet is supported and always was. The
+note had queried `api.blocky402.com` — the *mainnet* host — seen only `hedera:mainnet` advertised, and
+generalised from one host to the vendor. `scaffold-hbar-x402-followup.md` records both hosts correctly,
+so the repo held the right answer and the wrong one at the same time.
+
+**Why this one was expensive to get wrong.** It is not a stale detail. **R12 — running x402 on testnet
+— is the decision that unblocked SM-05 at all**, and it rests entirely on Blocky402 supporting testnet,
+because H1.2 requires settlement through Blocky402 specifically. Had we taken that note at face value,
+R12 would have read as unavailable, and the only remaining path was mainnet HBAR: an exchange
+withdrawal behind KYC on an unknown clock, in front of a Phase 0 gate. A single unverified sentence
+came close to costing days of waiting for something we already had.
+
+**What changes.** Two rules, both cheap:
+
+- **A capability claim about a vendor is a claim about a host.** `api.blocky402.com` and
+  `api.testnet.blocky402.com` are different deployments with different fee payers. Research notes must
+  name the host they measured, and a negative result on one host is not a result about the other.
+- **Anything a plan branch depends on gets re-measured at the moment the branch is taken**, not
+  inherited from research. `/supported` is one HTTP GET; it is now step 1 of SM-05 and the script
+  refuses to continue if the answer changes.
+
+*The correction to `x402-protocol-spec.md:258` is tracked in `tracking/smoke-results.md` under SM-05.*
+
+## 2026-09-06 — Mirror Node lags consensus, and the facilitator reads Mirror Node
+
+**Expected.** `TokenAssociateTransaction` returns a SUCCESS receipt from a consensus node, so the
+account is associated and a payment can follow immediately. The trap SM-05 was written to avoid was a
+different one, and a known one: an unassociated account returns an *empty token list* rather than an
+association error, which reads as `insufficient_balance` and sends you to top up a wallet that was
+already funded.
+
+**What happened.** The buyer's association returned SUCCESS, and a Mirror Node query issued
+immediately afterwards reported the account as **not associated**. The seller, associated ~2 seconds
+earlier in the same run, reported correctly. Re-querying moments later showed both associated. It was
+never an association failure — it is ingestion lag between consensus and the Mirror Node REST API.
+
+The reason it matters is where else that source is read. `@x402/hedera` uses Mirror Node deliberately
+and says why: consensus-node token queries "no longer return that data dependably", so both
+`createHederaPreflightTransfer` and `createHederaVerifyPayerSignature` go to Mirror Node instead. **The
+facilitator's pre-settlement check therefore reads exactly the source that is briefly stale.** A
+payment fired seconds after associating can fail preflight for "recipient not associated" when the
+recipient demonstrably is — a failure that points at the wrong thing, on the path where money moves.
+
+So the original trap has a sharper sibling: *association state read too early is wrong in the same
+direction as association state never established*, and the two are indistinguishable from the output.
+
+**What changes.** SM-05 polls Mirror Node for up to 10 seconds for the association to appear before it
+reads any balance, and reports association and balance as two separate facts so neither can be
+mistaken for the other. The same window applies anywhere provisioning is followed by an immediate
+payment — the buyer agent's first purchase after being funded is exactly that shape, so this belongs
+in `payments/buyer.ts` in Phase 3, not just in a smoke script. Tracked under SM-05.
+
+This is the fourth instance of the pattern already named twice in this file: **the field was correct,
+the value was correct, and the answer was still wrong** — this time because it was read too soon.
+
+**Addendum, same day — it bit again at the other end of the payment.** The first passing run of SM-05
+reported the buyer's and seller's HBAR balances as *unchanged* across a settlement that had
+demonstrably succeeded, and derived a nonsensical negative fee from the difference. Same cause: the
+after-balance was read the instant `settlePayment` resolved, which is consensus finality, not Mirror
+Node ingestion. Polling until the balance moves fixed it, and the numbers then came out exact.
+
+Two things worth taking from the repeat. First, **the failure was silent and plausible** — a zero
+delta with a clean PASS above it reads like a fee-free payment rather than a stale read, and it would
+have gone into the record as a finding if the transaction hadn't been checked directly. Second, the
+fix for "did the money move" is not a balance diff at all: the Mirror Node **transaction record** is
+authoritative, gives the fee attribution outright, and needs no before/after arithmetic. SM-05 now
+prints both, and the record is what the conclusion rests on.
+
+## 2026-09-06 — A spend control we didn't know we had, and a note that said we didn't
+
+**Expected.** `docs/research/scaffold-hbar-x402-followup.md` reviewed the upstream buyer script and
+concluded: "**It's a CLI script, and it has no spend cap.** Pays whatever the server asks —
+unacceptable for an autonomous agent," then sketched a wrapper that inspects `accepts` and refuses
+anything over a cap. The clear implication is that spend limiting is ours to build.
+
+**What happened.** Switching SM-05's price to HBAR, the payment was refused before anything was
+signed:
+
+```
+Error: All payment requirements were rejected by spendControls: only default assets or entries in
+spendControls.allowedAssets are allowed.
+```
+
+`@x402/core` 2.25.0 ships client-side spend controls that are **on by default**: only assets
+`findDefaultAsset` recognizes are payable, capped at `DEFAULT_MAX_AMOUNT_PER_PAYMENT` ("$1"). On
+`hedera:testnet` the only default asset is USDC, so native HBAR — the chain's own currency — is not
+payable without being opted in. The guard the note said to build already existed, and it stopped us.
+
+**The right read is that the default is correct and we were wrong about needing to build it.** It is
+fail-closed on exactly the dangerous case: an agent being handed a 402 quoting an asset nobody
+declared. The temptation was `spendControls: false`, which the error message helpfully offers; that
+would disable both the asset allowlist and the cap. Instead HBAR is opted in with its own atomic
+per-payment cap, so the control keeps working and only the intended asset passes through it.
+
+**What changes.**
+
+- **`spendControls: false` must never appear in product code.** It is the one setting that turns an
+  autonomous buyer into something that pays whatever it is asked. R8 ("agent overspends") has a
+  server-side answer already — reserve before submission — and this is its client-side half.
+- **Every asset the buyer may pay in gets an explicit `allowedAssets` entry with an atomic cap**, set
+  in `payments/buyer.ts` rather than per call site. Tracked under SM-05.
+- **The research note's spend-cap section is superseded.** It described a real gap in the *template's
+  script*, not in the library, and at 2.25.0 the library covers it. The wrapper it proposes is still
+  worth having for the quote inspection, but not for the reason given.
+
+The pattern this time is a new one, and the pleasant version: **a dependency was more careful than our
+notes said it was.** Worth checking for before building a guard from scratch.
