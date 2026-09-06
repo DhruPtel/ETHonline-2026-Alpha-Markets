@@ -634,3 +634,34 @@ its costs in `DECISIONS.md` — the honest ones being that compound-v2 loses cor
 that archive access moves from convenient to mandatory. Renamed the credential to `ETHEREUM_RPC_URL`
 and dropped the dual-name acceptance from the script: taking either spelling was kind now and
 confusing later.
+
+## 2026-09-06 — Unit 9: SM-09's checklist, written but not walked
+
+Wrote `scripts/smoke/09-browser-stake.md` — a manual checklist, not a script, because `tsx` cannot
+drive a wallet extension. Named for the browser rather than for MetaMask, since OKX is the wallet
+being tried and MetaMask is only the fallback. Pointed `npm run smoke:09` at an echo that says so out
+loud, rather than leaving it aimed at a `.ts` that never existed and would have implied this is
+automatable.
+
+The checklist is built around the two things about Arc most likely to break a wallet: **the native
+gas token is a stablecoin**, and **it is 18 decimals while the ERC-20 view of the same token reports
+6**. SM-08 measured both, so the checklist asks specifically how OKX renders a 20 USDC balance —
+that is the finding most likely to land in front of a real user, and a wallet that gets it wrong is
+off by a factor of a trillion with a number that still looks plausible. Step 3 prefers calling
+`ping()` on SM-08's receiver with hex data `0x5c36b186`, so the manual path exercises the same
+payable call a stake will use; a plain transfer is allowed as a substitute as long as the record says
+which was done. Confirmed before writing that the receiver is still live and still holds its 2.5 USDC.
+
+Two things carried forward from earlier runs rather than rediscovered: use the faucet's **web form,
+not the API**, and **check which address you pasted** — SM-08 lost several minutes to a grant that
+landed on the wrong one of two addresses sitting in `.env`.
+
+⚠️ **Recorded as a partial, deliberately.** PLAN-v4 §8's SM-09 requires a stake **under `next build`**,
+and there is no app yet. This checklist is the wallet half only; the build half stays open until
+Phase 4's staking page exists. The status row and the results file both say so, so that a successful
+walkthrough is not mistaken for SM-09 being done.
+
+Not run — the walkthrough is the builder's. Noticed while editing that
+`scripts/smoke/README.md` is badly stale: every row still says "not written yet" and the SM-02/SM-04
+descriptions predate the 2026-09-05 scope swap. Only the SM-09 row was corrected, since fixing the
+rest was not asked for.

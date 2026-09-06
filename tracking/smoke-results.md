@@ -21,7 +21,7 @@ action lands here; when a test forces a choice, the choice is recorded in `DECIS
 | **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
 | **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | **PASS** — balance moved 1 → 0 / 0 → 1 | 2026-09-06 |
 | **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | **PASS** — `msg.value` arrives at **18 decimals**; log ceiling 30,000 blocks | 2026-09-06 |
-| **SM-09** | Browser stake | MetaMask adds Arc via `wallet_addEthereumChain` and completes a stake under `next build` | NOT RUN | — |
+| **SM-09** | Browser stake | A browser wallet adds Arc and signs a transaction; `next build` half deferred to Phase 4 | **NOT RUN** — manual checklist written, `scripts/smoke/09-browser-stake.md` | — |
 
 ✅ **The SM-02 / SM-04 mismatch is resolved (2026-09-05).** SM-02 keeps the multi-protocol query and
 loses the archive `eth_call` it never ran; SM-04 stops being a duplicate of that query and becomes
@@ -39,6 +39,12 @@ block 1 — nothing was refused at any depth — so R27's fallback is not needed
 corroboration has a confirmed source. ⚠️ The test also found that comparing at `_meta.block` is the
 wrong comparison; see the SM-04 section. **The credential is `ALCHEMY_API_KEY`, not the
 `ETHEREUM_RPC_URL` `.env.example` documents** — the script accepts either.
+
+✍️ **SM-09 is manual and has a checklist, not a script.** `scripts/smoke/09-browser-stake.md`
+is walked by hand in a browser — `tsx` cannot drive a wallet extension, and `npm run smoke:09`
+only prints a pointer to it. ⚠️ **The checklist covers the wallet half only.** §8's SM-09 also
+requires a stake **under `next build`**, and there is no app yet; that half stays open until
+Phase 4's staking page exists, so a passing walkthrough makes SM-09 *partial*, not done.
 
 ---
 
