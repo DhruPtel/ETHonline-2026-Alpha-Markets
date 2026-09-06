@@ -776,7 +776,13 @@ consumer**, which is what the Day-1 framing was actually protecting. See §5.18.
 ### Phase 1 — Data layer + agent
 `graph/client.ts`, `adapter.ts`, `blockwindow.ts`, `paginate.ts`, `queries/` (pre-written documents +
 curated SDL from `probe-protocols.ts`), `agent/loop.ts`, `tools.ts` (two tools).
-**Exit:** the loop runs documents across four protocols, pinned to a common block, deployed.
+**Exit:** the loop runs documents across **five deployments spanning three schema versions**, pinned
+to a common block, deployed — **four of which carry figures a report will publish.** *(Amended
+2026-09-06; read "four protocols".)* ⚠️ **Four is unsatisfiable against three schema versions.** 3.1.0
+holds aave-v3, aave-v2 and compound-v3; 2.0.1 holds compound-v2; **3.0.0 holds morpho-blue alone.**
+Cutting to four drops morpho and takes a schema version with it. Morpho stays because it is the only
+3.0.0 deployment and the only non-Messari publisher on the standardized template — but it is flagged
+throughout and **its numbers are not publishable**; see `tracking/phases/PHASE-1.md`.
 
 ### Phase 2 — Report building
 `compose.ts` (documentId + variables + `needs_clarification`), `workflow/gather`, `reconcile.ts`,
@@ -877,7 +883,8 @@ Graph data · diagram · video.
 
 - [ ] Deployed and public. **External ticker running.**
 - [ ] A stranger can browse, read previews, **stake from MetaMask on Arc**, and watch a resolution.
-- [ ] Live Graph data, four protocols, pre-written documents, pinned to a common block.
+- [ ] Live Graph data, **five deployments across three schema versions** (four of them publishable),
+      pre-written documents, pinned to a common block.
 - [ ] Standards leverage demonstrated on camera — a 3.1.0 POOLED protocol added via one config line.
 - [ ] **One real x402 paid request by the buyer agent**, on camera, settled through Blocky402.
 - [ ] ATS issuance + configuration + transfer on testnet; **≥1 ResolverProxy verified on HashScan**.

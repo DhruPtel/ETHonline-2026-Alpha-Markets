@@ -15,19 +15,31 @@ untested assumption underneath that unit.
 
 *The agent can see.*
 
-By the end, a directive in plain English produces correct data from four lending protocols, pinned to
-one block, with every figure carrying an honest flag about whether it can be trusted.
+By the end, a directive in plain English produces correct data from **five lending deployments across
+three schema versions**, pinned to one block, with every figure carrying an honest flag about whether
+it can be trusted. **Four of the five carry figures a report will publish** — morpho-blue is queried,
+adapted and flagged, not quoted.
 
 **Ending goal — a capability you can demonstrate:**
 
 > Run a script that asks the agent a question in plain English. Watch it choose a query document,
-> execute it live against four deployments at a common block, and return correct numbers — with
-> revenue marked unavailable where it isn't trustworthy, and TVL flagged where the deployment inflates
-> it.
+> execute it live against **all five deployments** at a common block, and return correct numbers from
+> the four that have them — with revenue marked unavailable where it isn't trustworthy, and TVL
+> flagged where the deployment inflates it.
+
+⚠️ **Five queried, four publishable — and the fifth is the point, not the remainder.** morpho-blue is
+the only 3.0.0 deployment we have, so dropping it costs a whole schema version and leaves the
+standardization claim resting on two. It is also the only **non-Messari publisher on Messari's
+standardized template**, which is the evidence that the document travels rather than that our four
+Messari deployments agree with each other. And it is what makes the adapter a plausibility layer
+rather than a theoretical one. But it is flagged on every axis — `not_tracked` revenue, no
+corroboration, TVL inflated 3.6×, and disagreeing with its own contract on 2 of 3 top markets — so
+**no wording anywhere should imply its figures are publishable.** It proves the query layer works. It
+does not supply a number to a report.
 
 Then a second, sharper one:
 
-> Add a fifth 3.1.0 POOLED protocol by adding one row to `config/protocols.ts`, and watch it appear in
+> Add a **sixth** 3.1.0 POOLED protocol by adding one row to `config/protocols.ts`, and watch it appear in
 > the comparison with no code changes. **That's a pass/fail prize requirement (G1.5) and rehearsing it
 > is not optional.**
 
@@ -249,7 +261,7 @@ work.
 ⚠️ Budget model turns, tokens, rows, response bytes, per-provider deadlines and total runtime — not
 just a query count.
 
-*Proof:* four protocols at a common block, one call, under a second.
+*Proof:* all five deployments at a common block, one call, under a second.
 
 ---
 
@@ -312,7 +324,7 @@ and it's also G1.4 — "authoring or extending a Standardized Subgraph" — whic
 |---|---|---|
 | **G1.1** | Standardized schema, meaningfully | Units 2–4. Unit 14 adds the composition branch too |
 | **G1.2** | Live data, no mocks or local index | Unit 3. **Nothing is cached as a source** |
-| **G1.3** | More than one subgraph | Four deployments, three schema versions |
+| **G1.3** | More than one subgraph | **Five deployments configured and queried across three schema versions; four carry figures a report will publish** |
 | **G1.5** | ⚠️ Standards leverage **demonstrated** | The one-row demo. **Rehearse it — pass/fail** |
 | **G2.1** | The Graph load-bearing | Unit 3, and Phase 4 calls the same function |
 | G1.4 | Authoring/extending a standardized subgraph | Unit 15, if it lands |
