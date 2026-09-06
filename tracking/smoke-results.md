@@ -18,21 +18,21 @@ action lands here; when a test forces a choice, the choice is recorded in `DECIS
 | **SM-03** | Snapshot window | A snapshot query 12 months back returns rows **and** their timestamps fall inside the requested window | **PASS** | 2026-09-05 |
 | **SM-04** | Archive RPC *(rescoped)* | A subgraph value at block N and an `eth_call` for the same value at block N agree — so historical state is actually servable | **PASS** — archive to block 1; ⚠️ agreement is exact only at the field's *write* block, not at `_meta.block` | 2026-09-06 |
 | **SM-05** | x402 payment on Hedera **testnet** | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | **PASS** — settled in HBAR, not USDC | 2026-09-06 |
-| **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
+| **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | **PASS** — two turns, loop closed cleanly | 2026-09-06 |
 | **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | **PASS** — balance moved 1 → 0 / 0 → 1 | 2026-09-06 |
 | **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | **PASS** — `msg.value` arrives at **18 decimals**; log ceiling 30,000 blocks | 2026-09-06 |
-| **SM-09** | Browser stake | A browser wallet adds Arc and signs a transaction; `next build` half deferred to Phase 4 | **NOT RUN** — manual checklist written, `scripts/smoke/09-browser-stake.md` | — |
+| **SM-09** | Browser stake | A browser wallet adds Arc and signs a transaction; `next build` half deferred to Phase 4 | ⚠️ **PARTIAL** — wallet half walked and passing; `next build` half open until Phase 4 | 2026-09-06 |
 
 ✅ **The SM-02 / SM-04 mismatch is resolved (2026-09-05).** SM-02 keeps the multi-protocol query and
 loses the archive `eth_call` it never ran; SM-04 stops being a duplicate of that query and becomes
 the archive-RPC test. PLAN-v4 §8 and §5.14 are amended to match, and the reasoning is in
 `tracking/DECISIONS.md`. **SM-02 is now PASS on its full scope**, not on half of it.
 
-⏸ **SM-06 is written and has still never executed — but it is no longer blocked.**
-`scripts/smoke/06-agent-tool-call.ts` typechecks and its credential guard fires correctly. When it was
-written there was no Anthropic credential on this machine; **`ANTHROPIC_API_KEY` is now set in `.env`,
-so the test can run.** It gets a section here the first time it actually does; until then it has
-proved nothing.
+✅ **SM-06 has run and passed (2026-09-06).** `scripts/smoke/06-agent-tool-call.ts` was written
+2026-09-05 and sat unexecuted for a day — first blocked on a missing Anthropic credential, then
+merely unrun once `ANTHROPIC_API_KEY` landed in `.env`. It has now executed against the real API and
+the live gateway: Claude chose `run_document`, the tool answered from The Graph, and the model read
+the numbers back. **The last untested assumption under Unit 10 is closed.**
 
 ✅ **SM-04 is unblocked and passing (2026-09-06).** Alchemy's free tier serves historical state to
 block 1 — nothing was refused at any depth — so R27's fallback is not needed for Ethereum and
@@ -45,6 +45,13 @@ is walked by hand in a browser — `tsx` cannot drive a wallet extension, and `n
 only prints a pointer to it. ⚠️ **The checklist covers the wallet half only.** §8's SM-09 also
 requires a stake **under `next build`**, and there is no app yet; that half stays open until
 Phase 4's staking page exists, so a passing walkthrough makes SM-09 *partial*, not done.
+
+⚠️ **SM-09 has now been walked, and it is PARTIAL exactly as predicted (2026-09-06).** The wallet half
+passed on OKX — Arc added as a custom chain, the 20 USDC grant rendered as `20`, and `ping()` called
+by hand through the optional data field. **The `next build` half is still open** and stays open until
+Phase 4's staking page exists. The prediction above was made before the walkthrough and is left
+standing because it turned out to be the right call: the row does not flip to PASS on the strength of
+the half that ran.
 
 ---
 
@@ -652,6 +659,56 @@ are REST ingestion lag behind consensus, and both now poll. This matters beyond 
 
 ---
 
+## SM-06 — Agent tool call
+
+**Run:** 2026-09-06
+**Result:** **PASS**
+**Script:** `scripts/smoke/06-agent-tool-call.ts`
+**Block:** 25916708
+
+**What it proved:** The tool loop closes. Claude was asked a question in plain English, chose
+`run_document` with `slug: "aave-v3-ethereum"`, the tool executed a pre-written document against the
+live Graph gateway, and the model read Aave v3's deposit and borrow balances back into the
+conversation pinned to block 25916708. **Two model turns**, and the loop terminated on its own rather
+than being cut off.
+
+### Findings
+
+- **Two turns is the whole shape.** Turn one returns `stop_reason: "tool_use"`; the tool result is
+  appended to `messages[]`; turn two reads the data and stops. That is the entire loop Unit 10
+  promotes into `src/agent/loop.ts` — a `while` over `stop_reason`, not a framework. Nothing in the
+  run suggested anything more elaborate is needed.
+- **The model never saw GraphQL.** It selected a document by name and supplied a slug. This is §5.6's
+  boundary observed rather than asserted: there was no query string for the model to get wrong, so
+  the class of failure where it emits `PositionSide.LENDER` at a 3.1.0 deployment mid-demo had
+  nowhere to occur.
+- **The loop closed cleanly.** It stopped because the model stopped asking for tools, not on a turn
+  cap or a timeout. Worth recording because Vercel Hobby gives 300 seconds and §9's one-invocation-
+  one-turn rule exists for the case where a loop does *not* close on its own — this run did not
+  exercise that path.
+
+⚠️ **One question, one deployment, one document.** SM-06 proves the mechanism, not the fan-out. It
+says nothing about five deployments at a common block, about `get_capabilities`, or about what the
+model does when a figure comes back flagged — those are Units 11 and 12 and they are unproven.
+
+### To do
+
+- **What:** Promote this loop into `src/agent/loop.ts` without adding to it.
+  **Why:** The run establishes that a `while` over `stop_reason === "tool_use"` is sufficient. Any
+  orchestration added on the way from script to module would be untested by the thing that justified
+  writing it.
+  **When:** Phase 1 Unit 10
+  **Status:** open
+
+- **What:** Give the agent `get_capabilities` before it is ever asked about revenue.
+  **Why:** This run asked for balances, which are clean on aave-v3. The same question about revenue
+  would have handed the model a poisoned $279 quadrillion accumulator with nothing in the loop to
+  stop it. The tool that prevents that does not exist yet.
+  **When:** Phase 1 Unit 11
+  **Status:** open
+
+---
+
 ## SM-07 — ATS issue and transfer
 
 **Run:** 2026-09-06
@@ -987,6 +1044,71 @@ in the same 18-decimal USDC as value, so there is no second asset to fund.
   on Ethereum. It does not affect a forward-running ticker, which only sweeps recent blocks, so it is
   recorded rather than measured. Seen during probing; the committed script does not test for it.
   **When:** only if backfill becomes a requirement
+  **Status:** open
+
+---
+
+## SM-09 — Browser stake
+
+**Run:** 2026-09-06
+**Result:** ⚠️ **PARTIAL** — the wallet half passed; the `next build` half is deferred to Phase 4
+**Checklist:** `scripts/smoke/09-browser-stake.md` — manual, walked by hand
+**Wallet:** OKX
+**Transaction:** [`0x70728aff…faf32b`](https://testnet.arcscan.app/tx/0x70728affa98ab2d9cd35acfe06bd7a497b102b685db252aba0ad922eeafaf32b)
+**From:** `0xe0dad03b9cd74fd67d1288773525467b261c2008`
+
+**What it proved:** A browser wallet a stranger already has can reach Arc testnet without us shipping
+anything — the network added as a custom chain, a balance displayed correctly, and a contract call
+signed and broadcast. That is the human half of the market: §13 requires that a stranger can stake
+from a browser wallet, and this establishes the wallet will let them.
+
+### Findings
+
+- **OKX accepted Arc testnet as a custom chain.** No wallet-side allowlist, no waiting for the wallet
+  vendor to add the network. The path a real user takes is `wallet_addEthereumChain` and it works
+  today.
+- **✅ The decimals trap did not fire.** The 20 USDC faucet grant rendered as **`20`**, not as
+  `20000000000000000000`. This was the finding the checklist was built around: SM-08 measured Arc's
+  native gas token at **18 decimals while the ERC-20 view of the same token reports 6**, so a wallet
+  reading the wrong one is off by a factor of a trillion with a number that still looks plausible.
+  OKX gets it right. **The trap remains live for our own code** — SM-08's to-do about never scaling
+  an Arc `Transfer` log by `decimals()` is untouched by this.
+- **Hex data can be entered by hand.** `ping()` was called through the wallet's optional data field,
+  which is what let a manual walkthrough exercise the same payable-call shape a stake will use rather
+  than settling for a plain transfer.
+
+⚠️ **This is the wallet half only, and the row stays PARTIAL.** §8's SM-09 also requires a stake
+completed **under `next build`** — a production Next.js build, not `next dev`, because dev-mode
+bundling hides ESM directory-import failures that only appear in production. There is no app yet, so
+that half cannot be attempted. **A passing walkthrough is not SM-09 being done**, and the status row
+says so.
+
+⚠️ **A hand-entered `ping()` is not a stake.** It proves the wallet will sign a contract call carrying
+data on Arc. It does not prove our UI can construct that call, that the user can read what they are
+approving, or that the receipt gets back to the app — §5.18's ingestion path POSTs the tx hash to
+`/api/markets/[id]/refresh`, and none of that exists.
+
+### To do
+
+- **What:** Complete the `next build` half — a stake from a browser wallet against a production
+  Next.js build.
+  **Why:** It is half of what §8 asks for and the half that catches a whole class of failure invisible
+  in `next dev`. Deferred because there is no app, not because it is optional.
+  **When:** Phase 4, with the staking page
+  **Status:** open
+
+- **What:** Re-walk the wallet steps against the real staking UI rather than hand-entered hex.
+  **Why:** This run put the call together by hand in the wallet. Nothing here tests that our UI builds
+  the same call, renders an approvable summary, or hands the hash back to the refresh route.
+  **When:** Phase 4, with `ui/wallets/`
+  **Status:** open
+
+- **What:** Check MetaMask as well as OKX before the demo.
+  **Why:** §13's definition of done names **MetaMask** specifically; OKX was walked because it was the
+  wallet to hand and MetaMask is the checklist's fallback. Only one of the two has been observed on
+  Arc, and the decimals rendering that OKX gets right is exactly the kind of thing that differs
+  between wallets.
+  **When:** Phase 5, with the demo rehearsal
   **Status:** open
 
 ---

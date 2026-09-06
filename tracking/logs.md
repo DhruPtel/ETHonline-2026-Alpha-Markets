@@ -665,3 +665,45 @@ Not run — the walkthrough is the builder's. Noticed while editing that
 `scripts/smoke/README.md` is badly stale: every row still says "not written yet" and the SM-02/SM-04
 descriptions predate the 2026-09-05 scope swap. Only the SM-09 row was corrected, since fixing the
 rest was not asked for.
+
+## 2026-09-06 — Three documentation corrections, and Phase 0's ledger finally balances
+
+A documentation-only run. No code was written and `src/` is still empty — Unit 1 has not started.
+Three corrections, one commit each, plus a fourth for a `CLAUDE.md` change that had been sitting
+uncommitted in the working tree since the DECISIONS.md convention was introduced.
+
+**`types/wire.ts` moved from Phase 0 to Phase 1 Unit 1.** §9 listed freezing the wire contracts among
+the Phase 0 gates and §5.18 said "Day 1". Both were reasonable when written and both were wrong by
+the time Phase 0 finished, because Phase 0 is where we found out that revenue availability,
+corroboration status and completeness are each **three-state flags where the obvious design is a
+boolean**. A contract frozen on Day 1 would have carried `revenueUSD: number` and
+`corroborated: boolean` — shapes that typecheck and lie. The freeze now reads "before the first
+consumer", which is what the Day-1 wording was protecting all along.
+
+**G1.3 asked for something the protocol set cannot produce.** It read "Four deployments, three schema
+versions". Count them: 3.1.0 has three deployments, 2.0.1 has one, and **3.0.0 has morpho-blue alone**
+— so cutting to four drops morpho and takes a whole schema version with it. Corrected to "five
+configured and queried, four carrying publishable figures", and the same off-by-one fixed in four
+other places that said four for the same reason: PHASE-1's ending goal in two spots, Unit 12's proof,
+and PLAN §13. The G1.5 demo also moved from "add a fifth protocol" to "add a sixth", which Unit 2's
+own proof line had said all along.
+
+**SM-06 and SM-09 both ran, and neither outcome had been written down.** SM-06 passed — Claude picked
+`run_document`, the tool answered from the live gateway, and the loop closed on its own in two turns
+at block 25916708. That was the last untested assumption under Unit 10, and PHASE-1's header warning
+about it is now a note telling Unit 10 to *promote* the loop rather than extend it. SM-09 passed its
+wallet half on OKX and stays **PARTIAL** — the `next build` half needs an app that does not exist. The
+detail worth keeping is that **OKX rendered the 20 USDC grant as `20`**, not as
+`20000000000000000000`; the checklist was built around that exact question because Arc's gas token is
+18 decimals while its ERC-20 view reports 6, and a wallet that reads the wrong one is off by a
+trillion with a number that still looks plausible. The wallet gets it right. Our own code still has
+to.
+
+Phase 0 now closes at **8 PASS and 1 PARTIAL**, with all nine having actually run. The SM-09
+transaction is in `docs/evidence.md`.
+
+**The thing that surprised me** was how much of this was one mistake wearing different clothes. The
+"four protocols" count, the "Day 1" freeze and the two missing sections are all the same failure —
+**a document describing the plan as it was drafted rather than as Phase 0 left it.** Every one of them
+would have been caught by re-reading the plan against the results file, and none of them by reading
+either alone. Worth doing again before Phase 2 starts.

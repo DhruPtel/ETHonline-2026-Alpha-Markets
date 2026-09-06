@@ -1,13 +1,15 @@
 # PHASE-1.md — Data layer + agent
 
 **Revises:** `PLAN-v4-alpha-markets.md` §9 Phase 1, with everything Phase 0 measured folded in.
-**Status:** ready to start. Phase 0 closed with **7 PASS and 2 not run** — SM-06 (agent tool call) is
-written and has never executed; SM-09's browser checklist is written and not yet walked.
-`tracking/smoke-results.md` is authoritative for this count.
+**Status:** ready to start. Phase 0 closed with **8 PASS and 1 PARTIAL** — every test has now run.
+SM-09 is partial because its `next build` half needs an app that does not exist yet and closes in
+Phase 4; the wallet half passed. `tracking/smoke-results.md` is authoritative for this count.
 
-⚠️ **SM-06 has never run, and Unit 10 promotes it into `loop.ts`.** The tool loop it proves is the
-thing Unit 10 is built from, so running SM-06 before Unit 10 costs minutes and removes the only
-untested assumption underneath that unit.
+✅ **SM-06 has run and passed, so Unit 10 has nothing untested underneath it.** Claude chose
+`run_document`, the tool answered from the live gateway, and the loop closed on its own in two turns.
+Unit 10 promotes that loop into `src/agent/loop.ts` — **promote it, don't extend it.** What the run
+established is that a `while` over `stop_reason` is sufficient; anything added on the way from script
+to module is untested by the thing that justified writing it.
 
 ---
 

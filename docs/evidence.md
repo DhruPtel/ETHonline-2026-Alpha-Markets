@@ -54,3 +54,15 @@ USDC of real value: the receiver holds `2500000000000000000` and the wallet went
 0.000818 of gas. Submitted through Circle's async API, which returns an id rather than a hash and
 reached `COMPLETE` in 4.4 seconds.
 **When:** 2026-09-06
+
+## A browser wallet on Arc, signing a contract call
+
+**Where:** [`0x70728aff…faf32b`](https://testnet.arcscan.app/tx/0x70728affa98ab2d9cd35acfe06bd7a497b102b685db252aba0ad922eeafaf32b)
+· from [`0xe0dad03b…c2008`](https://testnet.arcscan.app/address/0xe0dad03b9cd74fd67d1288773525467b261c2008)
+**What it proves:** Arc testnet is reachable from a wallet a stranger already has. OKX accepted the
+network as a custom chain, **rendered a 20 USDC balance as `20` rather than the raw 18-decimal
+`20000000000000000000`** — the trap that makes Arc's stablecoin gas token dangerous, since the ERC-20
+view of the same token reports 6 decimals — and signed a `ping()` call entered as hex by hand. This is
+the human half of the market: staking is a browser wallet talking to Arc, and this is that path
+walked end to end before any UI exists.
+**When:** 2026-09-06
