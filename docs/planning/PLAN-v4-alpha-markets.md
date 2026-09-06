@@ -372,6 +372,43 @@ cumulativeDepositUSD ≥ cumulativeBorrowUSD FAILS.
 `{ severity, appliesTo, rationale }`. **`DATA_ERROR` blocks a report. So does an incomplete
 population** — those are the only two blocking conditions.
 
+⚠️ **Amendment, 2026-09-06 (SM-02) — the four severities, named.** The blocking rule above was
+right and unenumerated, which left "severity" undefined at the point it does the most work.
+
+| severity | what it means | example | effect |
+|---|---|---|---|
+| **`DATA_ERROR`** | A number that cannot be right | An oracle returning zero while the balance is non-zero | ⛔ **BLOCKS the report** |
+| **`INCONSISTENCY`** | Internal arithmetic that doesn't tie | Σ markets ≠ protocol total | Reported. Does not block |
+| **`SIGNAL`** | A finding about the **protocol**, not the data | Borrows exceeding deposits on a market | Reported **prominently** — this is the kind of thing a report exists to surface |
+| **`INFORMATIONAL`** | Context worth carrying | A wound-down deployment; a market of negligible size | Reported |
+
+⚠️ **`SIGNAL` is not a degraded `DATA_ERROR`.** It is the product. A market where borrows exceed
+deposits is not a broken number to be suppressed — it is the finding an analyst is paid for, and
+severity exists partly to keep it from being filtered out as noise.
+
+⚠️ **Amendment, 2026-09-06 (SM-02) — severity is per-deployment, never global.** The clearest
+worked example in the build, and the reason the adapter is a plausibility layer rather than a
+renaming layer:
+
+```
+inputTokenPriceUSD == 0 && inputTokenBalance > 0
+```
+
+- **On Aave this is a `DATA_ERROR`.** Deposits are derived from price × balance, so a zero price
+  silently zeroes the deposits. The guard never fired on Aave — correctly.
+- **On Morpho it is a false positive, 337 times over.** It fires on 337 of Morpho's top 500 markets,
+  holding **$11.0B** between them, and every one is wrong: the price is the *collateral* price, the
+  balance is in the *loan* token, and Morpho derives deposit USD from the loan token — so a zero
+  collateral price breaks nothing.
+
+**The same condition, the same field names, opposite meanings.** A global guard is not merely
+noisy on Morpho, it is unusable — 337 blocking errors on a deployment with nothing wrong with it.
+**Guards belong with the deployment, not with the query**, which is what makes `adapter.ts` a
+plausibility layer: field names are close to free to translate, and meanings are not.
+
+*Measured in SM-02; the implementing work is tracked in `tracking/smoke-results.md` under SM-02 and
+lands in `engine/invariants.ts`.*
+
 ### 5.14 The engine is pure; corroboration is an adapter
 
 `graph/corroborate.ts` fetches the observation; `engine/checks/crosscheck.ts` compares.

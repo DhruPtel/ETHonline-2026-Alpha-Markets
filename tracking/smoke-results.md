@@ -165,7 +165,10 @@ morpho-blue            Morpho Blue    3.0.0       13062587242.45     11422333149
   balance, so a zero collateral price breaks nothing. A global guard makes the invariant useless on
   any deployment that doesn't share Aave's derivation.
   **When:** Phase 2, `engine/invariants.ts`
-  **Status:** open
+  **Status:** **specified 2026-09-06, not yet built.** Promoted out of this list into PLAN-v4 §5.13
+  as the worked example of why severity is per-deployment — it is the clearest illustration in the
+  build of the adapter being a plausibility layer rather than a renaming one. The implementation is
+  still open.
 
 - **What:** Add a plausibility check for Morpho's inflated TVL — utilization ceilings, collateral
   coverage against borrows, TVL/deposit reconciliation.
