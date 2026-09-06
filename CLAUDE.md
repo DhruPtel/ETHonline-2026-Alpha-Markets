@@ -72,7 +72,13 @@ what happened. This doubles as our AI-attribution record, which the hackathon re
 **`tracking/lessons.md`** — append only when reality disagreed with the plan. What we expected, what
 happened, what changes. If a lesson invalidates something in the plan, say so explicitly.
 
-Neither file is where questions go. Questions go in chat.
+**`tracking/DECISIONS.md`** — append when a choice is made that would mean *rewriting* to undo, not
+renaming. The same line this file draws for what to stop and ask about. One section per decision:
+date, what we're doing, why (including what we're giving up), the alternative rejected, and which
+plan section or component it affects. If a decision contradicts the plan, amend the plan in the same
+commit and say so on the `Affects` line.
+
+None of these files is where questions go. Questions go in chat.
 
 ---
 
