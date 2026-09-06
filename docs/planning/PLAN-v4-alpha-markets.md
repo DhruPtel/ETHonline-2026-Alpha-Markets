@@ -30,10 +30,17 @@ USDC**. Others stake alongside. Settlement re-reads The Graph and scores the com
 
 | Network | Runs | Why |
 |---|---|---|
-| **Hedera mainnet** | x402 report payments | Real money. Track accepts either; testnet is the R12 fallback |
-| **Hedera testnet** | ATS report tokens | The track requires testnet |
+| **Hedera testnet** | x402 report payments **+** ATS report tokens | The track requires testnet for ATS and H1.1 accepts either for x402. **Amended 2026-09-05 — R12 taken**, see below |
 | **Arc testnet** | Claims, stakes, resolution, payouts | Arc mainnet launches Sept 16 — after our deadline |
 | Ethereum mainnet | *(read only)* | The chain our subgraphs index |
+
+⚠️ **Amendment, 2026-09-05 — x402 runs on testnet.** This table read "Hedera mainnet · x402 report
+payments · Real money" with testnet as the available R12 fallback. **R12 is now TAKEN.** Mainnet HBAR
+has no faucet — it needs an exchange withdrawal, possibly behind KYC, on a clock nobody controls, and
+that is not something a Phase 0 gate can sit behind. H1.1 accepts testnet or mainnet, so nothing is
+given up against the requirement. Per R12 the switch is atomic: facilitator `api.testnet.blocky402.com`,
+network `hedera:testnet`, USDC `0.0.429274` and the seller/buyer pair move together or not at all.
+Mainnet remains a config revision if funding appears. Full reasoning in `tracking/DECISIONS.md`.
 
 ⚠️ **Nothing calls across chains.** The only thing that crosses is a **32-byte report hash**: committed
 on Hedera in the ATS creation event (`additionalSecurityData.info = "alpha:<hash>"`) and in the Arc
@@ -47,11 +54,11 @@ and none is needed.**
 ### Process
 
 1. **No mid-session replanning.** Take the pre-written branch from §10, or take the dumbest unblocking
-   thing and write one line in `DECISIONS.md`.
+   thing and write one line in `tracking/DECISIONS.md`.
 2. **Every risk carries a branch.** Trigger → box → A → B.
 3. **Deployed from Day 2 and stays deployed.**
 4. **Pass/fail requirements (§4) are protected absolutely.**
-5. **Session start:** paste `PLAN.md`, `DECISIONS.md`, `STATE.md`.
+5. **Session start:** paste `PLAN.md`, `tracking/DECISIONS.md`, `STATE.md`.
 6. **All planning artifacts ship** — plan, critiques, prompts, research (rule E5).
 
 ### Commit protocol
@@ -277,7 +284,7 @@ Two options, neither previously written down:
   (Node 24, Hashio rate limits, 15M gas/tx batching, **partial failure leaves a partial deployment**).
 
 **Decision:** SM-04 runs against the **public factory first** — fast, proves the tuple and roles.
-**Day 1 lookup:** query `/api/v1/contracts/0.0.9213391` for expiry, write into `DECISIONS.md`.
+**Day 1 lookup:** query `/api/v1/contracts/0.0.9213391` for expiry, write into `tracking/DECISIONS.md`.
 **Trigger:** if the public factory is unusable or expiry is imminent → own deploy, with
 `tooling/ats/` carrying the exact upstream commit, Hardhat network config, a resumable manifest, and
 **the address list to paste into env**.
@@ -371,7 +378,8 @@ population** — those are the only two blocking conditions.
 
 ⚠️ **Historical `eth_call` needs an archive-capable RPC.** Subgraph heads routinely lag chain head by
 >128 blocks; a non-archive RPC serves state only for the last ~128. **Verify with one `eth_call` at
-`head-1000` in SM-02**, or restrict corroboration to the retained window and mark `NOT_CHECKED`.
+`head-1000` in SM-04** *(amended 2026-09-05 — this was SM-02; see §8)*, or restrict corroboration to
+the retained window and mark `NOT_CHECKED`.
 
 ⚠️ Compare compatible semantics with tolerances. Indexed *through* block B ≠ every field *refreshed at*
 B.
@@ -447,9 +455,12 @@ health-check time, not in the request path.
 
 ```
 alpha-markets/
-├── README.md · PLAN.md · DECISIONS.md · STATE.md · AI_USAGE.md
+├── README.md · PLAN.md · STATE.md · AI_USAGE.md
 ├── package.json · .env.example · vercel.json
 ├── .github/workflows/ticker.yml        ★ THE EXTERNAL TICKER (§5.1)
+│
+├── tracking/                           ★ logs · lessons · smoke-results · DECISIONS
+│                                         ⚠️ DECISIONS.md lives here, not at root (amended 2026-09-05)
 │
 ├── docs/
 │   ├── architecture.png / .svg
@@ -588,14 +599,23 @@ middleware example will not load.** Never `paymentProxy` — it charges on failu
 | # | Test | Pass signal |
 |---|---|---|
 | **SM-01** | JCS canonicalizer against RFC 8785 reference vectors | Vectors pass; golden vectors shared with Foundry |
-| **SM-02** | Query one subgraph; **plus one `eth_call` at `head-1000`** | Populated field + `_meta`; archive RPC confirmed or `NOT_CHECKED` decided |
+| **SM-02** | One document, **four or more deployments** *(amended)* | Populated fields + `_meta` from every one; identical shapes, and a deployment a schema version behind works or fails knowably |
 | **SM-03** | 12-month snapshot, **both date bounds** | Rows return **and** timestamps fall inside the window ⚠️ `timestamp_gte` alone false-passes |
-| **SM-04** | Same document, four deployments | 3 identical shapes; the 2.0.1 works or fails knowably |
+| **SM-04** | **Archive RPC: subgraph value at block N vs `eth_call` at block N** *(amended)* | The two agree — or the RPC cannot serve historical state and `NOT_CHECKED` is recorded |
 | **SM-05** | x402 pay for a `"hello"` endpoint on Hedera | Payment settles; **native tx ID persisted before settle** |
 | **SM-06** | Claude calls `run_document` | Loop invokes, data returns |
 | **SM-07** | ATS **issue AND transfer** on testnet against the **public factory** | ⚠️ **Balance moved.** Proxy creation is not issuance. Plus: expiry of `0.0.9213391` recorded |
 | **SM-08** | **Complete a payable call** via Circle DCW EOA | `msg.value` scale observed; **wallet address == `analysts.ts`**; Arc `eth_getLogs` range limit measured |
 | **SM-09** | Browser: MetaMask + `wallet_addEthereumChain` + a stake, **under `next build`** | ⚠️ **Production build, not `next dev`** — dev-mode bundling hides ESM directory-import failures |
+
+⚠️ **Amendment, 2026-09-05 — SM-02 and SM-04 swapped scope.** SM-02 read "Query one subgraph; plus one
+`eth_call` at `head-1000`", and SM-04 read "Same document, four deployments". Those bundled two
+unrelated questions into one row and left the other row a strict subset of it. **SM-02 is now the
+multi-protocol query alone** — it has passed on that scope with five deployments across three schema
+versions. **SM-04 is now the archive-RPC test:** read a value from a subgraph at block N, `eth_call`
+the same value at block N, confirm they agree. That question is load-bearing for §5.14's corroboration
+adapter and for G2.1, and deserves its own row rather than a clause inside one about something else.
+SM-04 is blocked until an archive-capable `ETHEREUM_RPC_URL` exists; see `tracking/DECISIONS.md`.
 
 **Money paths get failure tests against the deployment.**
 
@@ -604,7 +624,7 @@ rejection · vague directive → `needs_clarification` · token-holder not charg
 single-read grants no standing access · unpaid hit → 402 not 500 · ambiguous settlement recovery ·
 resolver math on stubs then live · scorer under hostile attribution · void after deadline.
 
-**Lookups** (Day 1, into `DECISIONS.md`): both Blocky402 hosts' `/supported` + feePayers · ATS public
+**Lookups** (Day 1, into `tracking/DECISIONS.md`): both Blocky402 hosts' `/supported` + feePayers · ATS public
 factory expiry · exact pruning error strings · pruned floor per deployment · which deployments are live.
 
 ---
@@ -672,7 +692,7 @@ attribution.
 | R9 | Resolution runs twice | `require(!resolved)` in Solidity | Score writes idempotent on `(marketId, claimId)` |
 | R10 | Subgraph timeout mid-settlement | Fetch before submit | Journal + reconcile next tick |
 | R11 | Vague directive | `needs_clarification` with required intent fields | — |
-| R12 | Mainnet HBAR unavailable **or Hobby ToS concern** | **Run x402 on testnet** — H1.1 accepts it. Switch facilitator URL, network string, token ID, accounts **together**, with a startup feePayer assertion | — |
+| R12 | Mainnet HBAR unavailable **or Hobby ToS concern** | ✅ **TAKEN 2026-09-05.** Running x402 on testnet — H1.1 accepts it. Facilitator URL, network string, token ID and accounts moved **together**; startup feePayer assertion still owed. §1 amended, values in `tracking/DECISIONS.md` | — |
 | R14 | Job fails after a paid read | Serve from persisted body (§5.7 means nothing is generated after payment) | — |
 | R15 | Payment ok, ATS transfer fails | Journal; retryable completion | Manual compensation, logged |
 | R16 | Two buyers, one unit | Inventory reservation before settlement | 409 |
@@ -716,12 +736,12 @@ Graph data · diagram · video.
 |---|---|---|
 | U2 | Circle Console KYC? | Today |
 | U3 | DCW `amount` decimal scale | SM-08 |
-| U4 | 12-month snapshots survive? | SM-03 |
+| ~~U4~~ | ~~12-month snapshots survive?~~ **ANSWERED 2026-09-05 — yes, completely.** No retention floor exists: full in-bounds windows at 6, 12, 18 and 24 months, oldest snapshot 2023-01-27 (aave-v3 launch day). §5.16 needs no amendment | SM-03 ✅ |
 | U5 | Pruned floor per deployment | Lookup |
 | U6 | Which deployments are live | Lookup |
-| U9 | ATS public factory expiry | Lookup, Day 1 |
+| ~~U9~~ | ~~ATS public factory expiry~~ **ANSWERED 2026-09-06.** Factory `0.0.9213391` expires `1789039172` (2026-09-10 11:19:32Z), confirming the recorded number; resolver `0.0.9212226` expires `1789037489`, **1,683s earlier and the binding constraint**. Both live. Recorded in `tracking/DECISIONS.md` | SM-07 ✅ |
 | U10 | Arc `eth_getLogs` range limit | SM-08 |
-| U11 | Does Sourcify verification work for a ResolverProxy? | Phase 3 |
+| ~~U11~~ | ~~Does Sourcify verification work for a ResolverProxy?~~ **ANSWERED 2026-09-06 — yes, `exact_match`, first attempt.** `0.0.10395983` is verified on Sourcify for chain 296. `creationMatch` is null because the proxy is created inside `deployEquity` rather than by a top-level creation transaction, but the runtime match is what HashScan reads. Repeatable for every report token via `scripts/verify-ats.ts` | Unit A ✅ |
 
 ---
 

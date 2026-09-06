@@ -14,7 +14,9 @@
     "smoke:09": "tsx --env-file=.env scripts/smoke/09-metamask-stake.ts"
   },
   "devDependencies": {
+    "@openzeppelin/contracts": "4.9.6",
     "@types/node": "^22.20.1",
+    "solc": "0.8.28",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
   },

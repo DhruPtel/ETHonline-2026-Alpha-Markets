@@ -395,3 +395,55 @@ repo. It was flagged as over the ~120-line ceiling before it was written; the un
 file with five steps, so splitting would have needed a new unit. Most of the bulk is printing,
 per-step failure branches and the reasoning behind each struct field, which is the part that makes
 the next ATS call cheap.
+
+## 2026-09-06 — Unit A: the ATS token is verified on HashScan, exact match
+
+Wrote `scripts/verify-ats.ts` and **U11 is answered — Sourcify verifies a ResolverProxy, `exact_match`,
+first attempt.** `0.0.10395983` / `0x60c955b9b2d0896b5EEAF285133891D9A7CF7648` is verified for chain
+296 with 17 sources, matchId 47208468. That closes the "contracts verified on HashScan where
+applicable" pass/fail requirement on the Hedera Tokenization track, and it makes the token's events
+render as decoded source rather than raw hex, which is what the demo video needs.
+
+The reason this needed a script rather than a form upload is that the ATS package ships no Standard
+JSON Input: `artifacts/build-info/` is explicitly excluded by its `files` array, the artifacts carry
+no `metadata` field, and the metadata CID embedded in the bytecode
+(`QmVXG2SeSjVAKXWcp6fYWE5VH9xQFnas2z3JQ78D8jJdqP`) is pinned by nobody — seven gateways, nothing. So
+every compiler input had to be recovered from a different place. solc 0.8.28, optimizer on with 100
+runs and evmVersion cancun came from the upstream `hardhat.config.ts` at the commit the research
+reviewed; `bytecodeHash: ipfs` came from the CBOR trailer in the deployed bytecode itself; the 16
+package sources came from tracing `ResolverProxy.sol`'s import closure, which turns out to reach
+exactly one file outside the package.
+
+That one file was the trap. `@openzeppelin/contracts/utils/structs/EnumerableSet.sol` — and the ATS
+`package.json` declares `^4.9.6`, a range, which is not a compiler input. Solidity's metadata hash
+covers every source in the compilation unit, so any other 4.9.x would have changed the trailing bytes
+even though EnumerableSet contributes no code to a 390-byte dispatcher. The upstream
+`package-lock.json` pins it to 4.9.6 exactly, and that is what we installed.
+
+The script's actual point is step 3: it compiles locally and refuses to POST until the 390 bytes are
+identical to what is on chain, metadata trailer included. Because the metadata hash lives *inside* the
+deployed bytecode, an exact reassembly is checkable offline for free, which turns the submission from
+an experiment into a formality. It matched on the first run. The failure path is written to be as
+useful as the success path: on a mismatch it reports the first differing byte and says whether the
+difference falls inside the CBOR trailer (a metadata input is wrong — a source's bytes, a source key,
+or a setting) or in executable code (wrong contract or wrong compiler), and it says explicitly not to
+start adjusting optimizer settings, because tuning until a hash lands certifies source that is not
+what ran.
+
+Two findings worth carrying. **No ATS contract on Hedera testnet was verified before today** — not
+ours, not the public factory `0.0.9213391`, not the resolver `0.0.9212226`. The ATS team have never
+verified their own deployments, so there was no precedent and a real chance the answer was no. And
+the structural worry was half-right: `creationMatch` is `null` and permanently will be, because the
+proxy is created by `new ResolverProxy(...)` inside `deployEquity` rather than by a top-level creation
+transaction. It costs nothing — the runtime match is what an explorer reads to render source.
+
+The script takes the address as its only argument and works unchanged for every future report token,
+since they are all the same ResolverProxy bytecode from the same factory. It needs no `.env`: it reads
+public chain data from Mirror Node and posts public source to Sourcify. Added `solc@0.8.28` and
+`@openzeppelin/contracts@4.9.6`, both pinned exact, both dev-only, neither shipping to Vercel.
+
+Also closed **U9** in PLAN-v4 §12 while editing U11 — SM-07 answered it on 2026-09-06 and the plan
+had not caught up. One caveat on the confirmation: the Sourcify record is verified from the API
+(`exact_match`, re-queried independently after submission), but the HashScan UI rendering itself was
+not checked, because that needs a browser and Sourcify's browser-compat endpoint refuses terminal
+clients.

@@ -539,6 +539,21 @@ measured at 110 tinybars/gas against research's 108 on mainnet.
 **Plus the cost of being wrong:** the reverted first attempt burned 948,129 gas (~0.995 HBAR, ~$0.08)
 and deployed nothing.
 
+#### Verified on HashScan (2026-09-06, after the run)
+
+`0x60c955b9b2d0896b5EEAF285133891D9A7CF7648` is verified on Sourcify for chain 296 —
+**`match: exact_match`**, `runtimeMatch: exact_match`, 17 sources, matchId 47208468. **U11 is
+answered.** HashScan's verifier host `server-verify.hashscan.io` redirects to `sourcify.dev/server`,
+so the one submission covers both, and the SM-07 row's "verified on HashScan where applicable"
+track requirement is satisfied.
+
+The Standard JSON Input had to be reassembled — the package excludes `artifacts/build-info/` and the
+metadata CID in the bytecode is unpinned on IPFS — so `scripts/verify-ats.ts` compiles locally and
+**asserts byte-equality against the on-chain runtime before submitting anything.** It matched on the
+first attempt, metadata trailer included. `creationMatch` is `null` and permanently will be: the
+proxy is created inside `deployEquity` rather than by a top-level creation transaction. Reasoning in
+`tracking/DECISIONS.md`, the finding in `tracking/lessons.md`.
+
 ### To do
 
 - **What:** Correct `docs/research/asset-tokenization-studio.md` §3a — `maxSupply: 0n` and

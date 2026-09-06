@@ -230,3 +230,42 @@ works. It stays the fallback, unchanged.
 need to mint on the day. Then it is the 111-contract deploy, and it is ~29 minutes, not a surprise.
 **Affects:** SM-07 · §8 SM-07 row (the "expiry of `0.0.9213391` recorded" clause is now satisfied) ·
 report tokenization (Phase 3)
+
+---
+
+## Report tokens are verifiable on HashScan, and `scripts/verify-ats.ts` is the path
+
+**Date:** 2026-09-06
+**Decision:** Every report token gets verified on Sourcify through `scripts/verify-ats.ts`, taking the
+contract address as its only argument. **U11 is answered: `exact_match`, first attempt.**
+
+`0.0.10395983` / `0x60c955b9b2d0896b5EEAF285133891D9A7CF7648` is verified for chain 296 —
+`match: exact_match`, `runtimeMatch: exact_match`, 17 sources, matchId 47208468, 2026-09-06T19:23:28Z.
+
+**Why this is a decision and not just a result:** "Contracts verified on HashScan where applicable" is
+a **pass/fail requirement** on the Hedera Tokenization track, and until today nobody had verified an
+ATS contract on Hedera testnet — not us, not the ATS team, whose own factory and resolver are both
+still unverified. The requirement was therefore an unquantified risk sitting on a pass/fail line. It
+is now a 20-second script run per token.
+
+**What makes it repeatable:** every report token is another `ResolverProxy` from the same factory,
+compiled from the same source at the same settings, so **all of them share the identical 390-byte
+runtime bytecode down to the metadata hash.** Only the address changes. The script re-derives and
+re-checks everything each run rather than trusting that.
+
+**What we give up:** two dev-only pinned dependencies — `solc@0.8.28` (9.3 MB) and
+`@openzeppelin/contracts@4.9.6` (2.0 MB). Neither ships to Vercel. Both must stay pinned exact:
+`solc` because a different compiler produces different bytecode, and OpenZeppelin because Solidity's
+metadata hash covers every source in the compilation unit, so a different 4.9.x breaks the match. The
+ATS `package.json` declares `^4.9.6` — a range, useless as a compiler input; 4.9.6 came from the
+upstream `package-lock.json`.
+**Alternative rejected:** vendoring `EnumerableSet.sol` into the repo and fetching solc from
+`binaries.soliditylang.org` at runtime. ~11 MB lighter, and it makes a byte-exactness guarantee depend
+on an unpinned copied file and two network fetches. For the one script whose entire job is
+reproducibility, that is the wrong trade.
+**Known limitation, and it costs nothing:** `creationMatch` is `null` and always will be. The proxy is
+created by `new ResolverProxy(...)` inside `deployEquity`, not by a top-level creation transaction, so
+there is no creation bytecode for Sourcify to fetch. The runtime match is what an explorer reads to
+render source and decode events, and it is sufficient for the requirement.
+**Affects:** §13 definition of done ("≥1 ResolverProxy verified on HashScan") · §12 U11, now closed ·
+report tokenization (Phase 3)

@@ -308,3 +308,56 @@ This is the sixth instance of the pattern this file keeps recording, and the fir
 answer was in our own research rather than in a vendor's data or docs: **the field was correct, the
 value was plausible, and it still did not work.** The three earlier vendor cases at least had an
 outside party to blame. This one we wrote ourselves, carefully, and it was still a guess.
+
+## 2026-09-06 — U11 answered: Sourcify verifies a ResolverProxy, exact match, first attempt
+
+**Expected.** PLAN-v4 §12 carried U11 — "does Sourcify verification work for a ResolverProxy?" — as an
+open question deferred to Phase 3, and the honest position going in was that nobody knew. **No ATS
+contract on Hedera testnet was verified on Sourcify: not our token, not the public factory
+`0.0.9213391`, not the resolver `0.0.9212226`.** The ATS team have never verified their own
+deployments. There was no precedent to copy and a real chance the answer was "no", for a structural
+reason: a diamond proxy created *inside* another transaction rather than by a top-level creation
+transaction is exactly the shape that trips creation-bytecode matching.
+
+**What happened.** `exact_match`, on the first submission, with `runtimeMatch: exact_match` and 17
+source files in the repo. The structural worry was half-right and turned out not to matter:
+`creationMatch` is `null` — Sourcify cannot find creation bytecode for a contract the factory built
+with `new ResolverProxy(...)` — but the runtime match stands on its own, and the runtime match is what
+makes a block explorer render source and decode events. **"Where applicable" has no teeth for this
+contract class after all.**
+
+**What made it work was refusing to submit until the bytes agreed.** The verification is only as good
+as the Standard JSON Input, and the package ships none — `artifacts/build-info/` is explicitly
+excluded by its `files` array, the artifacts carry no `metadata` field, and the metadata CID embedded
+in the bytecode resolves nowhere on IPFS. Every input had to be recovered from somewhere else:
+
+| input | recovered from |
+|---|---|
+| solc 0.8.28, optimizer on, runs 100, evmVersion cancun | upstream `hardhat.config.ts` at the reviewed commit |
+| bytecodeHash `ipfs` | the CBOR trailer in the deployed bytecode itself |
+| 16 package sources | traced from `ResolverProxy.sol`'s import closure |
+| `@openzeppelin/contracts` **4.9.6** | upstream `package-lock.json` — `package.json` says `^4.9.6` |
+
+**That last row was the live trap.** A caret range is not a compiler input. Solidity's metadata hash
+covers every source in the compilation unit, so a different 4.9.x would have changed the trailing
+bytes even though `EnumerableSet` contributes nothing to a 390-byte dispatcher. The manifest could not
+answer it; the lockfile could.
+
+**What changes.**
+
+- **Compile and compare before submitting, always.** The metadata hash is *in* the deployed bytecode,
+  so an exact reassembly is checkable offline for free, and a submission becomes a formality rather
+  than an experiment. `scripts/verify-ats.ts` will not POST until the 390 bytes are identical.
+- **On a mismatch, never reach for the optimizer.** The script says so in its own failure path, and
+  it reports whether the difference falls inside the CBOR trailer (metadata inputs are wrong — a
+  source's bytes, a source *key*, or a setting) or in executable code (wrong contract or wrong
+  compiler). Tuning settings until a hash lands certifies source that is not what ran, which is worse
+  than not verifying at all.
+- **Source *names* are compiler inputs.** The metadata records them verbatim, so the keys have to be
+  the ones hardhat used — `contracts/…` for package files, `@openzeppelin/contracts/…` for the
+  node_modules import. Getting the file bytes right and the key wrong fails identically.
+
+The pattern this file keeps recording appears again, inverted for once and in our favour: the answer
+was not in the documentation, the package, or IPFS — it was in the artifact itself. **A deployed
+contract carries a fingerprint of exactly how it was built, and that fingerprint is checkable without
+asking anyone's permission.**
