@@ -89,6 +89,25 @@ should carry that.
 Each is one commit. **Nothing is built ahead.** Ceilings from `CLAUDE.md` apply — LOGIC files ~120
 lines, split before writing if longer.
 
+⚠️ **Reordered and shortened, 2026-09-06 — fourteen units, was fifteen.** Two changes, both for the
+same kind of reason.
+
+**Corroboration now precedes the adapter** (`corroborate.ts` 9 → 7, `adapter.ts` 7 → 8,
+`evidence.ts` 8 → 9). The adapter's plausibility rules — utilization ceilings, TVL reconciliation,
+which deployments to distrust and by how much — are *exactly what corroboration produces evidence
+about.* Building the encoder first means encoding assumptions and then looking for confirmation.
+**This is the same mistake Phase 0 kept catching**, in its third form: SM-03 found a revenue field
+that parses and lies, SM-04 found a comparison block chosen before anyone checked when the value was
+written, and the wire contracts were nearly frozen a phase before the findings that shaped them.
+Write the check, run it, then encode what it found.
+
+**Fan-out folded into Unit 3**, which retires the old Unit 12. A single-endpoint client that grows a
+fan-out later is the wrong shape: retrofitting means touching every call site, which is the same
+argument that makes `_meta` unconditional rather than a flag. `querySubgraph()` handles one
+deployment and a sibling handles many — `Promise.all` with **per-protocol error isolation**, so one
+failure returns a failure for that deployment rather than taking the set down. SM-02 already works
+this way.
+
 ### 1 · `src/types/wire.ts` — SCAFFOLD, ~80 lines
 
 The contracts between subsystems, frozen. `Report`, `Computed`, `Verdict`, `Provenance`, plus the
@@ -109,18 +128,33 @@ time (finding #3).
 
 *Proof:* five rows, typed, and adding a sixth is visibly one row.
 
-### 3 · `src/graph/client.ts` — **LOGIC**, ~110 lines ★
+### 3 · `src/graph/client.ts` — **LOGIC**, ~170 lines ★ *(absorbs the old Unit 12)*
 
-`querySubgraph(slug, document, variables, block?)`. Plain `fetch`, always requests `_meta`, returns
-`{ data, meta, evidence }`.
+**One deployment and many, in the same unit.**
 
-Carries: **one retry on timeout** (finding #8), and error branching that distinguishes PRUNED from
-LAGGING on the exact error strings.
+- `querySubgraph(slug, document, variables, block?)` — plain `fetch`, always requests `_meta`,
+  returns `{ data, meta, evidence }`. Carries **one retry on timeout** (finding #8) and error
+  branching that distinguishes PRUNED from LAGGING on the exact error strings.
+- **The sibling that handles many** — `Promise.all`, not a loop. ~200ms of pure network per gateway
+  call, so five sequential is 2.2s before any work happens. ⚠️ **Per-protocol error isolation:** one
+  deployment failing returns a failure *for that deployment*, not for the set. Finding #8 is the
+  reason — five parallel requests once returned four ETIMEDOUT and 5/5 on retry, and a fan-out that
+  fails whole would have reported nothing on a run where four fifths of the data was one retry away.
 
-> **This is the file the whole build rests on.** Phase 4's settlement calls this same function — that
-> reuse is what makes The Graph load-bearing end to end (G2.1). Read it line by line.
+⚠️ **Budget model turns, tokens, rows, response bytes, per-provider deadlines and total runtime** —
+not just a query count.
 
-*Proof:* replaces SM-02's inline fetch and the five-protocol query still works.
+> **This is the file the whole build rests on.** Phase 4's settlement calls these same functions —
+> that reuse is what makes The Graph load-bearing end to end (G2.1). Read it line by line.
+
+⚠️ **This is over the ~120-line ceiling before a line is written, and the seam is named in advance.**
+`CLAUDE.md` asks for that to be said before rather than after. If it splits, it splits **between one
+request and many** — retry, `_meta`, error classification and evidence on one side; `Promise.all`,
+isolation and budgets on the other — because that is the boundary the two halves already have, not a
+line count someone found halfway down the file. **A split anywhere else means the seam was wrong.**
+
+*Proof:* replaces SM-02's inline fetch, the five-deployment query still works, and killing one
+deployment's endpoint returns four results and one failure rather than nothing.
 
 ### 4 · `src/graph/queries/` — SCAFFOLD, ~120 lines across files
 
@@ -162,9 +196,51 @@ reconciliation withholds.
 
 *Proof:* pulls >250 markets from aave-v3 and reports completeness honestly.
 
-### 7 · `src/graph/adapter.ts` — **LOGIC**, ~110 lines ★★
+### 7 · `src/graph/corroborate.ts` — **LOGIC**, ~100 lines ★ *(was Unit 9)*
+
+Read the contract at the block the subgraph **wrote** the value, assert exact equality (findings #3,
+#4, #5).
+
+Three outcomes, and the third is the honest one:
+- **MATCH** — exact
+- **MISMATCH** — a finding, with the delta
+- **NOT_CHECKED** — this market has no write-time field
+
+⚠️ **No tolerance.** Where the field is missing, say so — don't fall back to approximate agreement. A
+check that silently weakens for some protocols is worse than one that admits its limits.
+
+⚠️ **This is a disagreement detector, not an audit of The Graph** (PLAN-v4 §5.14, amended
+2026-09-06). The plan originally framed the RPC as verifying the subgraph. The first thing the check
+found was Morpho disagreeing with its own contract — identically at both blocks, so not drift. A
+`MISMATCH` reports *these two sources disagree, by this much, here*. **Which side is wrong is
+per-deployment and sometimes open**, and that judgement belongs in the deployment's semantic notes,
+not in this file.
+
+⚠️ **It runs before the adapter exists, and that is the point.** This unit reads through `client.ts`
+and nothing else — **raw subgraph fields against raw contract calls, unadapted.** Nothing is
+normalized, renamed or reconciled on the way through, so a `MISMATCH` here is a fact about the two
+sources rather than a fact about our encoding of them. That is what makes the output *evidence*, and
+evidence is what Unit 8 is built from.
+
+Needs `ETHEREUM_RPC_URL`, archive-capable, already in `.env`.
+
+*Proof:* aave-v3 matches to the unit; compound-v3 returns NOT_CHECKED on 7 of 10 markets; Morpho's
+known mismatch reproduces.
+
+⚠️ **The Morpho reproduction is expected, not proven.** SM-04 read Morpho through a throwaway path —
+a direct `market(bytes32)` call against Morpho Blue, decoded inline. This unit reaches it through
+`client.ts` instead. Same numbers *should* come out, and the path is now short enough that if they
+don't, there is almost nothing between the two readings to blame. **A disagreement here is a finding
+about our path, not about Morpho.** Do not tune anything to make it reproduce.
+
+### 8 · `src/graph/adapter.ts` — **LOGIC**, ~110 lines ★★ *(was Unit 7)*
 
 **The unit Phase 0 reshaped most.** Not field renaming — a plausibility layer.
+
+**Built after corroboration, deliberately.** Every rule below is a judgement about which numbers to
+distrust and by how much, and Unit 7 has just produced measured evidence on exactly that question for
+every deployment in the set. Written first, these rules would have encoded what we assumed Phase 0
+meant; written second, they encode what the check actually returned.
 
 Per deployment:
 - **Revenue availability** — three states. Poisoned and not_tracked **never render as a number.** Not
@@ -176,10 +252,17 @@ Per deployment:
   the loan token
 - **Schema-version dispatch** on the value the deployment *reports live*, never on config
 
-*Proof:* Morpho's $13.06B comes back flagged, not silently accepted. compound-v2's missing 3.x fields
-degrade rather than crash.
+⚠️ **Re-run Unit 7 through the adapter and confirm the numbers are unchanged.** Unit 7 read Morpho
+unadapted and got a known delta — exactly −10,000,000 on USDC/PAXG. The same read *through* this file
+must produce that same delta. **If it moves, the adapter is changing a value on its way through**,
+and that is a finding worth more than the reproduction was: it is the one check that can catch a
+plausibility layer quietly becoming a correction layer. Do not tune anything to make the numbers
+agree.
 
-### 8 · `src/graph/evidence.ts` — SCAFFOLD, ~70 lines
+*Proof:* Morpho's $13.06B comes back flagged, not silently accepted. compound-v2's missing 3.x fields
+degrade rather than crash. Unit 7's deltas survive the round trip unchanged.
+
+### 9 · `src/graph/evidence.ts` — SCAFFOLD, ~70 lines *(was Unit 8)*
 
 **Two tiers, and the caller picks** (PLAN-v4 §5.18, decided 2026-09-06):
 
@@ -203,38 +286,6 @@ a document got reused somewhere new.
 *Proof:* a default query produces a record whose hash matches a re-fetch at the same block; a query
 flagged settlement-backing additionally stores bytes that reproduce the figures without the network.
 
-### 9 · `src/graph/corroborate.ts` — **LOGIC**, ~100 lines ★
-
-Read the contract at the block the subgraph **wrote** the value, assert exact equality (findings #3,
-#4, #5).
-
-Three outcomes, and the third is the honest one:
-- **MATCH** — exact
-- **MISMATCH** — a finding, with the delta
-- **NOT_CHECKED** — this market has no write-time field
-
-⚠️ **No tolerance.** Where the field is missing, say so — don't fall back to approximate agreement. A
-check that silently weakens for some protocols is worse than one that admits its limits.
-
-⚠️ **This is a disagreement detector, not an audit of The Graph** (PLAN-v4 §5.14, amended
-2026-09-06). The plan originally framed the RPC as verifying the subgraph. The first thing the check
-found was Morpho disagreeing with its own contract — identically at both blocks, so not drift. A
-`MISMATCH` reports *these two sources disagree, by this much, here*. **Which side is wrong is
-per-deployment and sometimes open**, and that judgement belongs in the deployment's semantic notes,
-not in this file.
-
-Needs `ETHEREUM_RPC_URL`, archive-capable, already in `.env`.
-
-*Proof:* aave-v3 matches to the unit; compound-v3 returns NOT_CHECKED on 7 of 10 markets; Morpho's
-known mismatch reproduces.
-
-⚠️ **The Morpho reproduction is expected, not proven.** SM-04 read Morpho through a throwaway path —
-a direct `market(bytes32)` call against Morpho Blue, decoded inline. Unit 9 reaches it through
-`client.ts` and `adapter.ts`. Same numbers *should* come out. **If they don't, that is a finding
-about our path, not about Morpho** — and it is worth more than the reproduction would have been,
-because it means the adapter is changing a value on its way through. Do not tune anything to make it
-reproduce.
-
 ### 10 · `src/agent/loop.ts` — **LOGIC**, ~100 lines
 
 The Claude tool-use loop, promoted from SM-06. A `while` over `stop_reason === "tool_use"`. Not a
@@ -255,21 +306,11 @@ poisoned before quoting it.
 *Proof:* the agent asks about revenue on aave-v3 and is told it's unavailable rather than handed
 $279 quadrillion.
 
-### 12 · Multi-protocol fan-out — **LOGIC**, ~60 lines
-
-`Promise.all`, not a loop. ~200ms of pure network per gateway call; five sequential is 2.2s before any
-work.
-
-⚠️ Budget model turns, tokens, rows, response bytes, per-provider deadlines and total runtime — not
-just a query count.
-
-*Proof:* all five deployments at a common block, one call, under a second.
-
 ---
 
 ## Then, and only then
 
-### 13 · `scripts/vet-protocol.ts` — **LOGIC**, ~120 lines
+### 12 · `scripts/vet-protocol.ts` — **LOGIC**, ~120 lines *(was Unit 13)*
 
 Point it at a subgraph ID, get a verdict. It's the Phase 0 smoke tests consolidated: does the document
 run, is revenue sane, does TVL reconcile externally, does the contract agree.
@@ -282,7 +323,7 @@ rather than duplicating them.
 
 *Proof:* run against a protocol not in our set and get a truthful verdict.
 
-### 14 · Subgraph MCP — **LOGIC**, ~80 lines. Optional.
+### 13 · Subgraph MCP — **LOGIC**, ~80 lines. Optional. *(was Unit 14)*
 
 Anthropic's `mcp_servers` pointed at `subgraphs.mcp.thegraph.com/sse`. Gives keyword search across
 ~15,000 subgraphs, deployments by contract address, and schema introspection.
@@ -297,7 +338,7 @@ a real demo beat.
 
 **Cut without consequence** if Phase 1 runs long. The standardized-schema branch already qualifies.
 
-### 15 · Revenue fix — **LAST. Deliberately.**
+### 14 · Revenue fix — **LAST. Deliberately.** *(was Unit 15)*
 
 Deploy a corrected Messari subgraph fixing aave-v3's accumulator, and implement Morpho's revenue from
 `Market.interest`, which is present but never converted or aggregated.
@@ -324,12 +365,12 @@ and it's also G1.4 — "authoring or extending a Standardized Subgraph" — whic
 
 | # | Requirement | Closed by |
 |---|---|---|
-| **G1.1** | Standardized schema, meaningfully | Units 2–4. Unit 14 adds the composition branch too |
+| **G1.1** | Standardized schema, meaningfully | Units 2–4. Unit 13 adds the composition branch too |
 | **G1.2** | Live data, no mocks or local index | Unit 3. **Nothing is cached as a source** |
 | **G1.3** | More than one subgraph | **Five deployments configured and queried across three schema versions; four carry figures a report will publish** |
 | **G1.5** | ⚠️ Standards leverage **demonstrated** | The one-row demo. **Rehearse it — pass/fail** |
 | **G2.1** | The Graph load-bearing | Unit 3, and Phase 4 calls the same function |
-| G1.4 | Authoring/extending a standardized subgraph | Unit 15, if it lands |
+| G1.4 | Authoring/extending a standardized subgraph | Unit 14, if it lands |
 | G2.3 | Meaningful work — reasoning, decisions | **Not this phase.** Phase 2 reconciles, Phase 4 commits money |
 
 ---

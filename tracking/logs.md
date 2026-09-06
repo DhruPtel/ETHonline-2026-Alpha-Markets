@@ -707,3 +707,42 @@ transaction is in `docs/evidence.md`.
 **a document describing the plan as it was drafted rather than as Phase 0 left it.** Every one of them
 would have been caught by re-reading the plan against the results file, and none of them by reading
 either alone. Worth doing again before Phase 2 starts.
+
+## 2026-09-06 — Phase 1 reordered: evidence before encoding, and the client fans out from the start
+
+Two structural corrections to `PHASE-1.md`, both answers to questions raised while reviewing the unit
+sequence. Still documentation only — `src/` does not exist and Unit 1 has not started.
+
+**`corroborate.ts` moves ahead of `adapter.ts`** (9 → 7, adapter 7 → 8, evidence 8 → 9). The adapter's
+whole job is deciding which numbers to distrust and by how much, and corroboration is the thing that
+produces measured evidence on exactly that question. Building the encoder first means encoding what
+we assumed Phase 0 meant and then looking for confirmation. **This is the third time the same shape
+has come up:** SM-03 found a revenue field that parses and lies, SM-04 found a comparison block picked
+before anyone checked when the value was written, and the wire contracts were nearly frozen a phase
+ahead of the findings that shaped them. Write the check, run it, then encode what it found.
+
+The reorder had a consequence that had to be resolved rather than renumbered around. Unit 9's Morpho
+paragraph said it "reaches it through `client.ts` and `adapter.ts`" — which the new order makes false.
+Rewritten so corroboration reads **raw subgraph fields against raw contract calls, unadapted**, which
+is what makes its output evidence rather than a fact about our own encoding. The concern that
+sentence was carrying didn't disappear, it relocated: the adapter unit now has to re-run the same read
+*through* itself and confirm Morpho's −10,000,000 delta is unchanged. That is a better check than the
+original, because it can catch a plausibility layer quietly turning into a correction layer, and it
+only exists because there is now a known-good pre-adapter number to compare against.
+
+**Fan-out folded into Unit 3**, retiring Unit 12 and taking the phase from fifteen units to fourteen.
+A single-endpoint client that grows a fan-out later is the wrong shape — retrofitting means touching
+every call site, the same argument that makes `_meta` unconditional rather than a flag. `querySubgraph()`
+handles one deployment, a sibling handles many with `Promise.all` and **per-protocol error isolation**.
+Finding #8 is why isolation is in the unit rather than added later: five parallel requests once
+returned four ETIMEDOUT and 5/5 on retry, so a fan-out that fails whole would have reported nothing
+on a run where four fifths of the data was one retry away.
+
+⚠️ **Unit 3 is now ~170 lines against a ~120 ceiling, and the seam is named in the document before a
+line is written** rather than found halfway down the file. It splits between one request and many —
+retry, `_meta`, error classification and evidence on one side; `Promise.all`, isolation and budgets on
+the other. A split anywhere else means the seam was wrong.
+
+Unit 11 stays at two tools, confirmed rather than changed. `get_capabilities` is not a hedge against
+`run_document` being insufficient — it is how the agent learns aave-v3's revenue is poisoned *before*
+quoting it. Folding it in would mean discovering the flag only after asking for the number.
