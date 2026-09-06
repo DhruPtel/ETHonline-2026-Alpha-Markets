@@ -372,6 +372,11 @@ cumulativeDepositUSD ≥ cumulativeBorrowUSD FAILS.
 `{ severity, appliesTo, rationale }`. **`DATA_ERROR` blocks a report. So does an incomplete
 population** — those are the only two blocking conditions.
 
+⚠️ **"Incomplete population" is about the population, not the page** *(clarified 2026-09-06)*. A
+report reading 4,000 markets over 16 pages of 250 is **complete**; one that stopped at a budget with
+rows outstanding is **`INCOMPLETE`** and withholds, however many pages it read. See §5.18 — `first ≤
+250` is a per-request cap and never a ceiling on the universe.
+
 ⚠️ **Amendment, 2026-09-06 (SM-02) — the four severities, named.** The blocking rule above was
 right and unenumerated, which left "severity" undefined at the point it does the most work.
 
@@ -428,6 +433,18 @@ whole check defeated to work around a block-alignment problem that has an exact 
 
 **The procedure:** read the field's own write-time from the subgraph, resolve it to a block,
 `eth_call` there, and assert **equality**. Verified exact on aave-v3 and aave-v2.
+
+⚠️ **Amendment, 2026-09-06 (SM-04) — corroboration is a DISAGREEMENT DETECTOR, not a one-directional
+audit of The Graph.** This section was written as though the RPC verifies the subgraph: chain
+authoritative, subgraph checked against it. The first thing the check actually found was **Morpho
+disagreeing with its own contract** on 2 of its 3 largest markets — identically at both the
+write-time block and the indexing head, so not drift, and one difference exactly `-10,000,000`.
+
+**What a mismatch means is per-deployment, and sometimes open.** It may be a mapping bug, a
+deliberate derivation the mapping documents and the contract does not expose, or a contract read at
+the wrong semantic level. The check's output is *these two sources disagree, by this much, here* —
+attributing the error is a separate judgement that belongs with the deployment's semantic notes, not
+with the comparison. **Do not write "the subgraph is wrong" into the check.**
 
 ⚠️ **Corroboration is a per-market capability, not a per-deployment one**, and the adapter carries a
 corroboration flag the way it already carries the revenue flag. Measured across all five deployments:
@@ -513,8 +530,16 @@ health-check time, not in the request path.
 - **Protocol set:** ⚠️ **Spark is out** — 1.0 GRT signal against a recommended 3,000. Use
   **aave-v2 + aave-v3** (byte-identical schema, 42.7k GRT) for the leverage claim, plus **compound-v2**
   (2.0.1, 40.7k GRT) and **compound-v3** (3.1.0, 31k GRT) for version diversity.
-- **Evidence size:** `first ≤ 250` enforced in `paginate.ts`; per-observation byte cap. Oversize →
-  report `INCOMPLETE`.
+- ⚠️ **Amendment, 2026-09-06 — `first ≤ 250` is a PAGE SIZE, not a population ceiling.** The line
+  below conflated two separate things and the conflation would have capped the market universe at
+  250 rows. **`paginate.ts` pages until the population is exhausted or a budget is hit, and reports
+  completeness honestly either way.** `first ≤ 250` is the per-request cap that keeps any single
+  response small; it says nothing about how many pages get fetched.
+- ⚠️ **Evidence is a record, not a copy.** It is deliberately **small**: deployment hash, document
+  name, variables, block number, timestamp, row count, completeness, and a **hash of the response** —
+  enough to answer *what did you query, and when*, and enough to re-run it. **Not the raw response.**
+  A per-observation byte cap applies to that record, and it should never come close to binding.
+- **Oversize or budget-truncated populations →** `INCOMPLETE`, never a successful total.
 - ⚠️ **Untrusted strings:** `Market.name` and `Token.symbol` are indexer-supplied and reach reports and
   HTML. Purchased reports are untrusted data to the buyer agent. Escape and bound both.
 - **Types:** freeze wire contracts (`Report`, `Computed`, `Verdict`, `Provenance`) Day 1; version
