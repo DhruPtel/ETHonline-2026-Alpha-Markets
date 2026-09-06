@@ -447,3 +447,109 @@ had not caught up. One caveat on the confirmation: the Sourcify record is verifi
 (`exact_match`, re-queried independently after submission), but the HashScan UI rendering itself was
 not checked, because that needs a browser and Sourcify's browser-compat endpoint refuses terminal
 clients.
+
+## 2026-09-06 — Setup unit: Circle entity secret ciphertext
+
+Wrote `scripts/provision-circle.ts`, which produces the "Entity Secret Ciphertext" Circle's console
+Register form asks for and does nothing else — no wallets, that is SM-08. It reuses
+`CIRCLE_ENTITY_SECRET` if one is already set and only generates a new 32-byte value when there is
+none, because regenerating a registered secret would orphan every wallet derived from the old one.
+Added `@circle-fin/developer-controlled-wallets` pinned exact at 10.8.0. The SDK turned out to export
+`generateEntitySecretCiphertext({apiKey, entitySecret})` directly, so it fetches Circle's public key
+and does the RSA-OAEP encryption itself and we never touch the key.
+
+**It is written and has not produced a ciphertext, because `CIRCLE_API_KEY` is not on this machine.**
+The unit brief said it was already in `.env`; it is not, and it was not in `.env.example` either, so
+both Circle variables are now documented there. Step 1 runs and prints a secret; step 2 stops with
+the reason and tells you the step-1 value is still good. Same shape as SM-06 when that was waiting on
+an Anthropic key: the script is correct, the credential is missing, and nothing is claimed to have
+worked that hasn't.
+
+Two things worth knowing. The install is **1.2 MB**, not the 5.3 MB the brief budgeted — one
+dependency, axios, as expected. And the reason for doing registration by hand may not hold: the SDK's
+`registerEntitySecretCiphertext` is typed to return `{ data: { recoveryFile } }`, so the API path
+does hand back the recovery file. The console path is still what the script is built for, since that
+is what was asked, but the choice can be made on preference rather than on losing the file.
+
+## 2026-09-06 — Unit 7: SM-08, blocked on a faucet but U10 falls out anyway
+
+Picked up SM-08 from an interrupted session. The script turned out to be **already written** and
+sound — the previous session had written all of it and provisioned the Circle wallet
+(`0x1b7035bb…16a7`, EOA, ARC-TESTNET, LIVE) before stopping, so there was nothing to build. It
+already reflected the three answers that came back: a separate `ARC_DEPLOYER_KEY` for the deploy, no
+`spendControls` (that was `@x402/core`'s in SM-05 and does not transfer to Circle's client), and
+`accountType: "EOA"` because `claimId` derives the author from `msg.sender`.
+
+**It is blocked at step 3 and SM-08 is not a pass.** Circle's faucet returns HTTP 429 / `code 5` /
+"API rate limit error" — and it was already rate-limited before this session touched it, since the
+very first call of the run got the 429 while `getWallet` had succeeded seconds earlier. That is the
+faucet endpoint specifically, not account-wide throttling. Retried at ten-minute spacing and left
+running. **Not worked around**: funding the Circle wallet from the deployer key would put a
+transaction that can fail on its own between us and the measurement, which is the whole reason the
+deployer is a separate key.
+
+The useful part is that **U10 closed on a run that never got any USDC.** PLAN-v4 §8 and §5.18 both
+pin "measure Arc's `eth_getLogs` range limit" on SM-08 and the unit brief had dropped it; raised it
+rather than picking an interpretation, and it came back as a step to add. It needs no funding, so it
+went in as **step 2, before the faucet gate** — which is why it produced an answer at all today.
+
+**Arc's limit is 30,000 blocks of span, and Arc's own error messages are wrong about it.** A
+full-chain sweep refuses with "eth_getLogs is limited to a 10,000 range" while 30,000 works —
+30,000 accepted and 30,001 refused, five repetitions, identical across three runs. A busy address
+hits a different limit, a row cap that refuses citing "max results 20000" after having accepted
+queries returning 37,888 and 38,952 rows. Both numbers in the error strings understate what is
+enforced, which is exactly the kind of number someone copies into a constant, so it is written up as
+a lesson. The first bisect reported "3442 blocks" as a ceiling and that figure was junk — it is a row
+cap wearing a block count and it drifted to 3,384 on the next run — so the script now reports the row
+count beside it and says which of the two numbers means anything.
+
+**Half the decimal question answered itself for free.** `ARC_DEPLOYER_KEY`, funded from that same
+faucet with a nominal 20 USDC, holds `20000000000000000000` raw — exactly 20 × 10^18. So Arc's native
+value denomination is 18 decimals, confirmed on-chain, against `decimals() = 6` on the ERC-20 view at
+the same address. That makes an 18-decimal arrival the likelier one, and it is **not** the
+measurement SM-08 exists for, which is specifically what Circle's `amount: "2.50"` string scales to.
+Recorded as a partial answer with that caveat attached, because it is the kind of near-answer that
+gets rounded up to a real one later.
+
+Also added `ARC_DEPLOYER_KEY` and `CIRCLE_WALLET_ID` to `.env.example` with the reasoning for each,
+closed U10 in §12, amended §5.18 to carry the measured bound, and logged a to-do that **a spend cap
+still has to be set on the wallet set in Circle's console** — Circle's limits are server-side policy,
+so nothing in code covers it and R8 has no Arc-side answer until someone opens the console. The
+script is now ~390 lines with the new step, most of it comment and error handling; the added logic is
+about 60 lines.
+
+## 2026-09-06 — Unit 7b: SM-08 passes, and the answer is 18 decimals
+
+The faucet cleared and SM-08 ran end to end. **`msg.value` arrives at 18 decimals** — Circle's
+`amount: "2.50"` became `2500000000000000000`, confirmed both from the receiver's `Received` event
+and from the raw transaction's `value` field, which is what Circle actually signed. The payable call
+is [`0x4132fb9d…1da143`](https://testnet.arcscan.app/tx/0x4132fb9d09c35cfb721a68fa9c2ad0e2d3cb9a4ab5315d4cb7f31bfa231da143)
+and `msg.sender` is the Circle EOA, asserted rather than eyeballed. **U3 is closed and U10 with it.**
+
+The faucet resolved itself in a way worth recording: `requestTestnetTokens()` kept returning 429
+across ~35 minutes while `faucet.circle.com`'s web form funded the same address immediately. **The
+rate limit is on the API endpoint, not the faucet** — two front doors, independent limits, only one
+scriptable. The first web grant went to the deployer rather than the Circle wallet, which the balance
+check caught before anything was built on it; the two Arc addresses in `.env` are easy to confuse and
+only the Circle one has a `msg.sender` the test can measure.
+
+**The thing we did not go looking for is the most useful.** The payable call emitted two logs, not
+one: our `Received`, and an ERC-20 `Transfer` from the synthetic address `0xffff…fffe` that Arc
+raises for every native value movement. That `Transfer` carries an 18-decimal amount, while the USDC
+contract at `0x3600…0000` reports `decimals() = 6` on the very same balance. So the ordinary way to
+index a transfer — match the event, read `decimals()`, scale — is wrong by 10^12 on Arc, silently,
+with a plausible number either way. Written up as a lesson and as a Phase 4 to-do, and it is why the
+test sent "2.50" rather than a round number.
+
+Two smaller results. The async latency the brief expected to fight our serverless flow measured
+**4.4 seconds** submit-to-`COMPLETE`, with the transaction hash appearing at 2.1s — that fits inside
+a Vercel function, though it is one sample against a state machine with no stated upper bound, so the
+Phase 4 call should still rest on the API's shape rather than on this number. And the whole exercise
+cost **0.0027 USDC** in gas across both transactions, with the wallet reconciling to the wei:
+20 → 17.499181987242880000, being 2.5 of value plus 0.000818 of gas.
+
+Amended §12 to close U3 and U10, §5.18 to carry the measured 30,000-block bound, and R5 from a risk
+to a measured fact with the 10^12 factor attached. Added the payable call to `docs/evidence.md`. The
+open Circle item is unchanged and is not this script's problem: **a spend cap still has to be set on
+the wallet set in the console**, because Circle's limits are server-side policy and this run moved
+2.5 USDC with nothing standing in its way.

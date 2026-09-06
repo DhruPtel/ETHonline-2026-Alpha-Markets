@@ -41,3 +41,16 @@ supply 1 and decimals 0 — one report, one token.
 of Messari's own plus Morpho Blue on Messari's standardized template — across three schema versions,
 live from The Graph's gateway.
 **When:** 2026-09-05
+
+## An agent spending its own USDC through Circle, on Arc
+
+**Where:** [`0x4132fb9d…1da143`](https://testnet.arcscan.app/tx/0x4132fb9d09c35cfb721a68fa9c2ad0e2d3cb9a4ab5315d4cb7f31bfa231da143)
+· receiver [`0x5d72aDC3…f8CfE`](https://testnet.arcscan.app/address/0x5d72aDC37C90CA8A493dC8fD06986544ffCf8CfE)
+**What it proves:** A payable contract call completed on Arc testnet from a **Circle
+developer-controlled EOA** — `msg.sender` is the Circle wallet `0x1b7035bb…16a7`, not a private key
+in an environment variable, which is what the Arc agentic track asks to see. The call carried 2.5
+USDC of real value: the receiver holds `2500000000000000000` and the wallet went
+`20000000000000000000` → `17499181987242880000`, reconciling to the wei against 2.5 USDC plus
+0.000818 of gas. Submitted through Circle's async API, which returns an id rather than a hash and
+reached `COMPLETE` in 4.4 seconds.
+**When:** 2026-09-06

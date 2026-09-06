@@ -20,7 +20,7 @@ action lands here; when a test forces a choice, the choice is recorded in `DECIS
 | **SM-05** | x402 payment on Hedera **testnet** | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | **PASS** — settled in HBAR, not USDC | 2026-09-06 |
 | **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
 | **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | **PASS** — balance moved 1 → 0 / 0 → 1 | 2026-09-06 |
-| **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | NOT RUN | — |
+| **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | **PASS** — `msg.value` arrives at **18 decimals**; log ceiling 30,000 blocks | 2026-09-06 |
 | **SM-09** | Browser stake | MetaMask adds Arc via `wallet_addEthereumChain` and completes a stake under `next build` | NOT RUN | — |
 
 ✅ **The SM-02 / SM-04 mismatch is resolved (2026-09-05).** SM-02 keeps the multi-protocol query and
@@ -584,6 +584,209 @@ proxy is created inside `deployEquity` rather than by a top-level creation trans
   **Why:** It is the earlier of the two and it was never recorded until now. If new mints are needed
   after 2026-09-10 the fallback is our own 111-contract deploy, ~29 minutes.
   **When:** before any demo that mints live
+  **Status:** open
+
+---
+
+## SM-08 — Circle payable call
+
+**Run:** 2026-09-06
+**Result:** **PASS**
+**Script:** `scripts/smoke/08-circle-payable-call.ts`
+**Wallet:** Circle `3aea9090-5266-5d15-b0e9-51e9974f6ed5` → `0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7`
+— `accountType` **EOA**, `ARC-TESTNET`
+**Receiver:** `0x5d72aDC37C90CA8A493dC8fD06986544ffCf8CfE`
+
+| step | transaction |
+|---|---|
+| deploy receiver (ethers, `ARC_DEPLOYER_KEY`) | [`0x8b0b2ef6…16e10`](https://testnet.arcscan.app/tx/0x8b0b2ef67a15c0d437e1273d7c68f32f056c2252b6f82e9d932d043844016e10) |
+| `ping()` payable, **through Circle** | [`0x4132fb9d…1da143`](https://testnet.arcscan.app/tx/0x4132fb9d09c35cfb721a68fa9c2ad0e2d3cb9a4ab5315d4cb7f31bfa231da143) |
+
+**What it proved:** An agent can spend its own USDC through Circle's infrastructure rather than a raw
+private key — a developer-controlled EOA completed a payable contract call on Arc, `msg.sender` is
+the Circle wallet, and **`msg.value` arrives at 18 decimals**. Plus Arc's `eth_getLogs` ceiling,
+measured (**U10 closed**).
+
+### Findings
+
+#### ⚠️ THE ANSWER — `amount: "2.50"` arrives as `2500000000000000000`. Eighteen decimals.
+
+| | |
+|---|---|
+| sent | `amount: "2.50"` |
+| `msg.value` in the emitted log | `2500000000000000000` |
+| transaction `value` field | `2500000000000000000` |
+| read at 18dp | **2.5** ✅ |
+| read at 6dp | 2,500,000,000,000 ✗ |
+
+**U3 is answered.** Circle's `amount` string is scaled by `10^18` to the chain's native denomination,
+not by `10^6` to the ERC-20 view. Confirmed twice over — once from the contract's own `Received`
+event and once from the raw transaction's `value` field, which is what Circle actually signed.
+
+⚠️ **Anything storing `msg.value` as a USDC amount must divide by `10^12` first.** R5 is real and now
+has a number attached: get this wrong and every figure is off by a trillion.
+
+#### The same holding, presented at two scales
+
+Read against the deployer's 20 USDC, before any of this moved:
+
+| interface | call | result |
+|---|---|---|
+| native value | `eth_getBalance` | `20000000000000000000` = 20 × 10^18 |
+| ERC-20 view | `balanceOf` on `0x3600…0000` | `20000000` = 20 × 10^6 |
+| ERC-20 view | `decimals()` on `0x3600…0000` | `6` |
+
+One balance, two authoritative presentations, exactly `10^12` apart. The conversion factor is
+measured, not inferred.
+
+#### ⚠️ Native transfers emit an ERC-20 `Transfer` event — at 18 decimals, from a synthetic address
+
+Not something the test set out to find, and the most dangerous thing in this section. The payable
+call produced **two** logs, not one:
+
+| # | address | event | value |
+|---|---|---|---|
+| 0 | `0xffffffffffffffffffffffffffffffffffffffe` | `Transfer(from, to, value)` | `2500000000000000000` |
+| 1 | `0x5d72aD…f8CfE` *(our receiver)* | `Received(sender, value)` | `2500000000000000000` |
+
+Arc mirrors every native value movement as a standard ERC-20 `Transfer` log emitted by
+`0xffff…fffe` — **not** by the USDC address at `0x3600…0000`.
+
+⚠️ **The amount in that `Transfer` is at 18 decimals, while the token contract those events look like
+they belong to reports `decimals() = 6`.** An indexer doing the ordinary thing — match
+`Transfer`, look up `decimals()`, scale — is wrong by `10^12`. The event and the metadata that
+appears to describe it disagree, and nothing in either one says so.
+
+**Consequence for §5.18.** Value moving on Arc *is* observable through logs, which is useful. But
+`0xffff…fffe` carries every native transfer on the chain, so filtering on it hits the row cap
+described below almost immediately. **Filter on the market contract's own events, not on the
+synthetic `Transfer` stream.**
+
+#### U10 — the ceiling is 30,000 blocks, and Arc's error strings understate both limits
+
+Measured by doubling until refusal then bisecting, on two filters chosen to separate the two limits
+Arc actually enforces:
+
+| filter | ceiling | rows at ceiling | refusal above it |
+|---|---|---|---|
+| address with no logs | **30,000 blocks** | 0 | `-32012 requested range too large` |
+| native USDC `0x3600…0000` | ~3,400–3,700 blocks *(drifts)* | ~38,000–39,000 | `-32602 … query exceeds max results 20000, retry with the range <a>-<b>` |
+
+- **30,000 is exact and stable.** 30,000 succeeds and 30,001 refuses, five repetitions each, and the
+  figure was identical on all four runs of the script. It is a configured span limit.
+- ⚠️ **The advertised numbers are wrong in both directions.** A full-chain span returns
+  `-32614 "eth_getLogs is limited to a 10,000 range"` — but 30,000 demonstrably works. The row-cap
+  refusal says `max results 20000` — but queries returning **37,888**, **38,952** and **39,047** rows
+  were all accepted. Neither number in Arc's error text is the number it enforces.
+- **The two ceilings are not the same kind of number.** The quiet one is a block-span limit and is
+  constant. The busy one is a row cap wearing a block count, so it moves with traffic — 3,442 blocks
+  on one run, 3,384 on the next, 3,652 on the next. Only the row figure carries meaning, and only
+  approximately.
+- **The refusal names its own fix.** The row-cap error carries `retry with the range <from>-<to>`,
+  sized to the advertised 20,000 rather than to what is enforced. That sub-range is the right thing
+  for a pager to follow, because it comes from the server's view of where its rows actually are.
+
+**Consequence for §5.18.** The backstop's bound is **30,000 blocks** for a market contract, which is
+quiet by construction — roughly 16 hours of Arc at the block rate implied by these heads, so a
+backstop sweeping anything shorter than half a day fits in one call.
+
+#### The async model, and a latency that turned out not to be the problem we expected
+
+`createContractExecutionTransaction` returns `{ id, state: 'INITIATED' }` with **no transaction
+hash** — the hash appears part-way through a polled state machine:
+
+| elapsed | event |
+|---|---|
+| 0.0s | submitted → `id 2ae0c90c-…`, state `INITIATED` |
+| 2.1s | transaction hash appears; `INITIATED` → `SENT` |
+| 4.4s | `SENT` → `COMPLETE` |
+
+**4.4 seconds submit-to-complete.** The brief expected this to fight the serverless flow in Phase 4;
+measured, it fits inside a Vercel function's budget with room to spare. ⚠️ **This is one sample and
+the state machine carries no upper bound** — it is not evidence the request path can safely block on
+it, only that it is not obviously fatal. The Phase 4 decision should still be made on the shape of
+the API (poll for a hash that does not exist yet) rather than on this number.
+
+**Nonce discipline matters and is now concrete.** The payable call went out at `nonce 0` from the
+Circle wallet. §5.18's rule — never retry a Circle transaction via ethers — holds: it is a different
+signer for the same account, so a retry is a duplicate economic action, not a resend.
+
+#### `msg.sender` is the Circle wallet — the half of the address assertion that can run today
+
+The `Received` log's `sender` is `0x1B7035bBe0DA8F3bcb721863D42e1079e4A116A7`, asserted equal to the
+provisioned wallet address and failing the run if it is not. This is what §5.18 needs: `claimId`
+derives the author from `msg.sender`, and for an EOA the Circle address is deterministic. The
+`analysts.ts` half of that assertion moves to Phase 1, when there is a file to compare against.
+
+#### ⚠️ The faucet rate limit is on the API endpoint, not on the faucet
+
+`requestTestnetTokens()` was refused on every attempt across ~35 minutes — HTTP **429**, Circle
+`code 5`, `API rate limit error`, empty body, no `Retry-After` — while **`faucet.circle.com`'s web
+form funded the same address immediately**. Two front doors to one faucet with independently
+configured limits, and only one of them is scriptable.
+
+- **It was already rate-limited before this session touched it.** The first faucet call of the first
+  run returned 429 while `getWallet` had succeeded seconds earlier, so this is the faucet endpoint
+  specifically, not account-wide API throttling.
+- **Worth knowing before anything automated depends on programmatic funding.** A green light in the
+  browser is not evidence the API is available; an API 429 is not evidence the faucet is dry.
+- The grant that unblocked this run went to the deployer first and had to be redone against the
+  Circle wallet — the two Arc addresses in `.env` are easy to confuse, and only the Circle one has a
+  `msg.sender` the test can measure.
+- SM-05 was forced off USDC onto HBAR by this same faucet on 2026-09-06; that failure was silent
+  non-delivery, this one an explicit rate limit. `tracking/DECISIONS.md` records the first.
+
+#### Cost — negligible, and denominated in 18-decimal USDC
+
+| step | gas | price (wei) | cost |
+|---|---|---|---|
+| deploy receiver | 86,087 | 22,172,800,000 | 0.00190879 USDC |
+| `ping()` payable | 22,490 | 36,372,288,000 | 0.00081801 USDC |
+
+The Circle wallet went `20000000000000000000` → `17499181987242880000`, which is
+`20 − 2.5 − 0.000818012757120` **to the wei**. The receiver holds `2500000000000000000`. Gas is paid
+in the same 18-decimal USDC as value, so there is no second asset to fund.
+
+### To do
+
+- **What:** Set a spend cap on the wallet set in Circle's console before anything autonomous runs on
+  Arc.
+  **Why:** Circle's limits are **server-side wallet-set policy**, not a client-side option — there is
+  no `spendControls` on the developer-controlled-wallets client, and the one in SM-05 was
+  `@x402/core`'s and does not transfer. The control that stops an agent overspending on Arc is a
+  console setting nobody has made yet, so R8 has no Arc-side answer until it exists. This run spent
+  2.5 USDC on a single call with nothing standing in its way.
+  **When:** before the agent commits on Arc unattended (Phase 4)
+  **Status:** open
+
+- **What:** Convert `msg.value` by `10^12` at exactly one place, and decide whether stored amounts are
+  18dp native or 6dp USDC.
+  **Why:** Both scales are authoritative for their own interface, so "USDC amount" is ambiguous
+  wherever it is written down. One conversion site, named for which side it is on, or the ambiguity
+  reappears in the pool math, the payout, the display and the dust.
+  **When:** Phase 4, with the market contract and `analysts.ts`
+  **Status:** open
+
+- **What:** Never scale an Arc `Transfer` log by the token's `decimals()`.
+  **Why:** Native transfers emit `Transfer` from `0xffff…fffe` at **18** decimals while
+  `0x3600…0000` reports `decimals() = 6`. The ordinary indexing idiom is wrong by `10^12` here, and
+  it fails silently. If the backstop ever reads those logs, this is the trap.
+  **When:** Phase 4, with event ingestion
+  **Status:** open
+
+- **What:** Assert `analysts.ts` address == the Circle wallet address once `analysts.ts` exists.
+  **Why:** §5.18 requires it and only the `msg.sender` half can run today. A mismatch would mean the
+  app attributes claims to an address the chain never saw.
+  **When:** Phase 1, with `analysts.ts`
+  **Status:** open
+
+- **What:** Measure how far back Arc's public RPC actually serves logs, if the backstop ever needs to
+  backfill.
+  **Why:** A full-chain sweep returned `4444 pruned history unavailable`, so
+  `rpc.testnet.arc.network` is **not archive** — the same class of limitation that has SM-04 blocked
+  on Ethereum. It does not affect a forward-running ticker, which only sweeps recent blocks, so it is
+  recorded rather than measured. Seen during probing; the committed script does not test for it.
+  **When:** only if backfill becomes a requirement
   **Status:** open
 
 ---

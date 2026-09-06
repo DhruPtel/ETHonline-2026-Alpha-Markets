@@ -361,3 +361,110 @@ The pattern this file keeps recording appears again, inverted for once and in ou
 was not in the documentation, the package, or IPFS — it was in the artifact itself. **A deployed
 contract carries a fingerprint of exactly how it was built, and that fingerprint is checkable without
 asking anyone's permission.**
+
+## 2026-09-06 — An RPC that misstates its own limits, in both directions
+
+**Expected.** U10 asks for "Arc's `eth_getLogs` range limit" — one number, discoverable by widening a
+sweep until the node refuses and reading the ceiling off the last success. PLAN-v4 §5.18 needs it to
+size the ticker's backstop.
+
+**What happened.** The number is **30,000 blocks**, and the node says otherwise. Pushing a sweep to
+the full chain returns:
+
+```
+-32614  request exceeded max allowed range: eth_getLogs is limited to a 10,000 range
+```
+
+A 30,000-block sweep succeeds anyway — five repetitions, three separate script runs, 30,000 always
+accepted and 30,001 always refused. The limit is real, exact and stable; the number quoted in the
+error is a third of it.
+
+The row cap misstates itself the other way. Filtering a busy address refuses with:
+
+```
+-32602  request exceeded max allowed range: query exceeds max results 20000,
+        retry with the range 60799336-60801026
+```
+
+— and yet queries returning **37,888** and **38,952** rows were accepted on either side of it. The
+cap is roughly double the number it advertises. Its *suggested retry range*, though, is sized to the
+advertised 20,000, so the server is internally consistent about the fiction and not about the fact.
+
+**Why this is a lesson and not a note.** Both numbers are exactly the kind a developer copies out of
+an error message into a constant. Either copy is wrong: sweeping 10,000 blocks wastes two thirds of
+each call, and sizing a pager to 20,000 rows leaves half the capacity unused — while a developer who
+trusted the *absence* of an error would be equally misled, because the enforced row cap moves with
+traffic and the same block span passes one hour and fails the next.
+
+**What changes.**
+
+- **Limits get measured, never read off an error string.** The probe is committed as step 2 of
+  `scripts/smoke/08-circle-payable-call.ts` and reruns in seconds, so the figure can be re-checked
+  whenever Arc changes rather than trusted from a comment. It also runs **before** the funding gate,
+  which is why U10 closed on a run that never got USDC.
+- **Two limits, two shapes.** A block-span cap is constant and safe to hard-code; a row cap is a
+  function of traffic and must be handled at runtime. The backstop sizes to **30,000 blocks** for a
+  market contract — quiet by construction — and treats a row-cap refusal as a paging signal.
+- **When a server names a retry sub-range, follow it.** It is computed from the node's own view of
+  where the rows actually are, which beats any constant we could pick, and it is correct even though
+  the number beside it is not.
+- **The same probe found that `rpc.testnet.arc.network` is not archive** — a full-chain sweep returns
+  `4444 pruned history unavailable`. Harmless for a forward-running ticker, and recorded in
+  `tracking/smoke-results.md` rather than measured, but it is the second RPC in this project whose
+  history depth is a constraint (SM-04 is still blocked on the first).
+
+The shape here is the inverse of the `@x402/core` spend-control lesson: there, a dependency was more
+careful than our notes claimed. Here, a dependency is more capable than its own error messages claim.
+**Neither the optimistic nor the pessimistic reading of documentation survived contact — only
+measurement did.**
+
+## 2026-09-06 — One balance, two decimals, and an event that agrees with neither
+
+**Expected.** U3 asked one question: does Circle's `amount: "2.50"` arrive as `2500000` at the ERC-20
+scale or `2500000000000000000` at the native one? PLAN-v4 §5 framed it as an ambiguity to resolve —
+pick the right constant and move on.
+
+**What happened.** It is 18 decimals: `msg.value == 2500000000000000000`, confirmed from the emitted
+log and from the raw transaction's `value` field. That part went as planned. **The framing did not.**
+It is not that one of the two scales is right and the other is a misreading — both are live, both are
+authoritative, and they describe the same money:
+
+```
+eth_getBalance(0xA6B1…8079)            20000000000000000000    20 × 10^18
+balanceOf(0x3600…0000, 0xA6B1…8079)               20000000    20 × 10^6
+decimals(0x3600…0000)                                    6
+```
+
+Then the payable call emitted **two** logs where the contract emits one:
+
+```
+0xffffffffffffffffffffffffffffffffffffffe  Transfer(from,to,2500000000000000000)
+0x5d72aD…f8CfE                              Received(sender,2500000000000000000)
+```
+
+Arc mirrors every native value movement as a standard ERC-20 `Transfer`, from a synthetic address —
+**and puts an 18-decimal number in it**, while the token contract those events look like they belong
+to reports `decimals() = 6`.
+
+**Why this is the dangerous one.** The idiom for indexing a transfer is: match `Transfer`, read
+`decimals()` off the token, scale. On Arc that idiom is wrong by `10^12`, it involves no mistake, and
+it fails silently — the number is plausible at both scales, which is exactly why "2.50" was chosen
+for the test instead of a round one. The two sources disagree and neither announces it.
+
+**What changes.**
+
+- **"A USDC amount" is not a well-formed quantity on Arc.** Every stored, compared or displayed value
+  needs its scale in the name or the type. R5's branch — "normalize; test contract input, pool math,
+  payout, display, dust" — is now the plan of record, with `10^12` as the factor and **one** named
+  conversion site.
+- **Never scale an Arc `Transfer` log by the token's `decimals()`.** Tracked in
+  `tracking/smoke-results.md` against Phase 4 event ingestion.
+- **The synthetic `Transfer` stream is not the backstop.** `0xffff…fffe` carries every native transfer
+  on the chain, so it hits the row cap within a few thousand blocks. Filter on the market contract's
+  own events, which are quiet, and get the full 30,000-block span.
+- **Value moving on Arc is observable through logs at all**, which was not certain before. That is
+  worth having; it just is not free.
+
+The pattern, twice in one test: **the numbers a system reports about itself are not the numbers it
+enforces.** Arc's RPC understates its own `eth_getLogs` limits in the error strings, and Arc's token
+metadata understates the scale of its own transfer events. Both were only found by measuring.

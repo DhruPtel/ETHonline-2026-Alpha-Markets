@@ -432,7 +432,10 @@ health-check time, not in the request path.
   will bite the first time a price is ≥$1, with an error that reads like a network fault.
 - **Event ingestion:** the stake UI **POSTs the tx hash** to `/api/markets/[id]/refresh`; the app reads
   the receipt and per-market totals. Ticker-driven `eth_getLogs` over a bounded range is the backstop
-  only. ⚠️ **Measure Arc's log limits in SM-08.**
+  only. **The bound is 30,000 blocks** *(measured 2026-09-06, SM-08 step 2 — U10 closed)*, which a
+  market contract gets in full because it is quiet by construction. ⚠️ **Do not take these numbers
+  from Arc's error strings**, which understate both the span limit and the row cap; on a row-cap
+  refusal, page on the sub-range the server names.
 - **Resolver nonce discipline:** serialize resolver txs through the job lease. Never retry a Circle
   transaction via ethers — **different identity, duplicate economic action.**
 - **Two report forms, not four:** *balance overview* and *forecast attachment*. Ranking and comparison
@@ -686,7 +689,7 @@ attribution.
 | R2 | SM-05 fails | ⚠️ **Verify `/supported`, feePayer, association, network string** — *not* "switch hosts," which is a config change not a retry | **Self-facilitation** (`@x402/hedera` exports the facilitator scheme). Loses H1.2, keeps the demo |
 | R3 | SM-07 fails on the public factory | Own deploy via `tooling/ats/` — 111 contracts, resumable manifest | Series token (repeated-cost fix only; doesn't fix bad roles or keys) |
 | R4 | <3 usable protocols | Well-signalled deployments only | **Two already satisfy G1.3** |
-| R5 | SM-08 unexpected decimals | Normalize; test contract input, pool math, payout, display, dust | — |
+| R5 | ~~SM-08 unexpected decimals~~ **FIRED, and measured 2026-09-06.** `msg.value` is 18dp native; the ERC-20 view is 6dp. Normalize by **10^12 at one named site**; test contract input, pool math, payout, display, dust. ⚠️ Also: Arc emits `Transfer` from `0xffff…fffe` at **18**dp while `decimals()` says 6 — never scale an Arc `Transfer` log by the token's `decimals()` | — |
 | R6 | Circle polling fights serverless | Poll as a **job step**, never a held-open request | ⚠️ ethers fallback is a **different identity** — needs funded wallet, role changes, pending-op reconciliation |
 | R8 | Agent overspends | **Reserve before submission**, durable operation ID; ambiguous stays reserved | — |
 | R9 | Resolution runs twice | `require(!resolved)` in Solidity | Score writes idempotent on `(marketId, claimId)` |
@@ -735,12 +738,12 @@ Graph data · diagram · video.
 | # | Question | Owner |
 |---|---|---|
 | U2 | Circle Console KYC? | Today |
-| U3 | DCW `amount` decimal scale | SM-08 |
+| ~~U3~~ | ~~DCW `amount` decimal scale~~ **ANSWERED 2026-09-06 — 18 decimals.** Circle's `amount: "2.50"` arrives as `msg.value == 2500000000000000000`, confirmed from both the emitted log and the raw transaction `value` field. The ERC-20 view at `0x3600…0000` reports `decimals() = 6` on the same balance, so **`msg.value` ÷ 10^12 is the USDC amount**. R5 is live and now has a number | SM-08 ✅ |
 | ~~U4~~ | ~~12-month snapshots survive?~~ **ANSWERED 2026-09-05 — yes, completely.** No retention floor exists: full in-bounds windows at 6, 12, 18 and 24 months, oldest snapshot 2023-01-27 (aave-v3 launch day). §5.16 needs no amendment | SM-03 ✅ |
 | U5 | Pruned floor per deployment | Lookup |
 | U6 | Which deployments are live | Lookup |
 | ~~U9~~ | ~~ATS public factory expiry~~ **ANSWERED 2026-09-06.** Factory `0.0.9213391` expires `1789039172` (2026-09-10 11:19:32Z), confirming the recorded number; resolver `0.0.9212226` expires `1789037489`, **1,683s earlier and the binding constraint**. Both live. Recorded in `tracking/DECISIONS.md` | SM-07 ✅ |
-| U10 | Arc `eth_getLogs` range limit | SM-08 |
+| ~~U10~~ | ~~Arc `eth_getLogs` range limit~~ **ANSWERED 2026-09-06 — 30,000 blocks of span**, exact and stable (30,000 accepted, 30,001 refused, repeatably). ⚠️ Arc's own error strings understate it: refusals cite a "10,000 range" and a "max results 20000" cap, while 30,000 blocks and ~38,000 returned rows are both accepted. A busy address hits a **row** cap that drifts with traffic and names its own retry sub-range; a market contract is quiet and gets the full span. §5.18's backstop sizes from this measurement, not from the messages | SM-08 ✅ |
 | ~~U11~~ | ~~Does Sourcify verification work for a ResolverProxy?~~ **ANSWERED 2026-09-06 — yes, `exact_match`, first attempt.** `0.0.10395983` is verified on Sourcify for chain 296. `creationMatch` is null because the proxy is created inside `deployEquity` rather than by a top-level creation transaction, but the runtime match is what HashScan reads. Repeatable for every report token via `scripts/verify-ats.ts` | Unit A ✅ |
 
 ---
