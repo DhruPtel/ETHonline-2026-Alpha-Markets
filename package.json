@@ -11,7 +11,7 @@
     "smoke:06": "tsx --env-file=.env scripts/smoke/06-agent-tool-call.ts",
     "smoke:07": "tsx --env-file=.env scripts/smoke/07-ats-issue-transfer.ts",
     "smoke:08": "tsx --env-file=.env scripts/smoke/08-circle-payable-call.ts",
-    "smoke:09": "tsx --env-file=.env scripts/smoke/09-metamask-stake.ts"
+    "smoke:09": "echo 'SM-09 is MANUAL — no script exists. Walk scripts/smoke/09-browser-stake.md by hand; tsx cannot drive a wallet extension.'"
   },
   "devDependencies": {
     "@openzeppelin/contracts": "4.9.6",
