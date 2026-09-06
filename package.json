@@ -1,0 +1,24 @@
+{
+  "name": "alpha-markets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "smoke:01": "tsx --env-file=.env scripts/smoke/01-canonicalize.ts",
+    "smoke:02": "tsx --env-file=.env scripts/smoke/02-query-subgraph.ts",
+    "smoke:03": "tsx --env-file=.env scripts/smoke/03-snapshot-window.ts",
+    "smoke:04": "tsx --env-file=.env scripts/smoke/04-multi-deployment.ts",
+    "smoke:05": "tsx --env-file=.env scripts/smoke/05-x402-purchase.ts",
+    "smoke:06": "tsx --env-file=.env scripts/smoke/06-agent-tool-call.ts",
+    "smoke:07": "tsx --env-file=.env scripts/smoke/07-ats-issue-transfer.ts",
+    "smoke:08": "tsx --env-file=.env scripts/smoke/08-circle-payable-call.ts",
+    "smoke:09": "tsx --env-file=.env scripts/smoke/09-metamask-stake.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0"
+  }
+}
