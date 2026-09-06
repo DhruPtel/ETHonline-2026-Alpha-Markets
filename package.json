@@ -6,7 +6,7 @@
     "smoke:01": "tsx --env-file=.env scripts/smoke/01-canonicalize.ts",
     "smoke:02": "tsx --env-file=.env scripts/smoke/02-query-subgraph.ts",
     "smoke:03": "tsx --env-file=.env scripts/smoke/03-snapshot-window.ts",
-    "smoke:04": "tsx --env-file=.env scripts/smoke/04-multi-deployment.ts",
+    "smoke:04": "tsx --env-file=.env scripts/smoke/04-archive-rpc.ts",
     "smoke:05": "tsx --env-file=.env scripts/smoke/05-x402-purchase.ts",
     "smoke:06": "tsx --env-file=.env scripts/smoke/06-agent-tool-call.ts",
     "smoke:07": "tsx --env-file=.env scripts/smoke/07-ats-issue-transfer.ts",
@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "@circle-fin/developer-controlled-wallets": "10.8.0",
     "@hashgraph/asset-tokenization-contracts": "8.0.0",
     "@x402/core": "2.25.0",
     "@x402/hedera": "2.25.0",
