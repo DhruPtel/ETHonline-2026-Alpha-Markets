@@ -20,8 +20,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
+    "@hashgraph/asset-tokenization-contracts": "8.0.0",
     "@x402/core": "2.25.0",
     "@x402/hedera": "2.25.0",
-    "canonicalize": "^4.0.0"
+    "canonicalize": "^4.0.0",
+    "ethers": "6.16.0"
   }
 }
