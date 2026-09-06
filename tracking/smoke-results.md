@@ -108,7 +108,8 @@ canonicalizer.
   differently. That only holds if the field set is fixed. `LIFECYCLE` currently holds one entry
   (`atsTokenAddress`); anything else that comes into existence after the hash is committed belongs
   in it.
-  **When:** Phase 1, with the wire contracts (PLAN-v4 §5.18, "freeze wire contracts Day 1")
+  **When:** Phase 1 Unit 1, with the wire contracts — frozen **before the first consumer**
+  (PLAN-v4 §5.18, amended 2026-09-06; the line previously read "freeze wire contracts Day 1")
   **Status:** open
 
 

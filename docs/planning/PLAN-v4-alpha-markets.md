@@ -557,8 +557,14 @@ health-check time, not in the request path.
 - **Oversize or budget-truncated populations →** `INCOMPLETE`, never a successful total.
 - ⚠️ **Untrusted strings:** `Market.name` and `Token.symbol` are indexer-supplied and reach reports and
   HTML. Purchased reports are untrusted data to the buyer agent. Escape and bound both.
-- **Types:** freeze wire contracts (`Report`, `Computed`, `Verdict`, `Provenance`) Day 1; version
-  persisted shapes with migrations.
+- ⚠️ **Types:** freeze wire contracts (`Report`, `Computed`, `Verdict`, `Provenance`) **before the
+  first consumer** — Phase 1 Unit 1 *(amended 2026-09-06; this read "Day 1")*; version persisted
+  shapes with migrations. **The protection was never the calendar.** It is that no subsystem quietly
+  defines its own copy of a shape another subsystem also defines, and that binds at the moment the
+  first file imports one — not at the moment the project starts. Phase 0's revenue sweep and
+  corroboration survey added `RevenueAvailability`, `CorroborationStatus` and `Completeness` to the
+  contract well after Day 1 had passed; freezing on the calendar would have frozen a shape three
+  concepts short. See §9 Phase 0.
 - **Query evidence persisted** — deployment hash, document, variables, block, `_meta`, raw response,
   completeness. ⚠️ **Never read back as data.** Provenance, not a cache.
 
@@ -755,8 +761,17 @@ query batch, or one finalize, each writing a checkpoint. **The full `messages[]`
 turns; a resumed turn replays stored observations rather than re-querying.**
 
 ### Phase 0 — Gates
-SM-01 … SM-09. Repo init, deploy empty app, **ticker workflow**, freeze `types/wire.ts`, run all
-lookups, and **complete the §7 inventory**.
+SM-01 … SM-09. Repo init, deploy empty app, **ticker workflow**, run all lookups, and **complete the
+§7 inventory**.
+
+⚠️ **Amendment, 2026-09-06 — `types/wire.ts` is deferred to Phase 1 Unit 1.** This line read "freeze
+`types/wire.ts`" among the Phase 0 gates. That was right when it was written. Phase 0 then produced
+three concepts the wire types have to carry which did not exist at drafting: **`RevenueAvailability`**
+(three states, from SM-03's revenue sweep), **`CorroborationStatus`** (three states including
+`NOT_CHECKED`, from SM-04), and **`Completeness`**. Freezing the contracts before the findings that
+determine their shape is backwards — Day 1 would have frozen the wrong shape and Phase 1 would have
+opened with a migration. The types are Unit 1 of Phase 1 instead, frozen **before the first
+consumer**, which is what the Day-1 framing was actually protecting. See §5.18.
 
 ### Phase 1 — Data layer + agent
 `graph/client.ts`, `adapter.ts`, `blockwindow.ts`, `paginate.ts`, `queries/` (pre-written documents +

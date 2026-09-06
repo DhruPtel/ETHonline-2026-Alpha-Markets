@@ -507,3 +507,35 @@ it was a JSON round-trip reordering keys and accusing a correct canonicalizer; h
 return accusing a working archive node. Both would have been reported as an external failure. Worth
 the habit — when a smoke test fails against something that has no other reason to be broken, suspect
 the probe first.
+
+## 2026-09-06 — A freeze dated to the calendar would have frozen the wrong shape
+
+**What we expected.** §9 put "freeze `types/wire.ts`" among the Phase 0 gates, and §5.18 said "freeze
+wire contracts (`Report`, `Computed`, `Verdict`, `Provenance`) Day 1". The reasoning was sound and is
+still sound: two subsystems that each define their own idea of a `Verdict` will disagree eventually,
+and the disagreement surfaces late, in the seam between them, where it is expensive.
+
+**What happened.** Phase 0 was nine smoke tests against live infrastructure, and three of them
+returned concepts the wire contracts have to carry that nobody had thought of on Day 1:
+
+| concept | states | came from |
+|---|---|---|
+| `RevenueAvailability` | usable / poisoned / not_tracked | SM-03's revenue sweep — aave-v3's accumulator is poisoned, morpho never wrote revenue at all |
+| `CorroborationStatus` | MATCH / MISMATCH / **NOT_CHECKED** | SM-04's write-time survey — compound-v3 carries the field on 3 of 10 markets, so the third state is not an error case, it is the honest answer |
+| `Completeness` | complete / INCOMPLETE | paginating a population that exceeds one page, per §5.18's amended page-size line |
+
+Each one is a **three-state flag where the obvious design is a boolean**, and each is three-state for
+a reason discovered by running something. A `Report` frozen on Day 1 would have carried
+`revenueUSD: number` and a `corroborated: boolean`. Both are wrong in the specific way that is worst:
+they parse, they typecheck, and they lie. Unfreezing them in Phase 1 means a migration on a contract
+whose whole purpose is not to move.
+
+**What changes.** The freeze moves to **Phase 1 Unit 1 — before the first consumer** rather than
+before the first day. §9's Phase 0 line and §5.18's Types bullet are amended, and SM-01's open to-do
+about the report field set now points at Unit 1.
+
+**The rule underneath, which is the part worth keeping:** a freeze protects against *divergence
+between consumers*, so it binds at the first consumer. Dating it to the calendar instead is a proxy
+that happens to coincide when nothing is learned between the two moments — and Phase 0 exists
+precisely to learn things. **Any gate written as "do X on Day 1" should be re-read as "do X before
+Y", and if Y can't be named, the gate may not be a gate.**
