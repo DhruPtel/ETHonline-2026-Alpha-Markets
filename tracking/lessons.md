@@ -255,3 +255,56 @@ per-payment cap, so the control keeps working and only the intended asset passes
 
 The pattern this time is a new one, and the pleasant version: **a dependency was more careful than our
 notes said it was.** Worth checking for before building a guard from scratch.
+
+## 2026-09-06 — A research sample that was read but never run
+
+**Expected.** `docs/research/asset-tokenization-studio.md` §3a is the most carefully built artifact
+in the research folder: a complete, annotated `deployEquity` call with every field of a 17-field
+struct filled in, each choice justified, the ISIN generator verified against three real ISINs, and
+the whole thing measured against a live testnet factory. SM-07 was supposed to be transcription.
+
+**What happened.** Two of its field values revert on-chain, and the sample as published cannot
+deploy anything.
+
+- `maxSupply: 0n`, annotated "0 = unlimited", reverts `NewMaxSupplyCannotBeZero()`. The zero-bypass
+  is real — `isCorrectMaxSupply` is `cap == 0 || amount <= cap` — but it lives in the *runtime* cap
+  check, while `Cap.initializeCap` carries an `onlyValidNewMaxSupply` modifier that rejects zero at
+  creation. Two functions, opposite rules, and the note read the friendlier one.
+- `regulationType: 0` (`NONE`) reverts `RegulationTypeAndSubTypeForbidden`. `_isValidTypeAndSubType`
+  accepts only `REG_S`+`NONE` or `REG_D`+`{506_B, 506_C}`. There is no "no regulation" option;
+  `NONE` exists in the enum as a *sub*-type value and as an invalid *type* value.
+
+The first cost a reverted deploy — 948,129 gas, ~$0.08, nothing created. The second cost nothing,
+because it was caught by reading `regulation.sol` before running rather than after.
+
+**Why the good note still missed them.** The review had no funded key, and says so plainly at the
+top: *"No funded Hedera key, so no write was signed — reads and cost measurements are real;
+write-path claims are marked."* Everything it measured is correct. `deployEquity` is a write, so the
+sample is precisely the part that could not be checked, and it is also the part that looks the most
+authoritative — 40 lines of real code with a comment on every field.
+
+**What changes.**
+
+- **An unrunnable code sample is a hypothesis, however well annotated.** Both errors were found by
+  reading the Solidity the ABI package already ships — `contracts/` is 4.2 MB of it, sitting in
+  `node_modules` — not by reading the note. When a sample cannot be executed, the contract source is
+  the authority, and it was available the whole time at zero cost.
+- **Read the initializer, not just the getter.** Both faults have the same shape: a permissive rule
+  at use time and a stricter one at creation time. `maxSupply` and `regulationType` are both
+  validated by a modifier on the function that sets them, and neither validation is visible from the
+  behaviour the note described.
+- **A revert reason is not free on Hedera, and the script must go get it.** ethers returned
+  `"transaction execution reverted"` with `error.data` undefined, because the relay reports a failed
+  transaction as a status-0 receipt with no revert data. The selector existed only in Mirror Node's
+  `/api/v1/contracts/results/{hash}` under `error_message`. Without that lookup the first failure
+  was unattributable, and the temptation is to change something and try again — which on a factory
+  means paying for another deploy. **`07-ats-issue-transfer.ts` now falls back to Mirror Node for
+  every revert.**
+
+*The correction to `asset-tokenization-studio.md` §3a is tracked in `tracking/smoke-results.md` under
+SM-07.*
+
+This is the sixth instance of the pattern this file keeps recording, and the first where the wrong
+answer was in our own research rather than in a vendor's data or docs: **the field was correct, the
+value was plausible, and it still did not work.** The three earlier vendor cases at least had an
+outside party to blame. This one we wrote ourselves, carefully, and it was still a guess.

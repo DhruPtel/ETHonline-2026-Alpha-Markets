@@ -194,3 +194,39 @@ is legible to a buyer and "50,000,000 tinybars" is not, and USD pricing is what 
 the `"$…"` money path are built for. The association code stays in the script, skipped rather than
 deleted, so the switch back is a price change and not a rewrite.
 **Affects:** SM-05 · §7 provisioning inventory · `payments/tiers.ts` and `payments/buyer.ts` (Phase 3)
+
+---
+
+## SM-07 builds on the public ATS testnet infrastructure, expiring 2026-09-10
+
+**Date:** 2026-09-06
+**Decision:** Deploy report tokens through the **public ATS testnet factory `0.0.9213391`** and
+resolver `0.0.9212226`, rather than deploying our own ATS infrastructure.
+
+**The expiry numbers, measured live on Mirror Node on 2026-09-06 before anything was built:**
+
+| contract | id | EVM address | expiration_timestamp | UTC | state |
+|---|---|---|---|---|---|
+| factory | `0.0.9213391` | `0xd1f118a40f3b02883d35909ef2517e7edd78379d` | **1789039172** | 2026-09-10 11:19:32Z | live, nonce 68 |
+| resolver | `0.0.9212226` | `0xba2d5fc2083a0b8f164c50e65d782087fba18e0a` | **1789037489** | 2026-09-10 10:51:29Z | live, nonce 1 |
+
+Research recorded `1789039172` for the factory and that number is **confirmed exactly**. ⚠️ **The
+resolver's expiry was never recorded and is 1,683 seconds earlier — the resolver, not the factory,
+is the binding constraint.** Both are ~3.7 days out at the time of writing. Hedera does not currently
+enforce contract expiry, and both were live and answering.
+
+**Why:** Our own deploy is 111 contracts, 180,285,436 gas and a measured 28.6 minutes, and it buys
+nothing SM-07 needs to prove. The public factory is genuinely active — nonce 68, and it produced our
+asset first try once two field values were corrected. The resolver carries 8 configurations, all at
+version 1, verified live before use. What we give up is control of a dependency that could vanish
+inside our window, and the demo would go with it.
+**What protects us:** The token our deploy produced, `0.0.10395983`, carries **its own** expiration of
+`1796496695` — 2026-12-04, well past both. **An issued asset outlives the factory that issued it**, so
+an expiry event costs us the ability to mint new reports, not the ones already minted.
+**Alternative rejected:** Deploying our own infrastructure now, pre-emptively. Twenty-nine minutes and
+~500 HBAR against a risk Hedera does not presently enforce, before we know the rest of the pipeline
+works. It stays the fallback, unchanged.
+**Revisit if:** either contract stops answering, or the demo date moves past 2026-09-10 and we would
+need to mint on the day. Then it is the 111-contract deploy, and it is ~29 minutes, not a surprise.
+**Affects:** SM-07 · §8 SM-07 row (the "expiry of `0.0.9213391` recorded" clause is now satisfied) ·
+report tokenization (Phase 3)

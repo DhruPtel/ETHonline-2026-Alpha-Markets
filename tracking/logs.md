@@ -331,3 +331,67 @@ reported both balances unchanged and a nonsensical negative fee, because it read
 transfer had been ingested. Same root cause as the association lag from the previous run, so the
 after-balances now poll too. That is twice in two runs from one source, which is why it is a lesson
 and not just a fix.
+
+## 2026-09-06 — Unit 6: SM-07, an ATS report token issued and transferred
+
+Wrote `scripts/smoke/07-ats-issue-transfer.ts` and **SM-07 passes**. A tokenized report asset now
+exists on Hedera testnet at `0.0.10395983` / `0x60c955b9b2d0896b5EEAF285133891D9A7CF7648`, and it has
+been moved from the seller to the buyer — `balanceOf` 1 → 0 and 0 → 1, asserted rather than eyeballed,
+because proxy creation is not issuance and issuance is not transfer. The transfer is the lifecycle
+operation the Hedera Tokenization track asks to see on video. Four transactions: deploy
+`0x435d18f8…`, grantRole `0xe35bb1ce…`, issue `0x2dea19e1…`, transfer `0x7674ef49…`.
+
+Added `@hashgraph/asset-tokenization-contracts` and `ethers`, both pinned exact at 8.0.0 and 6.16.0.
+ethers was already in the tree transitively under `@hiero-ledger/sdk`, so it is pinned to the version
+already there and `npm ls ethers` shows one deduped copy — the same discipline SM-05 needed for the
+Hedera SDK. **The 1.4 GB ATS SDK was not installed and will not be**; the ABI package plus ethers is
+74 MB and has every function we need.
+
+The first step was the one the unit asked for first: both public ATS contracts were checked on Mirror
+Node before anything was built. The factory's expiry is exactly the `1789039172` research recorded —
+2026-09-10 — and the resolver's is `1789037489`, **1,683 seconds earlier and never written down
+anywhere**. The resolver is the binding constraint, not the factory. Both live, neither deleted. In
+`tracking/DECISIONS.md`, along with the reason we are building on someone else's contracts and the
+fact that the token we minted carries its own expiry of 2026-12-04 — an issued asset outlives the
+factory that issued it, so an expiry event would cost us new mints and not existing ones.
+
+**The interesting part is that the research note's worked example does not run.** Two of its field
+values revert on-chain. `maxSupply: 0n`, annotated "0 = unlimited", reverts
+`NewMaxSupplyCannotBeZero()` — the zero-bypass is real but lives in the runtime cap check, while the
+initializer has a modifier that rejects zero outright. And `regulationType: 0` would have reverted
+`RegulationTypeAndSubTypeForbidden`, because the only valid combinations are REG_S+NONE or
+REG_D+{506_B, 506_C}; there is no "no regulation" option. The second was caught by reading the
+Solidity before running. The first was not, and it cost a real reverted deploy: 948,129 gas, about
+eight cents, nothing created. Both faults have the same shape — a permissive rule at use time and a
+stricter one at creation time — and both were sitting in the 4.2 MB of contract source the ABI
+package ships. Written up in `tracking/lessons.md`.
+
+That first failure also exposed something worth keeping. ethers reported only "transaction execution
+reverted" with no data, because the Hedera relay returns a failed transaction as a status-0 receipt
+and drops the revert reason. The selector existed in exactly one place — Mirror Node's
+`/api/v1/contracts/results/{hash}` under `error_message` — so the script now falls back there on any
+revert and decodes the selector against both ABIs. Without it a revert is unattributable, and the
+instinct is to change something and pay for another deploy.
+
+`maxSupply` is now `1n`, which is the better value anyway rather than merely the legal one: one
+report, one token, and a second mint against the same report is impossible at the contract level.
+Compliance came off exactly as predicted — an account that had never touched the token received it
+with no onboarding and no association, because ATS tokens are plain ERC-20 on the Hedera EVM. The
+report hash went into `additionalSecurityData.info` and came back out of the `EquityDeployed` log
+byte-identical; it is event-only, never stored, which is worth knowing for whoever verifies it later.
+
+Cost came in at **$0.6568 for the whole lifecycle and $0.5688 for the deploy alone**, against
+research's $0.60-per-asset estimate — the estimate is good. 7,751,345 gas across four transactions,
+8.13891225 HBAR, and the seller's balance delta matched the sum derived from the receipts to the
+tinybar. Testnet relay gas price measured 110 tinybars/gas against research's 108 on mainnet.
+
+One env line added, `HEDERA_TESTNET_RPC`, pointing at Hashio. The buyer's EVM address did not need a
+variable after all — both addresses are derived from the keys already in `.env` and checked against
+what Mirror Node says the accounts actually are, so a key and an account id that disagree stop the
+run before anything is signed rather than failing three transactions later.
+
+The file is 469 lines, longer than `05-x402-purchase.ts` at 435 and now the longest thing in the
+repo. It was flagged as over the ~120-line ceiling before it was written; the unit was defined as one
+file with five steps, so splitting would have needed a new unit. Most of the bulk is printing,
+per-step failure branches and the reasoning behind each struct field, which is the part that makes
+the next ATS call cheap.

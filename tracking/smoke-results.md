@@ -19,7 +19,7 @@ action lands here; when a test forces a choice, the choice is recorded in `DECIS
 | **SM-04** | Archive RPC *(rescoped)* | A subgraph value at block N and an `eth_call` for the same value at block N agree — so historical state is actually servable | BLOCKED — no archive RPC | — |
 | **SM-05** | x402 payment on Hedera **testnet** | A real payment for a `hello` endpoint settles, with the native transaction id persisted *before* settle | **PASS** — settled in HBAR, not USDC | 2026-09-06 |
 | **SM-06** | Agent tool call | Claude calls `run_document` through our tool loop and the data returns into the conversation | NOT RUN — **unblocked** | written 2026-09-05 |
-| **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | NOT RUN | — |
+| **SM-07** | ATS issue and transfer | Issue **and** transfer against the public testnet factory actually moves a balance | **PASS** — balance moved 1 → 0 / 0 → 1 | 2026-09-06 |
 | **SM-08** | Circle payable call | A payable call completes through a Circle developer-controlled EOA, with `msg.value` scale and Arc's `eth_getLogs` limit measured | NOT RUN | — |
 | **SM-09** | Browser stake | MetaMask adds Arc via `wallet_addEthereumChain` and completes a stake under `next build` | NOT RUN | — |
 
@@ -448,6 +448,127 @@ are REST ingestion lag behind consensus, and both now poll. This matters beyond 
 - **What:** Correct `docs/research/x402-protocol-spec.md:258`, or mark it superseded.
   **Why:** It asserts the opposite of what we measured, on the point R12 depends on.
   **When:** Phase 0
+  **Status:** open
+
+---
+
+## SM-07 — ATS issue and transfer
+
+**Run:** 2026-09-06
+**Result:** **PASS**
+**Script:** `scripts/smoke/07-ats-issue-transfer.ts`
+**Proxy:** `0.0.10395983` / `0x60c955b9b2d0896b5EEAF285133891D9A7CF7648`
+**HashScan:** https://hashscan.io/testnet/contract/0x60c955b9b2d0896b5EEAF285133891D9A7CF7648
+
+| step | transaction |
+|---|---|
+| `deployEquity` | `0x435d18f89a0a83804188a5c45cb9fc3cc65b5cbf7f067eb3c08acea9f2b8feab` |
+| `grantRole(ISSUER)` | `0xe35bb1ce110f82a97a1061ef4d76731545137c3902309b22a42b46449d758375` |
+| `issue` | `0x2dea19e15fc57221b98216f983443bf77f0ad847affb0df0262d0754cf21d931` |
+| `transfer` | `0x7674ef49d2f805a87f7fbdf1888616b3765a462230deb2e9d3d28d02b64c79d8` |
+
+**What it proved:** A tokenized report asset can be created on Hedera testnet through the public ATS
+factory and **moved to a different account** — `balanceOf(seller)` 1 → 0 and `balanceOf(buyer)` 0 → 1,
+asserted rather than eyeballed. The transfer is the lifecycle operation the Hedera Tokenization track
+asks to see demonstrated. Driven with `@hashgraph/asset-tokenization-contracts` + ethers 6 over the
+JSON-RPC relay; **the 1.4 GB SDK was never installed.**
+
+### Findings
+
+**The public infrastructure is alive, and the resolver expires before the factory.** Measured before
+building: factory `0.0.9213391` expires `1789039172` (2026-09-10 11:19:32Z) — exactly the number
+research recorded — and resolver `0.0.9212226` expires `1789037489`, **1,683 seconds earlier**. The
+resolver's expiry was never recorded anywhere and it is the binding one. Both live, neither deleted.
+Recorded in `tracking/DECISIONS.md`.
+
+⚠️ **Two values from `docs/research/asset-tokenization-studio.md` §3a revert the deploy on-chain.**
+The note's sample code is not runnable as published:
+
+| field | note says | reality | consequence |
+|---|---|---|---|
+| `maxSupply` | `0n` — "0 = unlimited" | `Cap.initializeCap` carries `onlyValidNewMaxSupply`, which rejects 0 | reverts `NewMaxSupplyCannotBeZero()`, selector `0x76f138fb`, after 948,129 gas |
+| `regulationType` | `0` (`NONE`) | `_isValidTypeAndSubType` accepts only `REG_S`+`NONE` or `REG_D`+`{506_B, 506_C}` | would revert `RegulationTypeAndSubTypeForbidden` |
+
+The `maxSupply` one **cost a real reverted deploy** — the first run failed on it. The
+`regulationType` one was caught by reading `factory/ERC3643/interfaces/regulation.sol:198` before
+running, and never cost anything. The script now uses `maxSupply: 1n` and `REG_S`/`NONE`.
+
+- **A cap of 1 is the better value anyway, not just the legal one.** One report, one token, and a
+  second mint against the same report becomes impossible at the contract level.
+  `isCorrectMaxSupply(amount, cap)` is `cap == 0 || amount <= cap`, so issuing 1 against a cap of 1
+  passes. The zero-bypass the research note described is real — it is just in the *runtime* check,
+  not the initializer.
+- **`REG_S` is the honest regulation value for a report sold to anyone.** It is the only valid
+  combination with international investors allowed and no resale hold period. It is also inert:
+  `FactoryRegulationData` is validated by `onlyValidRegulation` and emitted in `EquityDeployed`, and
+  **never written to proxy storage** — it gates nothing on transfer.
+- **The report hash survived, byte-identical.** `additionalSecurityData.info` went in as
+  `alpha:49cfaa6c…3db9b7` and came back out of the `EquityDeployed` log unchanged. It is
+  **event-only** — validated and emitted, never stored — so reading the log is the only way to prove
+  it, and the only way a verifier will ever read it. This is the field PLAN-v4 §1 designates as the
+  Hedera half of the cross-chain hash commitment.
+- **Compliance off works exactly as the research predicted.** `compliance: address(0)`,
+  `identityRegistry: address(0)`, `internalKycActivated: false`, `isWhiteList: false`, all three
+  external list arrays empty — and an account that had never interacted with the token received it
+  with **zero onboarding and no association step**. ATS tokens are plain ERC-20 on the Hedera EVM.
+- **Exactly one contract per asset, confirmed on Mirror Node.** The deploy's
+  `created_contract_ids` is `['0.0.10395983']`, length 1.
+- **Roles are not auto-granted, and the script proves it rather than assuming it.**
+  `hasRole(ISSUER, seller)` reads `false` before the grant and `true` after. Creation assigns only
+  `DEFAULT_ADMIN`, and `deployEquity` renounces the factory's own temporary admin on the way out.
+- **⚠️ The issued asset outlives the factory that issued it.** Proxy `0.0.10395983` carries its own
+  expiration of `1796496695` — 2026-12-04, nearly three months past the factory's. An expiry event
+  costs us new mints, not existing tokens.
+
+#### Cost — the ~$0.60 estimate holds
+
+| step | gas | HBAR |
+|---|---|---|
+| `deployEquity` | 6,713,850 | 7.04954250 |
+| `grantRole` | 179,949 | 0.18894645 |
+| `issue` | 450,916 | 0.47346180 |
+| `transfer` | 406,630 | 0.42696150 |
+| **total** | **7,751,345** | **8.13891225** |
+
+Seller balance moved 1097.78162627 → 1089.64271402 HBAR, **−8.13891225** — matching the sum derived
+from the receipts to the tinybar, so the derivation and the ledger agree. At the live rate of
+$0.080693/HBAR that is **$0.6568 for the full lifecycle** and **$0.5688 for `deployEquity` alone**,
+against research's **$0.60 per asset** estimate. The estimate is good. Testnet relay gas price
+measured at 110 tinybars/gas against research's 108 on mainnet.
+
+**Plus the cost of being wrong:** the reverted first attempt burned 948,129 gas (~0.995 HBAR, ~$0.08)
+and deployed nothing.
+
+### To do
+
+- **What:** Correct `docs/research/asset-tokenization-studio.md` §3a — `maxSupply: 0n` and
+  `regulationType: 0` both revert. Mark the sample as corrected, not merely annotated.
+  **Why:** It is the only worked example we have, it is what the next person will copy, and one of
+  its two errors already cost a reverted deploy. Cheap to fix, and the fix is measured.
+  **When:** Phase 0
+  **Status:** open
+
+- **What:** Move the report hash from `additionalSecurityData.info` to `setCustomData` as well, or
+  decide deliberately that event-only is enough.
+  **Why:** `info` is emitted and never stored, so verifying it requires reading a log rather than
+  calling the contract. That is fine for anyone with an indexer and awkward for anyone without one.
+  `setCustomData(keccak256("report"), [hash])` puts it in storage, at the cost of a second
+  transaction and a `ROLE_CUSTOM_DATA_MANAGER` grant. PLAN-v4 §1 currently specifies the event.
+  **When:** Phase 3, with report tokenization
+  **Status:** open
+
+- **What:** Decide what the ISIN actually is per report, rather than the fixed `XXALPHA00015`.
+  **Why:** The check digit is validated on-chain and the generator is verified against three real
+  ISINs, so this is not a correctness risk — but every report currently mints under the same
+  identifier, which makes two reports indistinguishable by ISIN. Nothing enforces uniqueness
+  on-chain; if we want it, we supply it.
+  **When:** Phase 3
+  **Status:** open
+
+- **What:** Watch the resolver's `1789037489` expiry, not the factory's.
+  **Why:** It is the earlier of the two and it was never recorded until now. If new mints are needed
+  after 2026-09-10 the fallback is our own 111-contract deploy, ~29 minutes.
+  **When:** before any demo that mints live
   **Status:** open
 
 ---
