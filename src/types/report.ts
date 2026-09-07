@@ -212,6 +212,14 @@ export interface Report {
   /** Frozen. Any change to this shape is a new version with a migration. */
   readonly schema: 'alpha-markets/report/v1';
   /**
+   * ⚠️ **UNUSED since 2026-09-07 — always `null`.** Report forms were removed: a report is now
+   * whatever the plan queried, in a table, and nothing reads this to render it. Kept in the shape
+   * rather than deleted because a single-protocol and a metric-across-deployments form are both
+   * likely to come back, and re-adding a hashed field is more expensive than leaving one null.
+   * `ReportForm` below is retained for the same reason.
+   */
+  readonly form: ReportForm | null;
+  /**
    * ⚠️ The analyst's WALLET ADDRESS — the same address its on-chain claims are staked from. It is
    * inside the hash: who wrote a report is part of what the report is, and an unattributed report
    * cannot carry a reputation.
@@ -242,8 +250,16 @@ export interface Report {
 // Not the report shape — what an analyst works FROM. Declared here so someone building their own
 // analyst can read the contract without importing any of our logic.
 
-/** One form for now. The forecast attachment is deferred until a market exists to settle it. */
-export type ReportForm = 'balance-overview';
+/**
+ * ⚠️ **UNUSED since 2026-09-07.** Nothing reads this — see `Report.form`. Kept, not deleted.
+ *
+ * What it encoded is still true and now lives in `subject.headline` instead: the headline decides
+ * what a `DATA_ERROR` costs. A headline naming a deployment means the report is about that figure
+ * and an error there blocks it; a headline naming no deployment means the question is about the
+ * metric across the set, so an error on one demotes that deployment and the report still stands.
+ * `execute` reads that off the headline rather than off a form.
+ */
+export type ReportForm = 'balance-overview' | 'ranking';
 
 /** What a deployment can and cannot tell you. Every field is measured, never inferred. */
 export interface Capabilities {
@@ -287,7 +303,6 @@ export type PlannedCheck =
  * while an error elsewhere withholds one figure.
  */
 export interface ReportPlan {
-  readonly form: ReportForm;
   readonly subject: Subject;
   readonly reads: readonly PlannedRead[];
   readonly checks: readonly PlannedCheck[];

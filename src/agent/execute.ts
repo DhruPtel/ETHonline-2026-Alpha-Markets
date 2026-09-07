@@ -27,7 +27,10 @@ import { hashCanonical } from '../domain/canonical.js';
 export type DraftReport = Omit<Report, 'sections' | 'assessment'>;
 
 export interface Budget { readonly maxQueries: number; readonly maxMarketPages: number; readonly maxWallClockMs: number }
-export const DEFAULT_BUDGET: Budget = { maxQueries: 40, maxMarketPages: 10, maxWallClockMs: 240_000 };
+// ⚠️ 40 was sized for a handful of named deployments and a ranking across all 25 blew straight
+// through it. A ranking is ~25 balance sheets plus corroboration samples on the four deployments
+// that support it.
+export const DEFAULT_BUDGET: Budget = { maxQueries: 100, maxMarketPages: 10, maxWallClockMs: 240_000 };
 // ⚠️ No token budget: this step makes no model calls. The planner and the narrator have those.
 
 export interface ExecuteState { readonly plan: ReportPlan; readonly analyst: string; readonly block?: number }
@@ -65,20 +68,43 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
   const el = () => Date.now() - started;
   let queries = 0;
 
-  // 1 · One block, or no report. A refusal is the answer, not a fallback.
-  const window = state.block ? null : await commonBlock(plan.subject.deployments);
+  const facts: Record<string, Fact> = {};
+  const checks: CheckResult[] = [];
+  const exclusions: Exclusion[] = [];
+
+  // 1 · One block for the set, or no report.
+  //
+  // ⚠️ When the report is about ONE deployment's figure a refusal is the answer: the caller asked
+  // about that deployment and quietly dropping it changes the question. When it is about a metric
+  // across the set it is not — a stale outlier should leave the table with a reason rather than take
+  // the other 23 down with it, so the furthest-behind is dropped and the block resolved again.
+  //
+  // ⚠️ **Replaces the form branch, 2026-09-07.** Forms are gone; the headline carries what they
+  // carried. A headline naming one of the deployments means the report is ABOUT that figure. A
+  // headline naming none means the question is about the metric across the set.
+  const aboutOneFigure = plan.subject.deployments.includes(plan.subject.headline.split('.')[0]!);
+
+  let slugs = [...plan.subject.deployments];
+  let window = state.block ? null : await commonBlock(slugs);
+  while (window && !window.ok && !aboutOneFigure && slugs.length > 1) {
+    const heads = window.heads;
+    const furthestBehind = slugs.reduce((a, b) => ((heads[a] ?? -Infinity) < (heads[b] ?? -Infinity) ? a : b));
+    exclusions.push({
+      slug: furthestBehind, code: 'no_common_block',
+      rationale: `${heads[furthestBehind] ?? 'no'} head against ${Math.max(...Object.values(heads))} elsewhere — too far behind to read at a shared block, so it is left out rather than read at a different moment`,
+    });
+    slugs = slugs.filter((s) => s !== furthestBehind);
+    window = await commonBlock(slugs);
+  }
   if (window && !window.ok) return { status: 'declined', reason: window.reason, elapsedMs: el() };
   const block = state.block ?? (window as { block: number }).block;
   const observedAt = await blockTime(block);
 
   const wantsMarkets = plan.reads.some((r) => r.documentId === 'markets');
-  const facts: Record<string, Fact> = {};
-  const checks: CheckResult[] = [];
-  const exclusions: Exclusion[] = [];
   const provenance: Provenance[] = [];
   let headlineReconciliation: ReturnType<typeof reconcile> | null = null;
 
-  for (const slug of plan.subject.deployments) {
+  for (const slug of slugs) {
     if (queries >= budget.maxQueries) return { status: 'budget', detail: `query limit ${budget.maxQueries}`, state: { ...state, block }, elapsedMs: el() };
     if (el() >= budget.maxWallClockMs) return { status: 'budget', detail: `wall clock ${budget.maxWallClockMs}ms`, state: { ...state, block }, elapsedMs: el() };
     const cfg = PROTOCOLS.find((p) => p.slug === slug)!;
@@ -106,7 +132,8 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
     if (corr) { queries += corr.length; findings.push(...crosscheck(slug, corr)); }
 
     const rec = reconcile({ config: cfg, computed, findings, corroboration: corr, marketsRead: markets?.length ?? 0 });
-    if (figureRef(slug, '').split('.')[0] === plan.subject.headline.split('.')[0]) headlineReconciliation = rec;
+    if (slug === plan.subject.headline.split('.')[0]) headlineReconciliation = rec;
+    else if (!aboutOneFigure && !headlineReconciliation) headlineReconciliation = rec;
 
     for (const [field, label, unit] of FIGURES) {
       const id = figureRef(slug, field);
@@ -124,14 +151,24 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
     for (const c of rec.claims) checks.push({ id: `${slug}:tier${c.tier}`, description: c.description, outcome: c.outcome === 'agreed' ? 'passed' : c.outcome === 'disagreed' ? 'failed' : 'not_checked', severity: null, delta: c.delta, appliesTo: c.appliesTo, rationale: c.rationale });
   }
 
-  // ⚠️ The headline is unreportable, so the report is. A partial report that looks complete is worse
-  // than none — the reader cannot tell which figure was the point.
-  const headline = facts[plan.subject.headline];
-  if (headline?.withheld?.code === 'data_error') return { status: 'blocked', figure: plan.subject.headline, reason: headline.withheld.rationale, elapsedMs: el() };
-  if (!headline) return { status: 'blocked', figure: plan.subject.headline, reason: 'the headline figure was never produced — its deployment did not answer', elapsedMs: el() };
+  // ⚠️ Blocking follows the HEADLINE, because "the headline" means two different things.
+  //
+  // It names a deployment: that deployment's figure is what the report is about. If it is
+  // unreportable the report is — a partial report that looks complete is worse than none, because
+  // the reader cannot tell which figure was the point.
+  //
+  // It names no deployment: the headline is a metric across the set. A `DATA_ERROR` on one leaves
+  // that deployment out of the table with its reason, and the rest still answer what was asked.
+  if (aboutOneFigure) {
+    const headline = facts[plan.subject.headline];
+    if (headline?.withheld?.code === 'data_error') return { status: 'blocked', figure: plan.subject.headline, reason: headline.withheld.rationale, elapsedMs: el() };
+    if (!headline) return { status: 'blocked', figure: plan.subject.headline, reason: 'the headline figure was never produced — its deployment did not answer', elapsedMs: el() };
+  } else if (!Object.keys(facts).length) {
+    return { status: 'blocked', figure: plan.subject.headline, reason: 'no deployment produced a figure to rank', elapsedMs: el() };
+  }
 
   const draft: DraftReport = {
-    schema: 'alpha-markets/report/v1', analyst, subject: plan.subject, block, observedAt,
+    schema: 'alpha-markets/report/v1', form: null, analyst, subject: plan.subject, block, observedAt,
     facts, checks, exclusions,
     verdict: headlineReconciliation
       ? { call: headlineReconciliation.call, coverage: headlineReconciliation.coverage }

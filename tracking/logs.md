@@ -2003,3 +2003,169 @@ product — the analyst identity is what a leaderboard and an on-chain claim bot
 
 ⚠️ **No token budget.** This step makes no model calls, so bounding tokens here would be theatre; it
 bounds queries, market pages and wall clock, and reports which one stopped it.
+
+## 2026-09-07 — The ranking form, and three bugs that only appear at 25 deployments
+
+`src/agent/skills/ranking.md` (new), plus `compose.ts`, `execute.ts`, and — flagged, not in the
+brief — `types/report.ts`, `narrate.ts`, `engine/ops.ts` and two demo scripts. The extra files were
+each forced: `ReportForm` had to gain `'ranking'`, `Report` had to carry its form or a stored report
+cannot be rendered, `narrate` had to load the right skill, and `ops.ts` had a latent bug the wider
+scope exposed.
+
+**"Which lending protocol has the highest deposits?" now asks about the metric and nothing else.**
+
+```
+needs_clarification — missing: question
+"Highest deposits" is ambiguous between the current outstanding deposit balance and lifetime
+cumulative deposit inflow. These differ by orders of magnitude…
+```
+
+`missing: question`, not `deployment` — exactly the split asked for. Scope defaults to all 25 live
+deployments and is never a reason to go back.
+
+**Disambiguated, it produces a real ranking.** Top 10 by deposits, then three groups the skill asked
+for and each of which fired:
+
+- **"Not on this deposit scale — CDP deployments"** — makerdao and liquity, with the reason that
+  collateral posted against minted debt is not supplied capital others borrow.
+- **"Arithmetically impossible"** — truefi at 187%, maple-v1 at 103%, placed deliberately rather than
+  sorted to the bottom, and correctly described as a state a bad-debt book can genuinely reach.
+- **The tail with a count** — "thirteen ranked deployments follow… all but three hold under one
+  million", listed with figures.
+
+**`execute` dropped the two stale deployments and explained them**, which is the behaviour the ask.ts
+run produced unprompted in Phase 1 and is now a rule: rari-fuse and goldfinch at head 25923375
+against 25923758 elsewhere, excluded rather than read at a different moment. The report says so and
+says neither exclusion is a judgment about those protocols.
+
+**The best line came from a rule generalising.** Asked for a net column it wrote: *"the platform
+supplies gross deposits and gross borrows as separate facts and does not publish a differenced
+figure, and I do not type arithmetic of my own into a table."* The no-typed-digits rule extended
+itself to no-typed-arithmetic without being told.
+
+### Three bugs, all invisible at five deployments
+
+⚠️ **`ops.ts` scale was too small.** Ranking all 25 hit
+`0.00000000000000162926873065418174459347072777589` — a token price with **47 decimal places** —
+against a working scale of 40, and threw. The 40 was sized on the 23 places seen across the five
+development deployments, and the five were not representative. Raised to 80, with the reasoning that
+the binding constraint is significant digits *plus leading zeros*: 34 significant digits under a
+1e-14 price needs 48 places. Existing hashes are unaffected because `format` trims trailing zeros.
+
+⚠️ **The query budget was sized for a handful of deployments.** 40 queries does not cover 25 balance
+sheets plus corroboration. Raised to 100, and `compose` now tells the planner a ranking reads
+balance-sheet only — walking every market of 25 deployments costs a great deal for data a ranking
+does not show.
+
+⚠️ **The narrator's tool schema was fighting the model, and the failure was silent.** With
+`sections: [{ id, paragraphs: [{ text, factRefs }] }]` it intermittently returned **zero sections**
+with `stop_reason: tool_use` — no error, just an empty array. Diagnosed by giving the model a free
+schema and looking at what it actually wanted to produce: `{ id, title, body }`. The nested
+paragraph objects were being dropped by schema validation. The tool now takes **one `body` string per
+section** and `narrate` splits it into paragraphs, **deriving `factRefs` from the text by regex**.
+The wire contract in `types/report.ts` is unchanged.
+
+That last change is better than a workaround: a model-supplied `factRefs` list can disagree with the
+placeholders the model actually wrote, and Unit 11 validates the text. Extracting them makes the two
+incapable of drifting apart.
+
+### What did not get demonstrated
+
+⚠️ **"Which protocol is most leveraged" did not produce the Morpho-denominator case.** The planner
+chose `totalBorrowBalanceUSD` as the metric, which is comparable across deployments, and discussed
+utilization in prose instead. So the specific thing the proof was meant to exercise — Morpho's
+utilization being *not on the scale* rather than merely untrustworthy — never arose. The skill's rule
+is written; nothing has tested it.
+
+⚠️ **Morpho-blue is ranked #2 in the deposits headline** despite a triage verdict of `unusable` and a
+denominator the skill calls out by name. The report caveats it thoroughly — the checks section says
+"the rank-2 figure carries a failed sample" and refuses to call it corroborated — but the skill says
+the headline should name only what can be stood behind, and that rule did not fire. Either the rule
+needs to be sharper about triage verdicts, or ranking by deposits is a case where inclusion with a
+caveat is right and the skill should say so.
+
+## 2026-09-07 — Defaults instead of questions
+
+The planner was asking whether "deposits" meant current or cumulative. That is not a real ambiguity —
+deposits means what is sitting there now, and someone who wants lifetime inflow says so. An analyst
+who asked that every time would be exhausting rather than careful.
+
+**The defaults live in `conventions.md`, and `compose` now loads it.** That placement matters more
+than it looks: the report *states the assumption the planner made*, so if the planner's defaults and
+the narrator's lived in different files a memo could declare a reading its own plan never took. One
+file, both consumers.
+
+| directive says | read as | stated in the report as |
+|---|---|---|
+| deposits | `totalDepositBalanceUSD`, current | cumulative only when named |
+| borrows | `totalBorrowBalanceUSD`, current | |
+| size, TVL, "how big" | `totalDepositBalanceUSD` | **gross**, before borrows are netted |
+| utilization, leverage | borrows ÷ deposits, current | |
+| "top N" with no N | top 10 | |
+
+Clarification is now reserved for three cases and scope is explicitly not one of them: data the
+platform does not have, an entity resolving to several deployments of differing quality, or no
+subject at all.
+
+**All six test directives behave.**
+
+```
+✅ "top 10 protocols by deposits"        ranking          ranking.totalDepositBalanceUSD       25 deployments
+✅ "which protocol has the most borrows" ranking          ranking.totalBorrowBalanceUSD        25 deployments
+✅ "how big is Compound v3"              balance-overview compound-v3…totalDepositBalanceUSD    1 deployment
+✅ "most leveraged protocol"             ranking          ranking.totalBorrowBalanceUSD        25 deployments
+✅ "is Aave a good investment"           needs_clarification — question, subject
+✅ "tell me about lending"               needs_clarification — subject, deployment, question
+```
+
+**And the assumption reaches the page.** The memo for "top 10 protocols by deposits" opens with a
+*Reading of the directive* paragraph: taken as the current balance and not cumulative, gross rather
+than net, and the same number the schema also reports as `totalValueLockedUSD` "by assignment rather
+than by independent measurement, so quoting both would be quoting one measurement twice."
+
+It then does something better than restating the default — it says where the default *changes the
+answer*: "netting borrows out changes the ordering materially at the top… morpho-blue borrows nearly
+as much as it holds, so on a net basis it would not sit second." That is the assumption being made
+useful rather than merely disclosed.
+
+⚠️ **Found the root cause of last run's untested case.** "Most leveraged protocol" plans as
+`totalBorrowBalanceUSD` every time, and it is not the planner being evasive — **`HEADLINE_FIELDS` in
+`compose.ts` contains only balance-sheet fields and no derived ratio**, so utilization is not
+expressible as a metric at all. That is why Morpho's denominator problem — the case the ranking skill
+is most specifically written for — has never arisen in a proof. Fixing it means either adding a
+derived-metric option to the plan or letting the narrator rank on a ratio it computes, and both are
+decisions rather than typos, so it is recorded rather than taken.
+
+## 2026-09-07 — Closing out: the format stripped back, and what it cost
+
+Two pieces of work today after the ranking form landed. First, the planner was made to default rather
+than ask — "deposits" means the current balance, "size" means gross, "top N" with no N means ten —
+with the defaults living in `conventions.md` so the planner and the narrator share one set, because
+the report states the assumption the planner made. All six test directives behave, and the memo opens
+with a *Reading of the directive* paragraph that says not just which default was taken but where it
+changes the answer.
+
+Then the bigger change: **the report format stripped back to a table and up to 500 words.** No
+verdict line, no provenance, no checks summary, no footer, no paragraph explaining an exclusion. A
+withheld figure is the single word `unavailable` in a cell. The skills went from 288 lines to 131,
+and the narrator's tool now accepts one table section plus a summary — so there is nowhere to put
+performed carefulness even if the model wants to.
+
+⚠️ **Everything the engine computes still lands in the `Report` object and inside the hash.** Checks,
+verdict, coverage, provenance, exclusions are all still there and unrendered. `render()` carries a
+comment saying so, because the next person to read it will otherwise assume the rigour was removed
+rather than hidden.
+
+⚠️ **Both proof runs failed on Anthropic API credit**, not on code — a bare one-token request fails
+identically. `compose` and `execute` completed in the first run, so the data layer and engine are
+fine and only narration is blocked. The stripped format is therefore **written and untested**, and
+the question it exists to answer — whether the agent has anything worth reading to say when it is not
+told what to worry about — is still open.
+
+Verified two things rather than trusting memory while writing the status note: `execute.ts` still
+produces protocol-level facts only, so the market-table gap stands; and the skills really did peak at
+288 lines (103 + 105 + 80) before the strip. The gap's *consequence* has changed though — the new
+skills do not ask for a market table, so it is a capability we lack rather than a promise we break.
+
+Status written to `tracking/phases/PHASE-2-status.md`, the board in `phase-2-tasks.md` updated to 10
+of 11, and the compliance-document lesson recorded in `lessons.md`.

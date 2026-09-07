@@ -809,3 +809,46 @@ test has to fix everything the run does not control, and the block is the larges
   something that has no other reason to be broken, the check is the more likely suspect — and the
   more alarming the failure looks, the more true that is.** Three of the five looked like serious
   findings on first read.
+
+## 2026-09-07 — We built the elaborate report format before the simple one
+
+**What we expected.** Every rule we added to the report format was right on its own. Flag the figure
+you cannot stand behind. Explain why something was withheld rather than dropping it silently. Say
+what was checked and what was not. Say that `consistent_only` is normal rather than a caveat. Say
+that an absence is not a finding. Each of those came from a real measurement and each prevented a
+specific way of misleading a reader.
+
+**What happened.** Together they produced a compliance document. The Aave memo spent more words on
+what could not be verified than on what the protocol is — a *Checks* section explaining that an
+external reference was not supplied, an *Exclusions* section explaining that nothing was excluded, a
+paragraph on why a withheld figure is not zero, and a verdict restated in three places. Every
+sentence was defensible. The whole was not worth reading.
+
+**The mechanism is worth naming.** Each rule told the model to *account for* something. Given six
+such rules and no counterweight, accounting for things became the task, and the analysis became the
+part that fitted in whatever space was left. **We had taught it to perform carefulness rather than to
+think**, and it performed beautifully, which is why it took a while to notice.
+
+**What changed.** The format is now a table and up to 500 words. The skills went from 288 lines to
+131, and the renderer prints the table and the analyst's read and nothing else. ⚠️ **The engine still
+computes all of it** — every check, the verdict, coverage, provenance — and all of it stays in the
+`Report` object and inside the hash. We kept the rigour and stopped printing it. That distinction is
+the whole point: this was a rendering decision, not a retreat from correctness.
+
+**What to remember when adding rules back.** The next caveat rule will also be individually correct,
+and that is not the test. The test is whether the report is still mostly about the protocol.
+
+- **Add a rule only against an observed failure**, not against an imaginable one.
+- **Count the rules.** Six was too many. There is no principled number, but the direction of drift is
+  one-way — rules accumulate and nothing removes them, because removing one always looks like
+  accepting a risk.
+- ⚠️ **Prefer shaping the container to instructing the model.** The strongest constraint in the new
+  format is not a sentence in a skill, it is that the tool accepts one table section and a summary.
+  There is nowhere to put performed carefulness, so spending words on a caveat costs the analysis
+  directly and the model has to decide it is worth it.
+
+**And a smaller casualty worth recording.** The eight-market table rule — which we *measured*, top-8
+covering 85–98% of every deployment's book — was cut with the rest. The measurement stands and is in
+this file's history; the rule may come back if a report ever needs a market table. It is a fair
+example of the cost: stripping back loses good rules along with the ones that were smothering the
+output.

@@ -15,17 +15,27 @@ figure that wasn't in the data.
 
 | Unit | File | Kind | Status |
 |---|---|---|---|
-| 1 | `types/report.ts` | SCAFFOLD | next |
-| 2 | `domain/canonical.ts` | LOGIC | |
-| 3 | `engine/ops.ts` | SCAFFOLD | |
-| 4 | `engine/invariants.ts` | LOGIC | |
-| 5 | `engine/reconcile.ts` | LOGIC ★★ | |
-| 6 | `engine/crosscheck.ts` | LOGIC | |
-| 7 | `agent/skills/` | SCAFFOLD | |
-| 8 | `agent/compose.ts` | LOGIC ★ | |
-| 9 | `agent/execute.ts` | LOGIC | |
-| 10 | `agent/narrate.ts` | LOGIC | |
-| 11 | `agent/validate.ts` | LOGIC ★ | |
+| 1 | `types/report.ts` | SCAFFOLD | ✅ done |
+| 2 | `domain/canonical.ts` | LOGIC | ✅ done |
+| 3 | `engine/ops.ts` | SCAFFOLD | ✅ done |
+| 4 | `engine/invariants.ts` | LOGIC | ✅ done |
+| 5 | `engine/reconcile.ts` | LOGIC ★★ | ✅ done |
+| 6 | `engine/crosscheck.ts` | LOGIC | ✅ done |
+| 7 | `agent/skills/` | SCAFFOLD | ✅ done — **rewritten 2026-09-07**, see below |
+| 8 | `agent/compose.ts` | LOGIC ★ | ✅ done |
+| 9 | `agent/execute.ts` | LOGIC | ✅ done |
+| 10 | `agent/narrate.ts` | LOGIC | ✅ done |
+| 11 | `agent/validate.ts` | LOGIC ★ | ⬜ **not started — the only unit left** |
+| — | ranking form (`skills/ranking.md`, + `compose`/`execute`/`narrate` changes) | — | ✅ done — **added mid-phase, not in the original eleven** |
+
+**10 of 11 done.** Unit 11 is the narration validator: the guard that rejects any digit in report
+prose that is not inside a `{fact:ID}` placeholder. Everything it guards already exists — the
+placeholder mechanic has been in `narrate.ts` since Unit 10 and `factRefs` are derived from the text
+rather than supplied by the model, so the validator has one job and nothing to negotiate with.
+
+⚠️ **The report format was stripped back on 2026-09-07 and the change is untested.** A report is now
+a table and up to 500 words; the skills went from 288 lines to 131. Nobody has seen what the model
+produces under it — both proof runs failed on API credit, not on code.
 
 **Development set:** the five deployments triage cleared — aave-v2, aave-v3, compound-v2, compound-v3,
 spark-lend. Morpho stays configured as the deployment that makes the trust layer necessary.

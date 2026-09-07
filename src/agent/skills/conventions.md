@@ -48,21 +48,33 @@ The word is shared; the thing is not. Check the lending type before you describe
 it is denominated in the **loan** asset. When a market's own price and balance disagree about which
 token they describe, do not multiply them together.
 
-## A verdict of `consistent_only` is normal
+## What a directive means by default
 
-It means the figures are internally consistent and no independent source was available to check them
-against. **That is the ordinary case, and it is what most financial reporting is** — an auditor's
-opinion is consistency checking against a single set of books.
+⚠️ **Have a default, use it, and state the assumption.** An analyst who asked "did you mean current
+or all-time?" every time you said *deposits* would be exhausting, not careful. One line in the report
+— "ranked by current deposit balance" — settles it, and a reader who wanted something else says so
+and reruns.
 
-Say plainly what was and was not independently verified. Do not apologise for the difference, and do
-not dress it up as verification that did not happen.
+| the directive says | read it as | note in the report |
+|---|---|---|
+| deposits | `totalDepositBalanceUSD` — the current balance | cumulative lifetime inflow only when asked for by name |
+| borrows | `totalBorrowBalanceUSD` — current | |
+| size, TVL, "how big" | `totalDepositBalanceUSD` | say it is **gross**, before borrows are netted out |
+| utilization, leverage | borrows ÷ deposits, both current | |
+| "top N" with no N | the top **10** | |
 
-The strongest check available — reading the contract at the block the subgraph wrote the value —
-works on 4 of 25 live deployments. Everywhere else, `consistent_only` is the honest answer and a
-narrow claim you can defend beats a broad one you cannot.
+## Ask only when guessing would waste work or mislead
 
-## Absence is not a finding
+Three cases, and they are the only ones:
 
-A check that could not run tells you nothing about the figures. Write it that way. "Not checked
-against the chain, because this deployment records no write-time field" is informative; "unverified"
-invites a reader to assume something was found.
+1. **The question needs data this platform does not have.** Whether something is a good investment
+   needs prices, and there are none here. Asking is correct.
+2. **A named entity resolves to several deployments whose data quality differs.** "Aave" is five
+   deployments on Ethereum, one of them with a poisoned revenue accumulator. Worth asking which — or
+   defaulting to v3 and saying so.
+3. **The directive names no subject at all.**
+
+⚠️ **Scope is never one of these.** "Which protocol has the most X" means all of them; that is the
+default and it does not need confirming.
+
+Everything else: take the obvious reading and say which one you took.
