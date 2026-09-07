@@ -16,8 +16,19 @@ const TIMEOUT_MS = 20_000;
  * Requested on every query, no exceptions — injected below if a document omits it.
  * `deployment` is the deployment hash: without it we cannot tell later that a subgraph was
  * republished under the same ID, and a report would silently cite a different index.
+ *
+ * ⚠️ **Pinned alongside the data whenever a block is requested** *(2026-09-07)*. Previously the
+ * injected `_meta` was always unpinned, so on a pinned read `meta.blockNumber` was the indexing
+ * head while the figures came from `requestedBlock` — and `block` in a persisted evidence record
+ * meant the read block for menu documents and the head for off-menu ones. A field whose meaning
+ * depends on which document produced it is a dispute waiting to happen, and evidence exists to
+ * settle disputes. `meta.blockNumber` is now the block the data came from, always.
+ *
+ * The freshness signal is what this costs: on a pinned read `_meta` no longer reports the head.
+ * It is available from a separate unpinned query when something actually needs it.
  */
-const META = '_meta { deployment hasIndexingErrors block { number timestamp } }';
+const meta = (pinned: boolean) =>
+  `_meta${pinned ? '(block: $block)' : ''} { deployment hasIndexingErrors block { number timestamp } }`;
 
 // ⚠️ MEASURED 2026-09-06 against the live gateway, closing the "exact pruning error strings"
 // lookup PLAN-v4 §8 still lists as open. Neither anticipated phrase exists. What the gateway
@@ -99,7 +110,7 @@ export type QueryOutcome<T = unknown> =
  * found by scanning for the first `{` outside the variable-definition parentheses. Documents
  * that already ask for `_meta` are returned untouched.
  */
-function withMeta(document: string): string {
+function withMeta(document: string, pinned: boolean): string {
   if (/\b_meta\b/.test(document)) return document;
   let parens = 0;
   for (let i = 0; i < document.length; i++) {
@@ -107,7 +118,7 @@ function withMeta(document: string): string {
     if (c === '(') parens++;
     else if (c === ')') parens--;
     else if (c === '{' && parens === 0) {
-      return `${document.slice(0, i + 1)}\n  ${META}${document.slice(i + 1)}`;
+      return `${document.slice(0, i + 1)}\n  ${meta(pinned)}${document.slice(i + 1)}`;
     }
   }
   throw new SubgraphError('GRAPHQL', '-', 'Document has no selection set to add _meta to');
@@ -174,7 +185,9 @@ export async function querySubgraph<T = unknown>(
   if (!config) throw new SubgraphError('CONFIG', slug, `Unknown slug — not in config/protocols.ts`);
 
   const vars = block === undefined ? variables : { ...variables, block: { number: block } };
-  const body = JSON.stringify({ query: withMeta(document), variables: vars });
+  // ⚠️ Injecting `_meta(block: $block)` makes a document that cannot honour a pin fail loudly
+  // instead of silently ignoring the extra variable, which is what happened before.
+  const body = JSON.stringify({ query: withMeta(document, block !== undefined), variables: vars });
   const url = `${GATEWAY}/${key}/subgraphs/id/${config.subgraphId}`;
 
   // One retry, and only on a timeout. SM-02 saw four of five parallel calls return ETIMEDOUT

@@ -1256,3 +1256,51 @@ block — the demo shows `block` and `requestedBlock` both 25922238. An off-menu
 injected unpinned by `client.ts`, so `block` is the indexing head instead. Anything asking "what
 block did this figure come from" wants `requestedBlock ?? block`, which is what the field comment
 says. Worth closing properly later by pinning the injected `_meta` too.
+
+## 2026-09-07 — The block ambiguity is closed, and Unit 12: the loop runs
+
+**`_meta` is now pinned whenever the read is.** `client.ts` injected an unpinned `_meta`, so on a
+pinned read `meta.blockNumber` was the indexing head while the figures came from `requestedBlock` —
+and `block` in a persisted evidence record meant the read block for menu documents and the head for
+off-menu ones. Verified fixed: an off-menu pinned read at head−300 now reports
+`meta.blockNumber 25922055` against a requested 25922055, where it used to report the head. The
+freshness signal is what this cost, and it is available from a separate unpinned query. `block` means
+one thing everywhere now, which is what a persisted artifact needs.
+
+A side effect worth having: injecting `_meta(block: $block)` makes a document that cannot honour a
+pin **fail loudly** instead of silently ignoring the extra variable, which is what happened before.
+
+---
+
+`src/agent/loop.ts` — 74 lines. A `while` over `stop_reason === "tool_use"`, promoted from SM-06.
+
+**It owns neither the conversation nor the tools.** `messages[]` goes in and comes back out, so a
+caller can persist and resume — Vercel gives 300 seconds and one invocation is one model turn, so a
+real multi-deployment report will not fit in a single call. Tool definitions and an executor are
+parameters, so Unit 13 can change the menu without touching the loop.
+
+**Budgets bound four things, checked before spending rather than after.** Turns alone would let a
+single turn making thirty tool calls run past every other limit — and the run proved that is not
+hypothetical: **the model made two tool calls inside one turn**, so turns and tool calls genuinely
+count differently.
+
+**The run answered a real question through the real data layer.** Two turns, two tool calls, 3,584
+tokens, 18.5s. The part worth keeping is what the model did with the flags:
+
+> **Aave v3: revenue figures are not available.** The deployment reports its revenue data as
+> poisoned… This is *not* zero revenue… I'd caution against inferring Aave's revenue by applying
+> Compound's take rate to Aave's borrow balance.
+
+That is the whole gating chain working end to end — config says `poisoned`, the adapter withholds the
+figure rather than passing $2.79e17 or zero, the tool hands over `null`, and the model reports
+unavailability and refuses to estimate around it. Nothing in the prompt told it to say that beyond
+"a null figure means unavailable, never report it as zero".
+
+**The budget stop is honest.** With `maxTurns: 1` it returns `stopReason: budget`, `detail: "turn
+limit 1 reached"`, **`answer: null`** rather than a half-answer presented as finished, and hands back
+3 messages so the caller resumes instead of restarting.
+
+⚠️ **The tool does not pin to a common block yet.** `blockwindow.ts` exists and nothing calls it —
+both deployments in the demo happened to read at block 25922360 because their heads coincided, not
+because we asked them to. That is exactly the "Aave at 3pm, Compound at 1pm" failure Unit 8 was built
+to prevent, and wiring it in belongs with `tools.ts` in Unit 13.

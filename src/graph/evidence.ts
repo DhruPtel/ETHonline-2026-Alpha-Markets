@@ -29,9 +29,9 @@ export interface EvidenceRecord {
   /** Always present, so an off-menu document is still identifiable byte-for-byte. */
   readonly documentHash: string;
   readonly variables: Readonly<Record<string, unknown>>;
-  /** The indexing head `_meta` reported. */
+  /** The block the data came from. Unambiguous: `_meta` is pinned whenever the read is. */
   readonly block: number;
-  /** The block asked for, when the read was pinned. `requestedBlock ?? block` is the read block. */
+  /** The block asked for, or `null` when the read was unpinned. Equals `block` when pinned. */
   readonly requestedBlock: number | null;
   readonly fetchedAt: string;
   /** `null` when the response carried no list to count. */
