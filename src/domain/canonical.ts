@@ -52,6 +52,12 @@ const strip = (value: unknown): unknown => {
  * ⚠️ Takes `unknown` on purpose. JCS is shape-agnostic, and the same bytes must come out whether the
  * input is a `Report`, a raw query response, or a conformance vector — one implementation serving
  * every caller is the point. `reportHash` below is the typed entry point for reports.
+ *
+ * ⚠️ **This is not pure JCS — it strips lifecycle fields first, so it is "canonicalize a report".**
+ * On a subgraph response the strip is a no-op, because no query response contains a key named
+ * `atsTokenAddress`. That is true today and is recorded here rather than left to be rediscovered.
+ * The alternative was two entry points, one stripping and one not, and two paths that can diverge is
+ * the worse trade — divergence is the failure this whole file exists to prevent.
  */
 export function canonical(value: unknown): string {
   return canonicalize(strip(value)) as string;

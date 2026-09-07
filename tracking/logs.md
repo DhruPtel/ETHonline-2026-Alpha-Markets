@@ -1784,3 +1784,42 @@ than the population — `Computed` does not carry a market count, so it now come
 −17,698,383,936; it compares magnitude now. Worth noting the second only became visible because the
 data moved: USDT/wstETH's delta has fallen to −4,482,721 since Unit 9, so USDC/PAXG genuinely is the
 largest today and the wrong code would have printed the right answer.
+
+## 2026-09-07 — Phase 2 Unit 6: crosscheck, 27 lines
+
+`src/engine/crosscheck.ts` — translates `graph/corroborate.ts`'s observations into the engine's
+finding shape and does nothing else. Half the planned size, which is the right outcome: verification
+is not what this build is for. We connect to The Graph, read it, and report what it says accurately —
+proving the source correct is a different project.
+
+**A mismatch is a `SIGNAL`, not a `DATA_ERROR`** — a change from what PHASE-2.md planned, and worth
+the change. `DATA_ERROR` would block the figure, and blocking would mean asserting the contract is
+the correct side. §5.14 settled that attribution is per-deployment and sometimes open: Morpho's
+subgraph reading higher than its own contract may be a mapping bug or a documented derivation, and
+this check cannot tell. It reports that two sources disagree, by how much, at which block, and stops.
+That is also precisely the kind of finding a report exists to surface.
+
+**All three statuses, against live deployments:**
+
+```
+aave-v3       ·  3 of 3 match the contract exactly
+morpho-blue   📣 USDC / PAXG   subgraph 6212914546395500 vs chain 6212914536395500 — -10000000
+              📣 USDT / wstETH subgraph 122323809935435 vs chain 122323699783615 — -110151820
+compound-v3   ·  3 of 3 unchecked — contract accessor not established
+compound-v2   ·  3 of 3 unchecked — no corroboration hint in config
+```
+
+⚠️ **Absence is worded so it cannot read as a gap.** The unchecked finding carries "this check is
+available on 4 of 25 live deployments; its absence here says nothing about the figures". A reader who
+sees "not checked" without that context reasonably assumes something went wrong.
+
+The −10,000,000 on USDC/PAXG is now the fourth independent reproduction, and it has not moved since
+SM-04 — while USDT/wstETH's delta has drifted from −26.9bn to −17.7bn to −4.5m to −110m across runs
+as that market trades. **One of these is a stable defect and the other is noise around a moving
+balance**, which is only visible because the check has been run repeatedly rather than once.
+
+⚠️ **`reconcile.ts` does not consume these findings** — it reads the same `Corroboration[]`
+observations directly to decide its tier-1 claim. So the two are parallel consumers of one input
+rather than a chain, which is what keeps them from restating each other: crosscheck produces the
+per-market findings a report shows, reconcile produces a verdict. Flagging it because the unit brief
+described it as serial, and if a serial wiring is wanted, `reconcile` is the file that changes.

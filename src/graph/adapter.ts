@@ -14,26 +14,10 @@ import { PROTOCOLS } from '../config/protocols.js';
 import type { BalanceSheetProtocol, MarketRow } from './queries/index.js';
 import type { QueryMeta } from './client.js';
 
-// `Severity` now comes from `types/report.ts`, where an outsider targeting the report contract can
-// read the enum without importing a logic module. This file's local copy is gone (2026-09-07).
-export type { Severity } from '../types/report.js';
-import type { Severity } from '../types/report.js';
-
-/**
- * The engine's internal finding shape. `CheckResult` in `types/report.ts` is what reaches a report;
- * this is what produces one.
- *
- * ⚠️ Declared here only because this file produced findings first. `engine/invariants.ts` imports it
- * from here, which is the right direction — the engine consumes what the graph layer produces — but
- * the type would sit better in `types/report.ts` beside `Severity` and `CheckResult`. One-line move
- * whenever that file is next open.
- */
-export interface Finding {
-  readonly severity: Severity;
-  /** `"{slug}.{field}"` — the figure this bears on. `publish.ts` compares it against the subject. */
-  readonly appliesTo: string;
-  readonly rationale: string;
-}
+// `Severity` and `Finding` both come from `types/report.ts` now — an outsider targeting the report
+// contract can read them without importing a logic module, and there is one of each (2026-09-07).
+export type { Finding, Severity } from '../types/report.js';
+import type { Finding } from '../types/report.js';
 
 const REVENUE_FIELDS = [
   'cumulativeTotalRevenueUSD', 'cumulativeSupplySideRevenueUSD', 'cumulativeProtocolSideRevenueUSD',
