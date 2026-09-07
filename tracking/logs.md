@@ -1078,3 +1078,42 @@ Two things for later, both about scale rather than correctness:
   `docs/protocol-inventory.md` are floors and should not be quoted as totals.
 - **The 8-page walk took 29 seconds** — about 3.6s per sequential page against the gateway. Fine for
   a script; worth remembering against Vercel's 300s ceiling when a report walks several deployments.
+
+## 2026-09-07 — Unit 8: blockwindow, and the flagship was lying about the fleet
+
+`src/graph/blockwindow.ts` — 39 lines. `hi` is the lowest head, `lo` is the highest head minus a
+retention floor, and if `lo > hi` it declines instead of guessing. No per-protocol-as-of fallback.
+
+**The brief's premise needed checking and so did my own correction of it.** Unit 3 measured aave-v3
+serving reads 400,000 blocks deep and I recorded that §5.15's ~500-block estimate was three orders of
+magnitude off — with a caveat that it was one deployment. Surveying all five: **aave-v3 retains
+439,844 blocks and the other four retain between 300 and 600.** §5.15 was right and I had
+generalised from the outlier. `RETENTION_FLOOR = 300` is the deepest depth confirmed on *all five*,
+and the proof shows the alternative: with aave-v3's window as the set's, it pins a block four of the
+five cannot answer and says nothing.
+
+**The finality question is therefore a real trade, not a formality.** With a ~300-block window, 64
+blocks of finality lag costs about a fifth of it. Taken anyway: a published report invalidated by a
+reorg is unrecoverable and may already have settled a market, while 13 minutes of staleness is merely
+stale. The measured window came out **299 blocks (~60 min)** and the pin landed at `hi − 64`, which
+all five answered — verified by actually reading balances at it rather than asserting it.
+
+**The refusal path needed no fabrication.** Adding `goldfinch-ethereum`, which the sweep found 4.2
+hours behind, puts the heads 1,448 blocks apart against a 300-block window, and it declines. That is
+the first time the rule has fired against real data.
+
+**Two findings on the way, both bigger than the unit.**
+
+⚠️ **`_meta.block.number` is one indexer's head, not the deployment's.** Every sweep has reported zero
+block spread, and that is true of whichever indexer answered. Asking for a block above the head makes
+the gateway list every indexer with its own head, and **aave-v2 has 10 indexers spanning 57,859
+blocks** — one eight days behind. compound-v2 and compound-v3 span ~5,500 across 7. The deployments
+agree; the fleets serving them do not, and nothing we had measured could see that.
+
+⚠️ **That turned up a real bug in `client.ts`, now fixed.** `classify()` read only the first
+`missing block: X, latest: Y` pair and decided PRUNED vs LAGGING from it, so with ten indexers the
+first one listed decided the verdict for all of them. On aave-v2 the first was lagging while eight
+others had passed the block and pruned it — a permanent condition reported as "wait and retry", which
+sent the retention probe into a throw instead of a measurement. Now a deployment is LAGGING only if
+**every** indexer is short of the block. It was invisible on aave-v3, whose four indexers sit within
+5 blocks of each other.

@@ -639,3 +639,49 @@ nulls**.
 twice the real behaviour was loud instead. It is worth checking which one a system actually does
 before designing defences around the quiet case, because a defence against silence costs real
 complexity and buys nothing if the system already shouts.
+
+## 2026-09-07 — Correction: the retained window is ~500 blocks after all, and aave-v3 is the outlier
+
+**Amends the 2026-09-06 entry above**, which reported the retained window as "at least 400,000
+blocks — three orders of magnitude" past §5.15's estimate, and said §5.15's sizing needed revisiting.
+
+That entry carried its own caveat — *"measured on aave-v3 only… one sample, not a survey"* — and the
+survey now exists. Measured across the five publishable deployments by probing pinned reads at
+increasing depth:
+
+| deployment | deepest answerable |
+|---|---|
+| aave-v3-ethereum | **439,844 blocks** (61 days) |
+| aave-v2-ethereum | between 300 and 600 |
+| compound-v3-ethereum | between 300 and 600 |
+| compound-v2-ethereum | between 300 and 600 |
+| spark-lend-ethereum | between 300 and 600 |
+
+**§5.15 was right.** `prune: auto` at 500–600 blocks describes four of the five, and a common window
+of roughly 100 minutes is what the arithmetic gives. aave-v3 is the exception — more indexers serve
+it, and at least one keeps far more history — and generalising from the flagship inverted the
+conclusion about the entire design.
+
+**What changes.** `blockwindow.ts` uses `RETENTION_FLOOR = 300`, the deepest depth confirmed
+answerable on **all five**, not the deepest on the best one. The proof shows what the other choice
+costs: with aave-v3's 439,844 as the floor, the window pins a block four of the five deployments
+cannot answer, and does it without complaining. **The floor has to be the tightest deployment in the
+set, not the loosest, and a single generous outlier is the most dangerous thing to measure first.**
+
+**Two things found on the way, both worth more than the correction.**
+
+**1. `_meta.block.number` is one indexer's head, not the deployment's.** Every sweep has reported
+"zero block spread" across five deployments, and that is true of the head each *returns*. Deliberately
+requesting a block above the head makes the gateway list every indexer with its own head, and they
+disagree badly: aave-v2 has **10 indexers spanning 57,859 blocks**, one of them eight days behind.
+compound-v2 and compound-v3 span ~5,500 across 7. So "zero spread" was measuring agreement between
+whichever indexers happened to answer, not agreement between deployments.
+
+**2. That exposed a real bug in `client.ts`.** `classify()` read only the **first** `missing block:
+X, latest: Y` pair in the error and decided PRUNED vs LAGGING from it. With ten indexers the first
+one listed decided the verdict for all of them — and on aave-v2 the first was lagging while eight
+others had passed the block and pruned it, so a permanent condition was reported as "wait and
+retry". Fixed: the deployment is `LAGGING` only if **every** indexer is still short of the block; if
+any has passed it and still cannot serve it, waiting will not help. **A multi-value error message
+parsed as a single value is a bug that only appears once the fleet is heterogeneous** — it was
+invisible on aave-v3, which has four closely-matched indexers.

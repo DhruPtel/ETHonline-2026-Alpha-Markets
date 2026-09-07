@@ -30,7 +30,7 @@ const META = '_meta { deployment hasIndexingErrors block { number timestamp } }'
 // arithmetic inside it. `missing > latest` means we asked ahead of the head; `missing <
 // latest` means we asked behind the retained window. A third, distinct case is a block below
 // the subgraph's own genesis, which no snapshot recovers.
-const UNAVAILABLE = /missing block:\s*(\d+),\s*latest:\s*(\d+)/i;
+const UNAVAILABLE = /missing block:\s*(\d+),\s*latest:\s*(\d+)/gi;
 const BEFORE_START = 'before minimum `startblock` of manifest';
 
 // The phrases the plan anticipated. Never observed on this gateway; kept because a different
@@ -130,13 +130,19 @@ function classify(slug: string, messages: string[]): SubgraphError {
   if (lower.includes(BEFORE_START)) {
     return new SubgraphError('BEFORE_START_BLOCK', slug, 'Block predates the subgraph manifest', joined);
   }
-  const unavailable = UNAVAILABLE.exec(joined);
-  if (unavailable) {
-    const missing = Number(unavailable[1]);
-    const latest = Number(unavailable[2]);
-    return missing > latest
-      ? new SubgraphError('LAGGING', slug, `Block ${missing} is above the indexed head ${latest}`, joined)
-      : new SubgraphError('PRUNED', slug, `Block ${missing} is below the retained window (head ${latest})`, joined);
+  // ⚠️ A deployment can have many indexers and the message reports EVERY one, each with its own
+  // head. Reading only the first pair classifies the deployment on whichever indexer the gateway
+  // happened to list first — measured 2026-09-07 on aave-v2, where the first of ten indexers was
+  // 57,859 blocks behind and lagging while eight others had passed the block and pruned it.
+  // The deployment is only LAGGING if EVERY indexer is still short of the block; if any indexer
+  // has passed it and still cannot serve it, waiting will not help and the answer is PRUNED.
+  const pairs = [...joined.matchAll(UNAVAILABLE)].map((m) => ({ missing: Number(m[1]), latest: Number(m[2]) }));
+  if (pairs.length) {
+    const heads = pairs.map((p) => p.latest);
+    const where = `indexer heads ${Math.min(...heads)}–${Math.max(...heads)} across ${pairs.length}`;
+    return pairs.every((p) => p.missing > p.latest)
+      ? new SubgraphError('LAGGING', slug, `Block ${pairs[0]!.missing} is above every indexed head (${where})`, joined)
+      : new SubgraphError('PRUNED', slug, `Block ${pairs[0]!.missing} is retained by no indexer (${where})`, joined);
   }
   if (lower.includes(PRUNED_PHRASE)) {
     return new SubgraphError('PRUNED', slug, 'Block is below the retained window', joined);
