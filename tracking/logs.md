@@ -1165,3 +1165,60 @@ corroboration hint in config", which is the thing actually known.
 menu and their guarantee is that every one runs on every live schema version.
 `indexLastUpdatedTimestamp` is 3.1.0/3.0.0 only and `outputToken` is absent on 3.0.0, so putting this
 in the menu would break the one property the menu has.
+
+## 2026-09-07 — Unit 10: the adapter annotates, and the same condition gets opposite severities
+
+`src/graph/adapter.ts` — 105 lines, pure, no I/O. Takes a balance sheet plus a market population
+plus the deployment's config row, returns a `Computed` and a list of findings. **Nothing is
+corrected.** Morpho's $13.09B comes out as $13.09B with findings attached, because the moment the
+adapter adjusts a figure we have invented a number nobody can trace.
+
+**No rule keys off a slug**, which took two measurements first. The oracle guard needs to know how a
+deployment derives deposit USD, and that was not in config. Measured by comparing
+`inputTokenPriceUSD × inputTokenBalance` against `totalDepositBalanceUSD` on the top 8 markets:
+**aave-v3, aave-v2, compound-v3, compound-v2 and spark-lend agree 8/8; morpho-blue agrees 0/8** and
+has 4 of its top 8 at zero price. So `depositBasis` is a measured column now, and the adapter reads
+it. Also set spark-lend's `revenueAvailability` to `poisoned` — Unit 6 measured $1.20e17 and the row
+was still null.
+
+**The clearest result is the same condition landing on opposite severities.**
+
+```
+compound-v3   ⛔ DATA_ERROR      1 market at zero price — deposits derive from price x balance,
+                                 so real deposits read as empty
+morpho-blue   ·  INFORMATIONAL   1,029 markets at zero price — expected, the price is the
+                                 collateral's while deposit USD comes from the loan token
+```
+
+One deployment, one market, blocking. Another, a thousand markets, benign. A global guard would be
+unusable and a slug check would make the config-row claim false; a measured fact in config gives the
+right answer for both.
+
+⚠️ **compound-v3 has a live DATA_ERROR, on a deployment triage called `publishable`.** One market
+prices zero with a non-zero balance. §5.13 says a `DATA_ERROR` blocks a report, so compound-v3 would
+not publish right now. Triage sampled protocol totals and never looked at market-level oracle state —
+this is the first check that does.
+
+**The rest behaved as intended.** aave-v3 and spark-lend return revenue `unavailable` rather than
+$2.79e17 and $1.20e17. compound-v2 returns $522.2M usable, which is the 2.0.1 deployment carrying a
+revenue figure the two 3.1.0 flagships cannot. morpho-blue reports **48 of 1,759 markets with
+deposits exactly equal to borrows** — against SM-02's 28 of the top 500 and triage's 1 of the first
+100. The complete population is the only one that gives the real count, which is the argument for
+Unit 7 in one line.
+
+⚠️ **An honest limit: the Σ-markets-vs-protocol-total rule caught nothing, including on Morpho.** It
+is a real §5.13 `INCONSISTENCY` check and it is right to have, but Morpho's 3.6x inflation is not a
+summing discrepancy — the markets do sum to the total. The inflation comes from the same value being
+counted on both sides of markets at 100% utilization, and the thing that actually surfaces it is the
+utilization ceiling. Worth writing down so nobody credits the TVL rule with a catch it did not make.
+
+⚠️ **Nothing dispatches on schema version, and I did not build the mechanism.** Unit 4 found the five
+live versions share every field these documents use, so there is no branch to write. The adapter
+compares the live `schemaVersion` against what config recorded and raises an `INFORMATIONAL` if they
+have drifted — that is the whole of it. Building a dispatcher for a case we have not hit would be a
+framework guarding nothing.
+
+⚠️ **`Finding` and `Severity` are declared in `adapter.ts`, not `wire.ts`.** Phase 2's
+`engine/invariants.ts` owns severity and does not exist yet, and adding to a frozen contract
+unprompted seemed worse than declaring them where they are used. They should move to `wire.ts` once
+the engine needs them.

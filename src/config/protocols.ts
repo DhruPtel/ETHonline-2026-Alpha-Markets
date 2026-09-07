@@ -38,6 +38,22 @@ export type DeploymentStatus = 'untested' | 'live' | 'lagging' | 'no_indexers' |
 export type TriageVerdict = 'publishable' | 'flagged' | 'unusable';
 
 /**
+ * How a deployment derives a market's deposit USD. **Measured 2026-09-07** by comparing
+ * `inputTokenPriceUSD × inputTokenBalance` against `totalDepositBalanceUSD` on the top 8 markets.
+ *
+ * | basis | agreed on | meaning |
+ * |---|---|---|
+ * | `price_x_balance` | aave-v3, aave-v2, compound-v3, compound-v2, spark-lend — **8/8 each** | a zero price silently zeroes real deposits |
+ * | `loan_token` | morpho-blue — **0/8**, with 4 of 8 top markets at zero price | the price is the COLLATERAL's; deposit USD comes from the loan token |
+ *
+ * ⚠️ This is what makes the oracle guard per-deployment. `inputTokenPriceUSD == 0 &&
+ * inputTokenBalance > 0` is a `DATA_ERROR` under `price_x_balance` and a false positive under
+ * `loan_token` — the same condition, the same field names, opposite meanings (§5.13). The adapter
+ * reads this fact and decides severity; it must never key off a slug.
+ */
+export type DepositBasis = 'price_x_balance' | 'loan_token';
+
+/**
  * How to reach the chain for a corroboration check on this deployment FAMILY.
  *
  * ⚠️ A hint, not a promise. SM-04 established corroboration is decided PER MARKET, not per
@@ -90,6 +106,8 @@ export interface ProtocolConfig {
   readonly lendingType: LendingType | null;
   /** Per-deployment, from SM-03's revenue sweep. `null` = not swept. */
   readonly revenueAvailability: RevenueAvailability | null;
+  /** `null` = not measured; the adapter then declines to judge the oracle condition. */
+  readonly depositBasis: DepositBasis | null;
   /** What this deployment means by the standard field names, where it differs. */
   readonly semanticNotes: string | null;
   readonly corroborationHint: CorroborationHint | null;
@@ -110,6 +128,7 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     liveSchemaVersion: '3.1.0',
     lendingType: 'POOLED',
     revenueAvailability: 'poisoned',
+    depositBasis: 'price_x_balance',
     semanticNotes:
       'The flagship at $24.8B, and its revenue is unusable. One day in Jul 2024 booked ' +
       '$1.63e15 and the cumulative never recovered; 38 recurrences since, most recently ' +
@@ -132,6 +151,7 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     liveSchemaVersion: '3.1.0',
     lendingType: 'POOLED',
     revenueAvailability: 'usable',
+    depositBasis: 'price_x_balance',
     semanticNotes:
       'Byte-identical schema to aave-v3, which is what makes this pair the G1.5 claim. ' +
       'But it is a WOUND-DOWN deployment at $97M against v3\'s $24.8B — fine as a data ' +
@@ -154,6 +174,7 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     liveSchemaVersion: '3.1.0',
     lendingType: 'POOLED',
     revenueAvailability: 'usable',
+    depositBasis: 'price_x_balance',
     semanticNotes:
       '$1.88B. The deployment that made corroboration a per-market capability: of its ten ' +
       'largest markets, the three base-asset ones carry a write-time timestamp and the seven ' +
@@ -180,6 +201,7 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     liveSchemaVersion: '2.0.1',
     lendingType: 'POOLED',
     revenueAvailability: 'usable',
+    depositBasis: 'price_x_balance',
     semanticNotes:
       '$117M. The version-gap proof — the same document, one schema version behind, so any ' +
       'document touching 3.x-only fields must omit them or dispatch on the live version. ' +
@@ -200,6 +222,7 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     liveSchemaVersion: '3.0.0',
     lendingType: 'POOLED',
     revenueAvailability: 'not_tracked',
+    depositBasis: 'loan_token',
     semanticNotes:
       'NOT a Messari deployment — Morpho publish it on Messari\'s standardized template, ' +
       'which is why it takes our documents unchanged and is the only 3.0.0 we have. It uses ' +
@@ -234,102 +257,105 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
   { slug: 'aave-amm-ethereum', subgraphId: '41ooPWnDYKwckqyG1mvg7ZEndy5zMemXinx6uQxscrBS',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'aave-arc-ethereum', subgraphId: '5hyqnEzjZbwFBU1rk4JBknCeiF2Mj93qBzsyQfpAa3QA',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'aave-rwa-ethereum', subgraphId: 'C8ynQrjVKcmqxb9fWrLvSCBFNf2ChFkxCg7Q8gknJrza',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'abracadabra-ethereum', subgraphId: 'GLAu42kvVs7ixfXcmkAsRiS7Xt1NCpgkKsnz3qiriuvV',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: null,
     liveSchemaVersion: null,
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'no_indexers', lastSwept: '2026-09-07', triageVerdict: null },
   { slug: 'cream-finance-ethereum', subgraphId: '43NeT7UTACLUkohKBaG7auvkhsj4Kwux9kNTJr6sFdNe',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'dforce-ethereum', subgraphId: '6PaB6tKFqrL6YoAELEhFGU6Gc39cEynLbo6ETZMF3sCy',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'euler-finance-ethereum', subgraphId: '95nyAWFFaiz6gykko3HtBCyhRuP5vZzuKYsZiLxHxLhr',
     network: 'ethereum', declaredSchemaVersion: '1.3.0', lendingType: 'POOLED',
     liveSchemaVersion: '1.3.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'goldfinch-ethereum', subgraphId: 'GRwpFCPYyQPdz84sCnKemzrNvgFPuKkFLcRLR6jsRxHr',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'inverse-finance-ethereum', subgraphId: 'EXuutY6qkZbXjYeJZdiDBf2imJswTNdfm8YZCqhAthfW',
     network: 'ethereum', declaredSchemaVersion: '1.3.0', lendingType: null,
     liveSchemaVersion: null,
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'error', lastSwept: '2026-09-07', triageVerdict: null },
   { slug: 'iron-bank-ethereum', subgraphId: '5YoxED3bbWV9byvn3x3S3ebZ3idrQmQmsJhL5LMyY26v',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'liquity-ethereum', subgraphId: '2D2dFCLjUt3MfFgTKW8cBxiRQ3Adss7KUtYh2rTcFVY',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'CDP',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'makerdao-ethereum', subgraphId: '8sE6rTNkPhzZXZC6c8UQy2ghFTu5PPdGauwUBm4t7HZ1',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'CDP',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'maple-finance-v1-ethereum', subgraphId: 'J9dtvE11PWNZH74frWyx9QZonyC1Db2UWDMUegmT3zkG',
     network: 'ethereum', declaredSchemaVersion: '1.3.0', lendingType: 'POOLED',
     liveSchemaVersion: '1.3.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'maple-finance-v2-ethereum', subgraphId: '94swSaaFChsQoZzb9Vc7Lo6FWFV6YZUMNSdFVTMAeRgj',
     network: 'ethereum', declaredSchemaVersion: '3.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '3.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'morpho-aave-v2-ethereum', subgraphId: 'DsznTYxGdsqxWB6a474rSksvB7qWSth5Ff1PcxW28vZy',
     network: 'ethereum', declaredSchemaVersion: '3.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '3.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'morpho-aave-v3-ethereum', subgraphId: 'FKe6ANnWmGPE6hajGLoTgPrVF2jYPHiRu2Jwcg9ZmG9A',
     network: 'ethereum', declaredSchemaVersion: '3.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '3.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'morpho-compound-ethereum', subgraphId: '9dTy23tkahyiap1THgwnJuMwxNHVnQM57jFQQiUzjcY6',
     network: 'ethereum', declaredSchemaVersion: '3.0.1', lendingType: null,
     liveSchemaVersion: null,
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'no_indexers', lastSwept: '2026-09-07', triageVerdict: null },
   { slug: 'qidao-ethereum', subgraphId: 'BmQSQaXsivq866kUobQSbyxycjk3D7CiaczKgu3P9ifB',
     network: 'ethereum', declaredSchemaVersion: '1.3.0', lendingType: 'CDP',
     liveSchemaVersion: '1.3.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'rari-fuse-ethereum', subgraphId: 'kecp6SPMvbB4GTqg9r5PXvztYriexj5F3ZCaATpjmb2',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'spark-lend-ethereum', subgraphId: 'GbKdmBe4ycCYCQLQSjqGg6UHYoYfbyJyq5WrG35pv1si',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null,
+    // ⚠️ Measured 2026-09-07 (Unit 6): $1.20e17. The SAME template fault as aave-v3's $2.79e17,
+    // inherited by being an Aave v3 fork — poisoned revenue is not one bad deployment.
+    revenueAvailability: 'poisoned',
+    depositBasis: 'price_x_balance',
     semanticNotes:
       'An Aave v3 fork on the same Messari template, and it inherits the poisoned revenue ' +
       'accumulator with it — $1.20e17, the same fault as aave-v3 (Unit 6). Balances are sound: ' +
@@ -340,16 +366,16 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
   { slug: 'truefi-ethereum', subgraphId: '39F8fYCvLYmutjqpzEwx3dcEJTtFFVupvBzJqkEzftA7',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
     liveSchemaVersion: '2.0.1',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
   { slug: 'uwu-lend-ethereum', subgraphId: 'CZBD7e8VGvNa6WkBHZAaC688bsZ35UvAM1AuDdVng2aE',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'zerolend-ethereum', subgraphId: '4Zf4doH54RDit9KVsfCp3MkjrP3szhJZwvw2z5PHczx9',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null, depositBasis: null, semanticNotes: null, corroborationHint: null,
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'unusable' },
 ];
