@@ -1547,3 +1547,51 @@ rest. That was a guess in the plan an hour ago and is now a measurement.
 
 "25 protocols answer" survives contact with market-level inspection, and the one exception is a
 blocked *figure* rather than a blocked report.
+
+## 2026-09-07 — Phase 2 Unit 1: the report contract
+
+`src/types/report.ts` — 85 declaration lines under about as many lines of comment, no logic. It
+defines the report as a **public contract**: another team's agent has to be able to produce one, so
+the file is commented for a reader who has never seen this repository, and it opens with the five
+things you need to know to target it.
+
+**A separate file, not an amendment to `wire.ts`** — which is better than what PHASE-2.md planned.
+`wire.ts` stays the internal vocabulary the data layer speaks; `report.ts` is the thing outsiders
+target. It imports `Computed`, `Provenance`, `Decimal`, `Timestamp`, `Completeness` and
+`CorroborationStatus` rather than redefining any of them.
+
+**Proved by building a report the way an outsider would** — a fixture assembled from real aave-v2
+figures, touching nothing but the exported types, then canonicalized and hashed:
+
+```
+baseline            0e18bb209f6322f0…
+with ATS token      0e18bb209f6322f0…  ✅ lifecycle field excluded
+keys reordered      0e18bb209f6322f0…  ✅ order-independent
+one cent moved      7f25bf0470a45df2…  ✅ sensitive
+verdict changed     f52d65c3736a5ca6…  ✅
+analyst changed     b46059c170c99d32…  ✅ attribution is inside the hash
+```
+
+⚠️ **The reorder check failed on the first run, and it was the test that was wrong.** I shuffled keys
+with `JSON.stringify(report, Object.keys(report).sort().reverse())` — but an array as the second
+argument is a **key allowlist, not an ordering**, and it applies at every level, so it silently
+dropped every nested key and produced a different object rather than a reordered one. **This is
+SM-01's near-miss again**, almost exactly: there a JSON round-trip reordered integer-like keys and
+accused a correct canonicalizer; here a replacer array mangled the object and accused a correct
+contract. Both would have been reported as a failure of the thing under test. Fixed with a recursive
+reorder that drops nothing, and the printed key list now shows all nine fields surviving reversed.
+
+**Two decisions the file makes that are worth naming.** `Subject.headline` is a `FactId` — that is
+what makes §5.13's escalation rule implementable, since "blocks the report when the error touches the
+subject" needs the subject to name a figure. And `Verdict` carries **`Coverage`** — markets read,
+markets corroborated, completeness, checks run against checks available — where a confidence label
+would have gone. Confidence lives on `Assessment`, which is where judgment belongs.
+
+⚠️ **`wire.ts` now holds a superseded `Report`, `Verdict`, `VerdictCall`, `Confidence`,
+`LifecycleField` and `HashableReport`.** Nothing imports any of them — checked — so nothing is broken,
+but two `Report` types in one codebase is exactly the drift `wire.ts` exists to prevent. Removing them
+means editing a file this unit does not name, so it is flagged rather than done.
+
+⚠️ `Severity` is declared here rather than imported from `graph/adapter.ts`, because an outsider
+targeting the format needs the enum and a types file importing from a logic module is backwards.
+`adapter.ts`'s local copy is now the duplicate, and PHASE-2.md already schedules that move for Unit 7.
