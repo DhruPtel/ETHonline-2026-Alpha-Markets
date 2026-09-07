@@ -1304,3 +1304,68 @@ limit 1 reached"`, **`answer: null`** rather than a half-answer presented as fin
 both deployments in the demo happened to read at block 25922360 because their heads coincided, not
 because we asked them to. That is exactly the "Aave at 3pm, Compound at 1pm" failure Unit 8 was built
 to prevent, and wiring it in belongs with `tools.ts` in Unit 13.
+
+## 2026-09-07 — Unit 13: two tools, and Phase 1's required units are done
+
+`src/agent/tools.ts` — 89 lines. Two tools, no free-form GraphQL, no URLs. It composes `client`,
+`blockwindow`, `paginate` and `adapter` and reimplements none of them.
+
+⚠️ **`run_document` takes `slugs`, plural.** A common block is a property of the SET being compared,
+so a tool that only ever saw one deployment could not resolve one. Still two tools; the parameter is
+just not singular.
+
+**The end-to-end run is what Phase 1 was for.** Asked to compare three deployments, the agent called
+`get_capabilities` on all three **first**, then made one `run_document` call across all three at
+**common block 25922313** with the window reported, then answered:
+
+> **Aave v3 and Spark Lend: revenue is unavailable, not zero.** … I won't estimate around these.
+> There is no sound way to infer Aave v3 or Spark revenue from deposits, borrows, or from Compound
+> v2's figures — inventing a proxy would be worse than the gap.
+
+It also volunteered that Compound v2's usable revenue is **uncorroborated** — no write-time field —
+which is a distinction config carries and nothing in the prompt mentioned. And asked about Uniswap it
+declined cleanly, then noted that `aave-amm-ethereum` accepts Uniswap LP tokens as collateral and
+offered that instead. No invention anywhere.
+
+⚠️ **The proof caught a real bug, and the tell was the model inventing an explanation.** The first run
+ended with "the `incomplete` completeness flag reflects 3.x-only fields being omitted" — which is
+false. `adapt` defaulted a market-less read to `incomplete`, emitting a flag with no finding beside
+it to account for it, and the model reached for a plausible reason. Completeness is about the
+population behind the figures and a protocol-level read has a population of one row, which we have;
+it now returns `complete` unless a market population was actually requested and not exhausted. The
+false sentence is gone from the re-run. **A flag nobody can account for is worse than no flag** —
+it does not just fail to inform, it actively invites a wrong story.
+
+⚠️ **`corroborate.ts` and `evidence.ts` are built and nothing on the live path calls them.** The unit
+specified composing client, adapter, blockwindow and paginate, and that is what it composes — but it
+means the chain check and the provenance record are reachable only from their own demos. Wiring
+corroboration into a third tool was explicitly out of scope, and evidence has nowhere to be stored
+until Phase 3. Both are real gaps in the agent path rather than in the code.
+
+## 2026-09-07 — `scripts/ask.ts`, and the refusal fires in the wild
+
+A command-line front end for the loop — question in, steps and answer out. No new code and no new
+dependencies, just `loop.ts` and `tools.ts` wired to `process.argv`, with a credential guard, the
+step printer from Unit 13's demo, and a budget line at the end.
+
+**The first real question exercised the refusal path without being asked to.** Given "which protocol
+has the most deposits?", the agent went straight for all 25 live deployments in one call and got:
+
+```
+refused: no common block across these deployments
+reason:  heads are 1598 blocks apart and the tightest deployment retains only 300
+```
+
+`goldfinch-ethereum` and `rari-fuse-ethereum` are the pair the sweep found 4.2 hours behind, sharing
+one stale indexer. The agent dropped them, re-ran the other 23 at **common block 25922322** with a
+head spread of 14, and then said so in the answer:
+
+> Two deployments are missing from this comparison… I excluded them rather than read them at a
+> different moment… treat them as unread, not as zero.
+
+That is Unit 8 doing exactly what it was built for, three units later and unprompted — the refusal
+reached the model as a result rather than an error, and the model handled it as information. It also
+flagged Morpho's $13.09B as unusable and declined to substitute a corrected figure, which is the
+adapter and the triage verdict arriving together at the surface.
+
+4 turns, 4 tool calls, 29,747 tokens, 33s.

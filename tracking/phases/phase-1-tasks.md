@@ -24,10 +24,10 @@ stand behind.
 | 7 | `graph/paginate.ts` | LOGIC | ✅ done |
 | 8 | `graph/blockwindow.ts` | LOGIC | ✅ done |
 | 9 | `graph/corroborate.ts` | LOGIC ★ | ✅ done |
-| 10 | `graph/adapter.ts` | LOGIC ★★ | next |
-| 11 | `graph/evidence.ts` | SCAFFOLD | |
-| 12 | `agent/loop.ts` | LOGIC | |
-| 13 | `agent/tools.ts` | SCAFFOLD | |
+| 10 | `graph/adapter.ts` | LOGIC ★★ | ✅ done |
+| 11 | `graph/evidence.ts` | SCAFFOLD | ✅ done |
+| 12 | `agent/loop.ts` | LOGIC | ✅ done |
+| 13 | `agent/tools.ts` | SCAFFOLD | ✅ done — **all 13 required units complete** |
 | 14 | `scripts/vet-protocol.ts` | LOGIC | optional |
 | 15 | Subgraph MCP | LOGIC | optional |
 | 16 | Deploy Morpho Blue | — | optional |
