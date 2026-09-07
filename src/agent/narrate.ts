@@ -51,7 +51,7 @@ const WRITE: Anthropic.Tool = {
       assessment: {
         type: 'object',
         properties: {
-          summary: { type: 'string', description: 'Up to 500 words: what you make of it. Figures appear ONLY as {fact:ID}. Separate paragraphs with a blank line.' },
+          summary: { type: 'string', description: 'ONE paragraph about the protocols and the market — what they are, what the numbers mean, how they compare. No blank lines: one paragraph, not several. Nothing about what was queried or how the directive was read. Figures appear ONLY as {fact:ID}.' },
           basis: { type: 'array', items: { type: 'string' }, description: 'Fact ids this judgment rests on.' },
           confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
         },
@@ -105,9 +105,9 @@ ${skill('report')}
 ⚠️ You never type a financial figure. Every number is written as {fact:ID} using an id from the FACTS
 list, and the renderer substitutes the value. A digit you type is a digit nobody can trace.
 
-Produce one section — the table of what was fetched — and put your read in the assessment summary,
-in two paragraphs. The reader wants the data and your view of it; they are not interested in a
-description of the checking that produced it.`;
+Produce one section — the table of what was fetched — and put your read in the assessment summary as
+ONE paragraph about the protocols and the market. Not what was queried, not how you read the
+directive, not a description of the checking that produced the figures.`;
 
   const response = await client.messages.create({
     // ⚠️ Sized for the widest table the plan can produce — every live deployment. An output cap
@@ -164,7 +164,18 @@ export function render(report: Report, _hash?: string): string {
       return f ? show(f) : `⟨unknown fact ${id}⟩`;
     });
   const table = report.sections.flatMap((sec) => sec.paragraphs).map((p) => fill(p.text)).join('\n\n');
+
+  // ⚠️ **One line, not a provenance block.** Where the numbers came from is worth saying once —
+  // honestly, and because a judge looking for live Graph data should not have to take it on faith.
+  // The rest of the provenance stays in the object.
+  //
+  // ⚠️ The count comes from the FACTS, not from `subject.deployments`. The plan names what was
+  // asked for; the facts are what actually answered, and a deployment dropped for staleness must
+  // not be counted here as though it had contributed.
+  const answered = new Set(Object.values(report.facts).map((f) => f.slug)).size;
+  const source = `Live data from The Graph · ${answered} deployment${answered === 1 ? '' : 's'} · block ${report.block}`;
+
   // ⚠️ The heading is the directive, not a form name. With no template there is no category to
   // announce, and what identifies a report is the question it answers.
-  return `# ${report.subject.directive}\n\n${table}\n\n${fill(report.assessment.summary)}\n`;
+  return [`# ${report.subject.directive}`, '', '', table, '', source, '', '', fill(report.assessment.summary), ''].join('\n');
 }

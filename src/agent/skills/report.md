@@ -1,6 +1,6 @@
 # Report
 
-Here is the data you asked for. **A table and two paragraphs.**
+Here is the data you asked for. **A table and one paragraph.**
 
 ## The table
 
@@ -11,11 +11,23 @@ Every number is a `{fact:ID}` placeholder. You never type a figure.
 
 A figure that came back unavailable stays in the table as the one word.
 
-## The two paragraphs
+Where a reading needed choosing — current rather than lifetime, gross rather than net — put it in the
+column label. `Borrows (current)` settles it in two words and costs the paragraph nothing.
 
-Roughly 150 words together. **Interpretation, not description** — the table already gives the
-numbers, so a sentence that reads one back is a wasted sentence.
+## The paragraph
 
-1. **What the data shows.** What stands out, and what it means for the question that was asked.
-2. **What is worth knowing.** A figure that is not comparable to the ones beside it, a deployment
-   that has wound down, a number that looks wrong.
+**One paragraph, about the protocols and the market.** What these deployments are, what their
+numbers mean, how they compare with each other. Read in under thirty seconds.
+
+⚠️ **Not what was queried, not how the directive was read, not which field you chose.** The reader
+asked about lending protocols. A sentence about the query is a sentence not about the market.
+
+This is the register:
+
+> Morpho's isolated-market design runs near-fully drawn, while Aave v3 and Spark sit around a third
+> to two-fifths utilized.
+
+**Caveats get one closing sentence.** A figure that is not comparable, a deployment that has wound
+down, a number that looks wrong — whichever matters most, said once at the end, then stop.
+
+If the directive was ambiguous, choose the most useful reading and get on with it. Never ask.
