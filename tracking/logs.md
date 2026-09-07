@@ -832,3 +832,55 @@ aave-rwa, spark-lend, uwu-lend and zerolend — and the G1.5 demo needs exactly 
 protocol to add on camera. **spark-lend is the obvious-looking pick and is the wrong one**: §5.18 rules
 it out on 1.0 GRT signal against a recommended 3,000. That is recorded in the plan, not in this table,
 because untested rows assert nothing.
+
+## 2026-09-06 — Unit 3: the client, and three block failures that are really one string
+
+`src/graph/client.ts` — two exports. `querySubgraph(slug, document, variables?, block?)` reads one
+deployment; `querySubgraphs(slugs, ...)` reads many with `Promise.all` and per-protocol isolation, so
+a dead endpoint returns a failure for that deployment rather than taking the set down. Both take a
+**slug**, never a URL or a subgraph ID — `config/protocols.ts` stays the only place a deployment is
+named. Plus `scripts/demo-query.ts`, which runs all of it against the live gateway.
+
+**It works.** Five deployments in **363ms**, 5/5, block spread 0 — finding #7 holding for the fourth
+run in a row. aave-v3 at $24.84B deposits / $10.03B borrows, morpho-blue at $13.10B (the inflated
+figure, arriving unflagged because the adapter is Unit 8). Block pinning reads the past correctly:
+asked for head−200, got $24.67B against $24.84B now.
+
+**`_meta` is injected, not requested.** The demo's documents never ask for it and the block numbers
+and deployment hashes come back anyway. That is the difference between "every query, no exceptions"
+and "every query the author remembered" — and it is the one piece of string handling in the file, kept
+narrow: find the first `{` outside the variable-definition parentheses, insert there, leave documents
+that already ask for `_meta` alone.
+
+**The failure taxonomy turned out to be wrong, and running it is the only reason we know.** PLAN-v4
+§8 has listed "exact pruning error strings" as an open lookup since the plan was written, and the two
+strings the brief supplied do not exist. What the gateway actually returns for a block below the
+retained window and for a block above the indexed head is **the same message** — `bad indexers:
+{0x…: Unavailable(missing block: N, latest: M)}` — so the two cannot be told apart by prose at all.
+The discriminator is the arithmetic inside it: `missing > latest` is LAGGING, `missing < latest` is
+PRUNED. A careful full-phrase match, exactly as the brief asked for, would have matched nothing and
+left both branches dead — a guard that looks present and never fires.
+
+There is a third case nobody had written down: `requested block 1, before minimum \`startBlock\` of
+manifest 16291071`. That is below the subgraph's own genesis, and it is its own kind now
+(`BEFORE_START_BLOCK`) because PRUNED is described as recoverable by reading a snapshot and this one
+is recoverable by nothing.
+
+**A second surprise while probing depth: the retained window is not ~500 blocks, it is at least
+400,000.** §5.15 sizes the entire common-block design on `prune: auto` retaining 500–600 blocks and a
+~100-minute cross-protocol window. aave-v3 serves head−400,000 fine and fails at head−800,000 — weeks
+to months of history, three orders of magnitude past the estimate. That is one deployment, not a
+survey, so it is recorded rather than written into config, but §5.15's sizing needs revisiting before
+Unit 5 builds `blockwindow.ts`. The rule is still right; the fear it was sized against was not.
+
+⚠️ **One thing I did not change and want a decision on.** `_meta` is injected unpinned, so on a pinned
+read `meta.blockNumber` is the indexing head while the figures come from `requestedBlock` — the demo
+shows 25921906 against a requested 25921706. Both are useful and they mean different things, so I
+documented the trap on the field rather than quietly picking a meaning. Evidence records will want
+`requestedBlock ?? meta.blockNumber`, and pinning `_meta` too would make that unnecessary at the cost
+of losing the freshness signal.
+
+⚠️ **168 code lines against a ~130 target**, 250 with comments. Roughly 55 of those are type and
+constant declarations and ~110 are executable; the overrun is mostly the measured error taxonomy,
+which grew a branch after the probing. The seam named in `PHASE-1.md` — one request on one side,
+many on the other — is still clean and unused if it should be split.

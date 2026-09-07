@@ -539,3 +539,65 @@ between consumers*, so it binds at the first consumer. Dating it to the calendar
 that happens to coincide when nothing is learned between the two moments — and Phase 0 exists
 precisely to learn things. **Any gate written as "do X on Day 1" should be re-read as "do X before
 Y", and if Y can't be named, the gate may not be a gate.**
+
+## 2026-09-06 — The gateway does not name its two block failures differently, and retention is 1000x the plan's estimate
+
+**What we expected.** PLAN-v4 §8 has listed "exact pruning error strings" as an open Day 1 lookup
+since the plan was written, and Unit 3's brief supplied the two it expected: `only has data starting
+at block number` for a block below the retained window, and `has only indexed up to block number` for
+one above the indexed head. The warning attached to them was sound — both contain "only" and "block
+number", so a substring match would confuse a recoverable failure with an unrecoverable one.
+
+**What happened.** Neither string exists. Probed against the live gateway on aave-v3 across seven
+depths, what actually comes back for **both** cases is the same message:
+
+```
+bad indexers: {0x3b9b…: Unavailable(missing block: 24921900, latest: 25921898), …}
+```
+
+**The two failures are not distinguishable by prose at all.** They are the same string with different
+numbers in it, and the discriminator is arithmetic: `missing > latest` means we asked ahead of the
+head, `missing < latest` means we asked behind the retained window. A careful full-phrase match — the
+exact thing the brief asked for, and correctly — would have matched nothing and left both branches
+dead. The guard would have looked present and never fired.
+
+There is also a **third** block failure the plan did not anticipate, with its own string:
+
+```
+bad query: requested block 1, before minimum `startBlock` of manifest 16291071
+```
+
+That is a block below the subgraph's own genesis. It is worth separating because `PRUNED` is
+described as recoverable by reading a snapshot instead, and this one is not recoverable by anything —
+the data never existed. It is now its own kind, `BEFORE_START_BLOCK`.
+
+**And the retained window is not ~500 blocks.** §5.15 sizes the whole common-block design on
+`prune: auto` retaining 500–600 blocks, and concludes cross-protocol pinning "only works if the
+slowest deployment is <~100 minutes behind the fastest". Measured on aave-v3:
+
+| depth | result |
+|---|---|
+| head − 600 | OK |
+| head − 100,000 | OK |
+| head − 400,000 | **OK** |
+| head − 800,000 | PRUNED |
+
+So the window is somewhere between 400,000 and 800,000 blocks — **weeks to months, not 100 minutes.**
+Three orders of magnitude off.
+
+**What changes.**
+
+- `classify()` in `client.ts` discriminates on the arithmetic and keeps the anticipated phrases only
+  as a fallback for a gateway version that might emit them. The measured path is the live one.
+- **§5.15's premise needs revisiting before Unit 5.** Its `lo = max(earliest_retained)` rule is right
+  and should still be built — but the bound it guards against is far looser than the plan assumed,
+  which strengthens finding #7's suspicion that the per-protocol-asof fallback is dead code. The rule
+  costs little and the day it matters it matters; the *sizing* around it is what was wrong.
+- ⚠️ **Measured on aave-v3 only.** Retention is an indexer property and may differ per deployment.
+  This is one sample, not a survey, and it should not be written into config as though it were five.
+
+**The pattern, third time now.** SM-03 found a field that parses and lies; SM-04 found a comparison
+block chosen before anyone checked when the value was written; this found two error branches that
+would never have fired. Each was a case where the code would have run clean and been wrong, and each
+was caught by running the thing against reality rather than reasoning about it. **A guard written
+against an unverified string is not a guard, it is a comment.**
