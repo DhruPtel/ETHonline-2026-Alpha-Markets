@@ -1399,3 +1399,30 @@ Everything else in the document is a number from a run recorded in this log or i
 
 The "25 of 28 answer live" framing is used throughout rather than anything like "query any lending
 protocol", because the first is checkable by running one command and the second is not true.
+
+## 2026-09-07 — README.md, judge-facing
+
+Replaced the three-line placeholder with a README aimed at someone reviewing many projects in an
+afternoon. Two mermaid diagrams: the whole system with built and planned marked distinctly, and the
+data flow as it actually exists.
+
+**The status table is at the top rather than the bottom.** Phase 0 and Phase 1 complete, Phases 2–4
+not built, nothing deployed, no web app. A judge who finds one overclaim stops trusting the rest of
+the page, and there is enough real work here that hiding the gaps would be a bad trade.
+
+The "why the numbers are trustworthy" section carries the weight, because that is what separates this
+from a query printer — and every example in it is something the system found rather than something we
+designed for: the $279 quadrillion accumulator and spark-lend inheriting it, Morpho's field names
+meaning different things, the −10,000,000 reproduced through two paths, and the agent hitting the
+no-common-block refusal and reporting the excluded deployments as *unread, not zero*.
+
+Three accuracy fixes on review: the example `ask.ts` commands were missing their
+`npx tsx --env-file=.env` prefix and would not have run as printed; the setup said Node 22 when the
+real requirement is 20.6+ for `--env-file`; and `demo-corroborate.ts` was listed among the
+reproduction commands without noting it needs an archive-capable `ETHEREUM_RPC_URL`, which the other
+two do not.
+
+Attribution is stated plainly — one developer working with AI throughout, with `tracking/logs.md`
+named as the fullest account. ⚠️ The brief described commit trailers as carrying "per-file detail";
+they do not, they are per-commit, and only the Phase 1 sessions carry them. The README says what is
+true instead: trailers mark those commits, and the tracking files are the real record.
