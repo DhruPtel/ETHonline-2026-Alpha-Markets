@@ -9,8 +9,8 @@
 // ⚠️ **Never read back as data.** Provenance only. Anything downstream that starts reading evidence
 // to answer a question is caching subgraph responses under another name, and that breaks G1.2.
 
-import canonicalize from 'canonicalize';
 import { createHash } from 'node:crypto';
+import { canonical, hashCanonical } from '../domain/canonical.js';
 import type { Completeness } from '../types/wire.js';
 import type { QueryResult } from './client.js';
 import { DOCUMENTS, type DocumentId } from './queries/index.js';
@@ -48,10 +48,12 @@ export interface EvidenceRecord {
   readonly raw: string | null;
 }
 
-/** RFC 8785 JCS, the same path SM-01 proved against the RFC's own vectors. One canonicalizer. */
-const canonical = (v: unknown) => canonicalize(v) as string;
-export const hashResponse = (data: unknown) =>
-  createHash('sha256').update(canonical(data), 'utf8').digest('hex');
+/**
+ * ⚠️ Both come from `domain/canonical.ts`. This file used to build its own on the same package,
+ * which is two implementations of one thing — and two canonicalizers that disagree is exactly the
+ * dispute nobody can resolve. Swapped 2026-09-07.
+ */
+export const hashResponse = (data: unknown) => hashCanonical(data);
 
 const documentIdOf = (text: string): DocumentId | null =>
   (Object.keys(DOCUMENTS) as DocumentId[]).find((id) => DOCUMENTS[id] === text) ?? null;

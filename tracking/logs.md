@@ -1630,3 +1630,58 @@ it is not pure JCS — it is "canonicalize a report". On a subgraph response the
 because no query response contains a key named `atsTokenAddress`. That is true today and worth
 writing down rather than discovering later; the alternative was two entry points, and two paths that
 can diverge is the worse trade.
+
+## 2026-09-07 — evidence.ts onto the shared canonicalizer, and Unit 3: ops.ts
+
+**`graph/evidence.ts` now hashes through `domain/canonical.ts`.** One import, one implementation, and
+the coupling is written into `canonical.ts` rather than left in a log entry: `canonical()` strips
+lifecycle fields, so it is "canonicalize a report" rather than pure JCS. On a subgraph response the
+strip is a no-op because no query response contains a key named `atsTokenAddress` — true today,
+recorded so it is not rediscovered.
+
+⚠️ **The swap surfaced something I could not explain and did not pretend to.** The Unit 11 demo
+reported two reads of the same pinned block hashing differently, once. It has not recurred in 37
+queries across three probe shapes — including 25 with interleaved traffic to vary gateway routing —
+and the canonical JSON of two same-block reads was byte-identical every time it was compared
+afterwards. Three plausible explanations (the swap, gateway routing, the `_meta` pinning change) were
+each testable and each disproved. Written up in `lessons.md` as observed-and-unreproduced rather than
+fixed, with an open question against Phase 4, because a response hash that is intermittently unstable
+at a pinned block would make an evidence record unfalsifiable in exactly the dispute it exists to
+settle. The demo keeps a divergence printer so a recurrence yields evidence instead of another
+anecdote.
+
+---
+
+**`src/engine/ops.ts` — 50 code lines. BigInt at a fixed scale of 40, no dependency**, and the
+reasoning is in the file: of these operations only division is inexact. Add, subtract and compare
+over BigInt at a common scale are exact *by construction* — there is no rounding decision to get
+wrong, so a library would carry a dependency to solve a problem three of the five operations do not
+have. Division needs a rounding rule and a library would not remove that decision, only name it; the
+rule is truncation toward zero at scale, and it applies to ratios rather than to money.
+
+**The proof leans on the cases that break naive arithmetic**, using figures the gateway actually
+returned:
+
+- `24917272809.52169350845770191155245` survives a round trip. `Number()` gives
+  `24917272809.521694` — the tail is gone before any arithmetic happens.
+- 10,000 × `0.01` sums to exactly `100`. The float equivalent drifts to `100.00000000001425`.
+- `0.1 + 0.2` is `0.3`, not `0.30000000000000004`.
+- ⚠️ `ratio('0','0')` returns **`null`**, and `ratio('0', '24781147529')` returns **`'0'`**. Those two
+  must differ: `cream-finance` and `zerolend` report $0 deposits and $0 borrows, so their utilization
+  is undefined — and undefined rendered as zero reads as an answer. Naive JS gives `NaN` and
+  `Infinity` for the same inputs.
+- It **refuses rather than coerces**: exponent notation, thousands separators, and more than 40
+  decimal places all throw with the offending value named. Silently truncating a hashed figure is the
+  failure this file exists to prevent.
+
+⚠️ **`sum` takes `Decimal[]`, not `(Decimal | null)[]`.** A population containing a withheld figure
+has no honest total, and choosing between skipping and propagating is a judgment — which belongs to
+the engine, not to the arithmetic. TypeScript stops a null reaching here, which pushes the decision
+up to where it can be made properly.
+
+⚠️ **One test expectation was wrong and the code was right** — I typed `0.403987` for a utilization
+from memory; the true quotient is `0.40398591531…`, confirmed independently at 50 digits of
+precision. That is the third time this session a proof failed because the test was wrong rather than
+the thing under test — after SM-01's key ordering and the report fixture's replacer array. Worth
+naming as a pattern: **when a check fails against something with no other reason to be broken,
+suspect the check first.**

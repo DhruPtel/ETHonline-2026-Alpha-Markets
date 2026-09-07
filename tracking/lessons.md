@@ -685,3 +685,40 @@ retry". Fixed: the deployment is `LAGGING` only if **every** indexer is still sh
 any has passed it and still cannot serve it, waiting will not help. **A multi-value error message
 parsed as a single value is a bug that only appears once the fleet is heterogeneous** — it was
 invisible on aave-v3, which has four closely-matched indexers.
+
+## 2026-09-07 — A pinned-block response hash differed once and has not done so again
+
+**What we expected.** A query pinned to a block is deterministic: same block, same data, same hash.
+That is the assumption evidence records rest on, and through it the assumption a settlement rests on
+— `graph/evidence.ts` records a SHA-256 of the response so a figure can be proved months later, after
+the source has pruned.
+
+**What happened.** Immediately after swapping `evidence.ts` onto the shared canonicalizer, the Unit 11
+demo reported two reads of aave-v3's balance sheet at block 25922949 hashing differently —
+`2d38a1d64cf72883…` against `a639158181239702…`.
+
+**It has not reproduced.** Since then, at pinned blocks: 2 back-to-back identical, 10 consecutive
+identical, 25 identical while interleaving morpho-blue market pages and compound-v2 balance sheets to
+vary gateway routing, and the demo itself now passes. **37 queries, one hash each time.**
+
+**What we do not know.** Whether the one observation was a genuine disagreement between two indexers
+serving the same block, a transient at the gateway, or something in that particular run. Unit 8
+established that aave-v2 has ten indexers spanning 57,859 blocks, so **indexers serving one deployment
+demonstrably differ from each other** — but differing *heads* is not the same claim as differing
+*state at the same block*, and nothing here demonstrates the second.
+
+**What changes.**
+
+- **Nothing is claimed as fixed**, because nothing was diagnosed. The swap to the shared canonicalizer
+  is not implicated: it hashes the same bytes the private implementation did, and the canonical JSON
+  of two same-block reads was byte-identical every time it was compared afterwards.
+- **The demo keeps its divergence printer.** If it recurs it now prints the exact character offset
+  and both surrounding fragments, so the next observation is evidence instead of another anecdote.
+- ⚠️ **Before settlement depends on this, it needs a real answer.** A response hash that is
+  intermittently unstable at a pinned block would make an evidence record unfalsifiable in exactly
+  the dispute it exists to settle. Recorded as an open question against Phase 4, not against Phase 2.
+
+**The habit worth keeping:** the instinct was to explain it — routing, the swap, the pinning change —
+and each explanation was plausible. Testing them took three probes and disproved all three. **An
+unreproduced failure that has been chased and not caught is a different thing from a fixed one, and
+writing it down as the first is the only honest option.**
