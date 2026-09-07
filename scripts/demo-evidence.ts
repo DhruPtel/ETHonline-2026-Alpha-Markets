@@ -2,6 +2,7 @@
 import { querySubgraph } from '../src/graph/client.js';
 import { paginate } from '../src/graph/paginate.js';
 import { buildEvidence } from '../src/graph/evidence.js';
+import { canonical } from '../src/domain/canonical.js';
 import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
 
 const size = (o: unknown) => `${JSON.stringify(o).length.toLocaleString()} bytes`;
@@ -28,6 +29,17 @@ const elsewhere = await querySubgraph<BalanceSheetResult>('aave-v3-ethereum', BA
 const h = (x: { responseHash: string }) => x.responseHash.slice(0, 16) + '…';
 console.log(`  block ${pinned}  run 1   ${h(rec)}`);
 console.log(`  block ${pinned}  run 2   ${h(buildEvidence(again))}   ${rec.responseHash === buildEvidence(again).responseHash ? '✅ identical' : '⛔ DIFFERS'}`);
+// ⚠️ Kept deliberately: this comparison was seen to fail ONCE on 2026-09-07 and has not
+// reproduced in 37 queries since. If it recurs, this prints the exact divergence rather than
+// leaving another unexplained "DIFFERS" to be theorised about.
+{
+  const c1 = canonical(r1.data), c2 = canonical(again.data);
+  if (c1 !== c2) {
+    console.log(`  ⚠️  r1 block=${r1.meta.blockNumber} requested=${r1.requestedBlock} | again block=${again.meta.blockNumber} requested=${again.requestedBlock}`);
+    for (let i = 0; i < Math.max(c1.length, c2.length); i++)
+      if (c1[i] !== c2[i]) { console.log(`  DIVERGE at ${i}:\n    a: ${c1.slice(Math.max(0, i - 100), i + 100)}\n    b: ${c2.slice(Math.max(0, i - 100), i + 100)}`); break; }
+  }
+}
 console.log(`  block ${pinned - 500}  run 3   ${h(buildEvidence(elsewhere))}   ${rec.responseHash !== buildEvidence(elsewhere).responseHash ? '✅ different block, different hash' : '⛔ COLLIDES'}`);
 
 console.log('\n\n4 · a paginated population — row count and completeness come from the caller\n');

@@ -14,15 +14,26 @@ import { PROTOCOLS } from '../config/protocols.js';
 import type { BalanceSheetProtocol, MarketRow } from './queries/index.js';
 import type { QueryMeta } from './client.js';
 
-/** §5.13. Only `DATA_ERROR` blocks a report — that and an incomplete population. */
-export type Severity = 'DATA_ERROR' | 'INCONSISTENCY' | 'SIGNAL' | 'INFORMATIONAL';
+// `Severity` now comes from `types/report.ts`, where an outsider targeting the report contract can
+// read the enum without importing a logic module. This file's local copy is gone (2026-09-07).
+export type { Severity } from '../types/report.js';
+import type { Severity } from '../types/report.js';
+
+/**
+ * The engine's internal finding shape. `CheckResult` in `types/report.ts` is what reaches a report;
+ * this is what produces one.
+ *
+ * ⚠️ Declared here only because this file produced findings first. `engine/invariants.ts` imports it
+ * from here, which is the right direction — the engine consumes what the graph layer produces — but
+ * the type would sit better in `types/report.ts` beside `Severity` and `CheckResult`. One-line move
+ * whenever that file is next open.
+ */
 export interface Finding {
   readonly severity: Severity;
+  /** `"{slug}.{field}"` — the figure this bears on. `publish.ts` compares it against the subject. */
   readonly appliesTo: string;
   readonly rationale: string;
 }
-// ⚠️ `Finding` lives here rather than in `wire.ts` because Phase 2's `engine/invariants.ts` owns
-// severity and has not been written. When it is, this type moves and `wire.ts` gains it once.
 
 const REVENUE_FIELDS = [
   'cumulativeTotalRevenueUSD', 'cumulativeSupplySideRevenueUSD', 'cumulativeProtocolSideRevenueUSD',

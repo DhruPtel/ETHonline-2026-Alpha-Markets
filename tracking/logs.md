@@ -1685,3 +1685,51 @@ precision. That is the third time this session a proof failed because the test w
 the thing under test — after SM-01's key ordering and the report fixture's replacer array. Worth
 naming as a pattern: **when a check fails against something with no other reason to be broken,
 suspect the check first.**
+
+## 2026-09-07 — Phase 2 Unit 4: invariants, and blocking that names a figure
+
+`src/engine/invariants.ts` — 66 code lines. Five checks, each returning `{ severity, appliesTo,
+rationale }`, plus `blockedFigures()`. Pure: `Computed` and a config row in, findings out, no I/O.
+
+**The blocking rule works because `appliesTo` names a figure, not a deployment.** Findings carry
+`"{slug}.{field}"`, so `publish.ts` can compare that against the report's declared subject. The proof
+shows it on the same deployment twice:
+
+```
+compound-v3-ethereum
+  ⛔ DATA_ERROR  compound-v3-ethereum.totalDepositBalanceUSD  1 of 73 markets price zero…
+     subject=totalDepositBalanceUSD → ⛔ REPORT BLOCKED
+     subject=totalBorrowBalanceUSD  → publishes, withholding …totalDepositBalanceUSD
+```
+
+One `DATA_ERROR`, two subjects, two different outcomes. That is the amended §5.13 doing exactly what
+it was amended for: nine sound markets and a meaningful protocol total survive, and only the figure
+that is actually broken is withheld.
+
+**The oracle guard gives opposite answers from one rule.** compound-v3: `DATA_ERROR` on 1 of 73
+markets. morpho-blue: `INFORMATIONAL` on **1,029 of 1,759**, because `depositBasis` is `loan_token`
+there. Same condition, same field names, no slug anywhere in the file — config carries the measured
+fact and the rule reads it.
+
+**The utilization ceiling fires on the real population.** 48 of 1,759 on morpho-blue, from a complete
+walk — against the 28 SM-02 saw in the top 500 and the 1 triage found in the first 100. Only the
+exhausted population gives the true count.
+
+⚠️ **The proof set the unit specified could not exercise two of the five checks.** The publishable
+five plus morpho-blue contain no deployment with inverted balances and none with an empty book, so
+"an inverted-balance deployment reports a SIGNAL" had nothing to run against. Added
+`truefi-ethereum` — which reports `SIGNAL: borrows exceed deposits — utilization 187%` and, correctly,
+**publishes anyway** — and `zerolend-ethereum`, which reports `INFORMATIONAL: no deposits and no
+borrows; utilization is undefined here, not zero`. Asserting a check works is not the same as
+watching it fire.
+
+**The Σ-markets-vs-total check fired nowhere**, exactly as Phase 1 predicted. Kept, because it is a
+real §5.13 `INCONSISTENCY` and the day it fires it matters — but recorded again as unproven rather
+than quietly counted as working.
+
+**Two type-location calls.** `Severity` moved out of `adapter.ts` and now comes from
+`types/report.ts`, as authorised — an outsider targeting the contract should not have to import a
+logic module to read the enum. ⚠️ `Finding` is the same problem one level down: `invariants.ts`
+imports it from `adapter.ts`, which is at least the right direction, since the engine consumes what
+the graph layer produces. It would sit better in `types/report.ts` beside `Severity` and
+`CheckResult`. One line, flagged rather than taken, since that is a third file.
