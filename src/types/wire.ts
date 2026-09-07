@@ -33,18 +33,28 @@ export type Timestamp = string;
 // live on `Computed` and never on `Report`.
 
 /**
- * Whether a deployment's revenue figures can be trusted at all.
+ * Whether a deployment's revenue figures can be trusted at all. Four states, and only one
+ * of them carries a number:
  *
- * Per DEPLOYMENT — this is config (PHASE-1 Unit 2), not decided per query. From SM-03:
- * aave-v3's accumulator is poisoned (one day in Jul 2024 baked $279 quadrillion into a
- * cumulative that never recovers, 38 occurrences since), and morpho-blue never wrote
- * revenue at all — 0 across 977 snapshots.
+ * | state | the field | example |
+ * |---|---|---|
+ * | `usable` | exists, and the numbers hold | aave-v2, 0.18% implied APR over 31 clean days |
+ * | `poisoned` | exists, and is corrupted | aave-v3 — one day in Jul 2024 baked $279 quadrillion into a cumulative that never recovers, 38 recurrences since |
+ * | `not_tracked` | exists, and was never written | morpho-blue — 0 across 977 snapshots |
+ * | `not_in_schema` | does not exist on this schema version | a version that never defined it |
  *
- * ⚠️ `poisoned` and `not_tracked` project to `null`, never to a number, and never to zero.
- * Morpho's $0 against $11.4B borrowed looks like an answer, which is more dangerous than
- * the quadrillion because nobody believes the quadrillion.
+ * Per DEPLOYMENT — this is config (PHASE-1 Unit 2), not decided per query.
+ *
+ * ⚠️ **All three non-usable states render as unavailable, never as a number, and never as
+ * zero.** Morpho's $0 against $11.4B borrowed looks like an answer, which is more dangerous
+ * than the quadrillion because nobody believes the quadrillion.
+ *
+ * ⚠️ `not_in_schema` is NOT a synonym for "an old schema version". compound-v2 is 2.0.1 and
+ * its revenue is `usable` — measured at 0.60% implied APR (SM-03). The state is about the
+ * field being absent from a deployment's schema, which must be observed, not inferred from
+ * a version number.
  */
-export type RevenueAvailability = 'usable' | 'poisoned' | 'not_tracked';
+export type RevenueAvailability = 'usable' | 'poisoned' | 'not_tracked' | 'not_in_schema';
 
 /**
  * Whether a figure was checked against the chain, and what the check found.

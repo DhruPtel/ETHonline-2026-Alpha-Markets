@@ -601,3 +601,41 @@ block chosen before anyone checked when the value was written; this found two er
 would never have fired. Each was a case where the code would have run clean and been wrong, and each
 was caught by running the thing against reality rather than reasoning about it. **A guard written
 against an unverified string is not a guard, it is a comment.**
+
+## 2026-09-07 — A field missing from a schema errors loudly; it does not return null
+
+**What we expected.** The working assumption going into Unit 4 was that a field absent from a
+deployment's schema comes back as `null`, so a document written against 3.1.0 could run
+"successfully" against 2.0.1 and quietly return nothing. The proof was to be built around hunting
+nulls, because "a null is how a version mismatch hides".
+
+**What happened.** It is the other way round. Unit 3's demo asked aave-v3 for `totallyNotAField` and
+got **HTTP 200 with an error in the body**: ``Type `LendingProtocol` has no field
+`totallyNotAField` ``. GraphQL validates the document against the schema before executing it, so an
+unknown field fails the whole query. There is no partial success and nothing to miss.
+
+The sweep then confirmed it at scale. Six fields — `name`, `schemaVersion`,
+`totalDepositBalanceUSD`, `totalBorrowBalanceUSD`, `totalValueLockedUSD`,
+`cumulativeTotalRevenueUSD` — asked of 28 deployments across **five** live schema versions
+(3.1.0, 3.0.1, 3.0.0, 2.0.1, 1.3.0). Every one of the 25 that answered returned **all six, with zero
+nulls**.
+
+**What changes.**
+
+- **A version mismatch cannot hide.** It is the loudest failure the gateway produces: the deployment
+  drops out of the result set entirely with a named field in the message. That is strictly better
+  than a null, and it means Unit 4's documents get validated by simply running them.
+- **Nulls still matter, for a different reason.** A null means the field *exists and was never
+  written* — Morpho's revenue, `not_tracked`. That is the case the four-state `RevenueAvailability`
+  now separates from `not_in_schema`. Hunting nulls is still worth doing; it just finds a different
+  bug than the one we were bracing for.
+- ⚠️ **The intersection is much wider than feared.** The worry was that five live versions would
+  shrink the common field set to almost nothing. Measured, the balance sheet travels across all five
+  unchanged. Unit 4 does not need a dispatch mechanism for these fields, and per its own constraint
+  should not build one.
+
+**The shape of this is familiar and worth naming.** Three times now the danger has been assumed to be
+*silence* — a wrong number that parses, a check that quietly weakens, a field that returns null — and
+twice the real behaviour was loud instead. It is worth checking which one a system actually does
+before designing defences around the quiet case, because a defence against silence costs real
+complexity and buys nothing if the system already shouts.

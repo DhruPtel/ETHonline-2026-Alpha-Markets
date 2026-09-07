@@ -884,3 +884,56 @@ of losing the freshness signal.
 constant declarations and ~110 are executable; the overrun is mostly the measured error taxonomy,
 which grew a branch after the probing. The seam named in `PHASE-1.md` — one request on one side,
 many on the other — is still clean and unused if it should be split.
+
+## 2026-09-07 — Revenue deferred, four-state flag, and the sweep replaces our inventory guesses
+
+Three pieces of work. `RevenueAvailability` gains a fourth state, revenue is formally deferred out of
+Phase 1, and `scripts/sweep-protocols.ts` finally measures the 27 deployments we had been quoting
+numbers about while having tested five.
+
+**`not_in_schema` added, and no row reclassified.** The four states now separate "the field exists and
+holds" from three different ways of not having a number: corrupted (aave-v3), never written
+(morpho-blue), and absent from the schema. All three render as unavailable, never as zero.
+⚠️ The new state was described as the 2.0.1 case, and **compound-v2 is 2.0.1 with `usable` revenue** —
+SM-03 measured 0.60% implied APR over 31 clean days. So nothing changed classification. The state is
+about a field being absent, which has to be observed rather than inferred from a version number, and
+the type comment says so.
+
+**Revenue is deferred out of Phase 1** with both routes and their costs written into PHASE-1.md —
+deploy a corrected subgraph, or derive it in `engine/` from cumulative borrow deltas — and the choice
+explicitly waits for the sweep. G1.4 goes with it and is marked not-this-phase.
+
+**The sweep: 25 of 28 answered, in 1,249ms.** Three do not, and their reasons differ:
+abracadabra-ethereum and morpho-compound-ethereum have no indexer available; inverse-finance-ethereum
+has an indexer returning `indexing_error`. All three are now `no_indexers`/`error` in config with a
+`lastSwept` date, alongside the live schema version for all 25 that answered.
+
+**Zero nulls, anywhere.** Six fields asked of five live schema versions and every one came back
+populated. That answers the question Unit 4 was blocked on: the balance sheet travels across 3.1.0,
+3.0.1, 3.0.0, 2.0.1 **and 1.3.0** unchanged, so no dispatch mechanism is needed for these fields and
+per Unit 4's own constraint none should be built.
+
+**The version distribution is stable and it is five, not three.** 3.1.0 → 9, 2.0.1 → 9, 3.0.1 → 3,
+1.3.0 → 3, 3.0.0 → 1. Identical across two runs ~40 minutes apart, and **zero deployments disagree
+with what Messari's config declares**.
+
+Things the sweep turned up that are not mine to judge — triage is Unit 6 — but which should not get
+lost:
+
+- ⚠️ **rari-fuse-ethereum reports $7.01B borrowed against $5.64B deposited.** Borrows exceeding
+  deposits is §5.13's worked example of a `SIGNAL`, and it is the fourth-largest deployment on the
+  list. Either a real finding or a broken mapping, and the difference matters.
+- **spark-lend-ethereum is the third largest at $6.63B.** §5.18 excluded it on curation signal — 1.0
+  GRT against a recommended 3,000 — not on size, and the table now makes the size visible.
+- **Two deployments are 4.2 hours behind**, rari-fuse and goldfinch, at the *identical* block
+  25920801. Same stale indexer serving both, not two independent lags.
+- **Nine deployments hold under $1M** and five are effectively empty. The inventory is 27 rows and
+  the usable universe is much smaller.
+
+⚠️ **The balance-sheet document is inlined in the sweep script, not imported.** Unit 4 was never
+built — `src/graph/queries/` does not exist — so "reuse the balance-sheet document" had nothing to
+reuse. Inlining kept a throwaway script from pre-empting Unit 4's open design decision, and the
+sweep's result is what unblocks it.
+
+⚠️ `lastSwept` reads **2026-09-07** because the run happened after UTC midnight; earlier entries are
+dated 2026-09-06 local. The date in config is the UTC date the measurement actually carries.

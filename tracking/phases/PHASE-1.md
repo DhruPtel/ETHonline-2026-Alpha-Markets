@@ -341,7 +341,29 @@ a real demo beat.
 
 **Cut without consequence** if Phase 1 runs long. The standardized-schema branch already qualifies.
 
-### 14 · Revenue fix — **LAST. Deliberately.** *(was Unit 15)*
+### 14 · Revenue fix — ⛔ **DEFERRED OUT OF PHASE 1** *(2026-09-06; was Unit 15)*
+
+⛔ **Not built in Phase 1 — not by deploying a corrected subgraph, and not by deriving it.**
+Balances, deposits, borrows and utilization are trustworthy across every live schema version, and
+that is enough to build reports on. Revenue is a **known gap**, recorded here so it is not mistaken
+for an oversight.
+
+Two routes remain open, and **the choice waits until the sweep says how many deployments are
+actually affected** — we have measured five and the answer for the other 22 is unknown. Fixing a
+fault that turns out to touch two deployments is a different decision from one that touches twenty.
+
+| route | what it costs |
+|---|---|
+| **Deploy a corrected Messari subgraph** | Unmeasured indexing time — could be an hour, could be days. A late `startBlock` may index cleanly and return nothing, a failure that looks like success until you query it. Would also close G1.4 |
+| **Derive it in `engine/`** from cumulative borrow deltas | No indexing risk and no new deployment, but it is our arithmetic rather than the protocol's, and it has to be labelled as such wherever it appears |
+
+⚠️ **Deferring revenue does not defer `RevenueAvailability`.** The flag ships in Unit 1 with four
+states and every non-usable one renders as unavailable. The gap is that we do not *fix* revenue,
+not that we quietly print it.
+
+*The original unit text follows, for whichever route is taken later.*
+
+#### Original: Revenue fix — **LAST. Deliberately.**
 
 Deploy a corrected Messari subgraph fixing aave-v3's accumulator, and implement Morpho's revenue from
 `Market.interest`, which is present but never converted or aggregated.
@@ -373,7 +395,7 @@ and it's also G1.4 — "authoring or extending a Standardized Subgraph" — whic
 | **G1.3** | More than one subgraph | **Five deployments configured and queried across three schema versions; four carry figures a report will publish** |
 | **G1.5** | ⚠️ Standards leverage **demonstrated** | The one-row demo. **Rehearse it — pass/fail** |
 | **G2.1** | The Graph load-bearing | Unit 3, and Phase 4 calls the same function |
-| G1.4 | Authoring/extending a standardized subgraph | Unit 14, if it lands |
+| G1.4 | Authoring/extending a standardized subgraph | ⛔ **Not this phase** — Unit 14 deferred (2026-09-06). Reopens only if the corrected-subgraph route is taken later |
 | G2.3 | Meaningful work — reasoning, decisions | **Not this phase.** Phase 2 reconciles, Phase 4 commits money |
 
 ---
