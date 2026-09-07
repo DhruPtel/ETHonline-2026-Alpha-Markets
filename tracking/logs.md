@@ -1595,3 +1595,38 @@ means editing a file this unit does not name, so it is flagged rather than done.
 ⚠️ `Severity` is declared here rather than imported from `graph/adapter.ts`, because an outsider
 targeting the format needs the enum and a types file importing from a logic module is backwards.
 `adapter.ts`'s local copy is now the duplicate, and PHASE-2.md already schedules that move for Unit 7.
+
+## 2026-09-07 — Phase 2 Unit 2: canonical.ts, and SM-01's hashes reproduce
+
+`src/domain/canonical.ts` — 31 code lines. `canonical()`, `hashCanonical()`, `reportHash()` and
+`reportHashBytes()`, over **one** implementation lifted from SM-01.
+
+**The proof is that a hash recorded two days ago still comes out.** SM-01's fixture, run through the
+new file: `49cfaa6c…3db9b7`, exactly as recorded on 2026-09-05, and `b3688035…bfe3ec` with one cent
+moved. That is the whole point of reusing rather than rewriting — the path is provably the same one
+that passed RFC 8785's 29 reference vectors, including all 24 IEEE-754 samples from Appendix B.
+
+**Narration is inside the hash, and the proof shows what that buys.** Changing one word of prose —
+"held" to "holds" — moves the hash from `0e18bb20…` to `e348f06e…`. Without that, an analyst could
+publish a report, let a market open against its hash, and then rewrite the words while keeping the
+same token: same identity, different claim.
+
+**The runtime denylist cannot drift from the type.** `LIFECYCLE` is declared
+`as const satisfies readonly LifecycleField[]`, and a compile-time assertion fails if a field is added
+to `LifecycleField` and not to the array. That is the direction that matters — a lifecycle field left
+*in* the hash makes the hash uncomputable before the token it names exists, which is circular.
+
+`strip` is recursive rather than top-level, matching SM-01 exactly. Top-level would have been enough
+for today's `Report`, but the recorded hashes are only reproducible if the behaviour is identical, and
+matching a proven implementation beats matching an argument about it.
+
+⚠️ **`graph/evidence.ts` still has its own canonicalizer** — a private `canonical` and `hashResponse`
+built on the same package. That is precisely the duplication this unit exists to remove, and it is one
+import line to fix, but it means editing a file this unit does not name. Flagged rather than done.
+`canonical()` takes `unknown` specifically so the swap is trivial.
+
+⚠️ **One honest coupling in that swap.** The shared `canonical()` always strips lifecycle fields, so
+it is not pure JCS — it is "canonicalize a report". On a subgraph response the strip is a no-op,
+because no query response contains a key named `atsTokenAddress`. That is true today and worth
+writing down rather than discovering later; the alternative was two entry points, and two paths that
+can diverge is the worse trade.
