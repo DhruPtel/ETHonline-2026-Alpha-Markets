@@ -5,6 +5,7 @@
 // `src/graph/queries/` does not exist — so there is nothing to reuse. Inlining keeps this
 // throwaway script from pre-empting Unit 4's still-open decision about how the documents
 // cover five live schema versions. This sweep is what tells us that.
+import { writeFileSync } from 'node:fs';
 import { querySubgraphs, type QueryOutcome } from '../src/graph/client.js';
 import { PROTOCOLS } from '../src/config/protocols.js';
 
@@ -98,3 +99,57 @@ console.log('live schema versions:', JSON.stringify(dist));
 console.log('\n--- config patch (slug, liveSchemaVersion, status, lastSwept) ---');
 const today = new Date().toISOString().slice(0, 10);
 console.log(JSON.stringify(rows.map((r) => [r.slug, r.live, r.status, r.status === 'live' ? today : today]), null, 0));
+
+// ─── docs/protocol-inventory.md ──────────────────────────────────────────────────────────
+// `npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory` regenerates the committed
+// artifact. Every open question below is computed from this run, not transcribed.
+if (process.argv.includes('--inventory')) {
+  const inverted = answered.filter((r) => r.deposits != null && r.borrows != null && r.borrows > r.deposits);
+  const tiny = answered.filter((r) => (r.deposits ?? 0) < 1e6);
+  const blocks = new Map<number, string[]>();
+  for (const r of laggingHr) if (r.block) blocks.set(r.block, [...(blocks.get(r.block) ?? []), r.slug]);
+  const shared = [...blocks.entries()].filter(([, v]) => v.length > 1);
+  const spark = rows.findIndex((r) => r.slug === 'spark-lend-ethereum');
+  const q = (n: number, s: string) => `**${n}.** ${s}`;
+
+  const md = `# Protocol inventory
+
+Every Ethereum lending deployment in \`src/config/protocols.ts\`, measured rather than asserted.
+**Swept ${today}**, chain head ${head ?? 'unknown'}. Every figure below came from a live query to The
+Graph's decentralized gateway through \`src/graph/client.ts\` — no cache, no fixture, no local index.
+Deployments are the 27 Ethereum \`lending\` entries in Messari's \`deployment.json\` that are both
+\`status: prod\` and have a published query-id, plus morpho-blue, which Morpho publish themselves on
+Messari's standardized template.
+
+Regenerate with \`npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory\`.
+
+## Summary
+
+**${answered.length} of ${rows.length} answered.** ${laggingHr.length} lagging more than an hour. ${withNulls.length} returned nulls where figures were expected.
+
+Live schema versions: ${Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([v, n]) => `\`${v}\` × ${n}`).join(' · ')}
+
+## All ${rows.length} deployments, by deposits
+
+| deployment | schema | deposits | borrows | lag | status |
+|---|---|---:|---:|---:|---|
+${rows.map((r) => `| \`${r.slug}\` | ${r.live ?? '—'} | ${usd(r.deposits)} | ${usd(r.borrows)} | ${lag(r.lagSec)} | ${r.status}${r.errs ? ' ⚠️' : ''} |`).join('\n')}
+
+## Open questions for triage
+
+Surfaced by the sweep and **not judged here** — the sweep asks who answers and what they say;
+deciding what the numbers mean is triage.
+
+${q(1, `**${inverted.length} deployment${inverted.length === 1 ? '' : 's'} report more borrowed than deposited.** Borrows exceeding deposits is PLAN-v4 §5.13's own worked example of a \`SIGNAL\` — the kind of finding a report exists to surface rather than a number to suppress. Either these are real findings about the protocols or they are broken mappings, and the difference decides whether each belongs in a report or in a bug list.
+
+${inverted.map((r) => `- \`${r.slug}\` — ${usd(r.borrows)} borrowed against ${usd(r.deposits)} deposited (rank ${rows.indexOf(r) + 1} of ${rows.length} by size)`).join('\n')}`)}
+
+${q(2, `**\`spark-lend-ethereum\` is ranked ${spark + 1} of ${rows.length} by deposits** at ${usd(rows[spark]?.deposits ?? null)}. PLAN-v4 §5.18 excludes it on curation signal — 1.0 GRT against a recommended 3,000 — not on size. The exclusion may still be right; this records what it costs.`)}
+
+${shared.length ? q(3, `**Two deployments are lagging at the *same* block.** ${shared.map(([b, v]) => `${v.map((s) => `\`${s}\``).join(' and ')} are both at block ${b}`).join('; ')} — one stale indexer serving both, not two independent lags. Whether a single indexer failing can stall an unrelated pair of deployments matters for how the common-block rule is written.`) : q(3, 'No shared stale indexers in this run.')}
+
+${q(4, `**${tiny.length} deployments hold under $1M.** They answer, they are well-formed, and there is nothing in them. The inventory is ${rows.length} rows; the *usable* universe is much smaller, and a comparison that silently includes an empty deployment is misleading in a way no invariant catches.`)}
+`;
+  writeFileSync('docs/protocol-inventory.md', md);
+  console.log('\nwrote docs/protocol-inventory.md');
+}

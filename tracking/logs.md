@@ -937,3 +937,48 @@ sweep's result is what unblocks it.
 
 ⚠️ `lastSwept` reads **2026-09-07** because the run happened after UTC midnight; earlier entries are
 dated 2026-09-06 local. The date in config is the UTC date the measurement actually carries.
+
+## 2026-09-07 — Unit 4: three documents, no dispatch, and a split that had nothing to split
+
+`docs/protocol-inventory.md` and `src/graph/queries/`. The inventory is generated, not transcribed —
+`scripts/sweep-protocols.ts --inventory` rewrites it from a fresh sweep, and every open question in
+it is computed from that run rather than typed in. That mattered immediately: two numbers I had
+reported by eye last run were wrong. **Three deployments have borrows exceeding deposits, not one**
+(rari-fuse at $7.01B/$5.64B, truefi at $14.4M/$7.7M, maple-v1 at zero on both), and **ten hold under
+$1M, not nine.** Counting by hand from a printed table is exactly the sort of thing that reads as
+authoritative in a committed artifact and is quietly off by one.
+
+**Unit 4 was gated on field sets nobody had measured**, so I introspected the schemas of one
+deployment per live version — 3.1.0, 3.0.1, 3.0.0, 2.0.1, 1.3.0 — before writing anything. The
+intersections are much wider than the plan feared: `LendingProtocol` shares **25** fields across all
+five versions, `Market` **31**, `FinancialsDailySnapshot` **21**, `InterestRate` 4.
+
+**The consequence is that snapshots.ts is one document, not two.** The instruction was to split it —
+one variant for schemas carrying cumulative revenue, one for those without — so that a wrong pairing
+fails loudly instead of returning partial data. That reasoning is right and its premise is not:
+**every revenue field is in the five-version intersection.** `dailyTotalRevenueUSD`,
+`cumulativeTotalRevenueUSD`, both side-revenue pairs — present on 1.3.0 and 2.0.1 exactly as on
+3.1.0. A split would have created a pairing to get wrong while guarding a case that does not exist.
+The file says so and says what would change the answer: a sixth version lacking the fields, which
+would announce itself by failing the whole query.
+
+**All three documents ran against all five versions with zero nulls.** Two things fell out of the
+proof worth keeping:
+
+- ⚠️ **`lendingType` is in the intersection and returns `POOLED` on all five.** Unit 2 left that
+  column null on all 28 rows because it is absent from `deployment.json` and no smoke test had read
+  it. It is now readable, and the sweep can fill it — the column stopped being a guess and became a
+  measurement, which is what nulling it was protecting.
+- ⚠️ **euler-finance (1.3.0) returned zero financial snapshots for the last seven days** while
+  reporting $188M TVL. The query succeeded; there is simply no recent history. Not a document
+  failure and not mine to judge — triage — but a deployment with a live balance sheet and no daily
+  history cannot answer a period question, and nothing currently notices that.
+
+aave-v3's poisoned accumulator arrived on cue at $2.79e17, and morpho-blue's first three markets come
+back named `unknown / unknown` with an `unknown` token symbol and a zero balance. Both are the
+adapter's problem, and both are visible rather than silent, which is the point of running the proof
+rather than typechecking it.
+
+`_meta` is explicit in all three documents rather than injected, so the client's injection path stays
+a backstop for anything hand-written. A fourth file, `index.ts`, holds the `DOCUMENTS` registry —
+that is the "menu" the agent picks from and what Unit 11's `documentId` will resolve against.
