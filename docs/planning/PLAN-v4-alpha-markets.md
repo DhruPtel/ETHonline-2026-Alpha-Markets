@@ -372,6 +372,36 @@ cumulativeDepositUSD ≥ cumulativeBorrowUSD FAILS.
 `{ severity, appliesTo, rationale }`. **`DATA_ERROR` blocks a report. So does an incomplete
 population** — those are the only two blocking conditions.
 
+⚠️ **Amendment, 2026-09-07 — a `DATA_ERROR` blocks the FIGURE it touches, and the report only when
+that figure is the report's subject.** The line above is a real change, not a clarification: it read
+as report-level and is now figure-level with an escalation rule.
+
+**Why.** Phase 1's adapter found a live `DATA_ERROR` on `compound-v3-ethereum` — one market pricing
+zero with a non-zero balance — on a deployment triage had cleared as `publishable`. Under the old
+reading that single market blocks the entire report, discarding nine sound markets and a protocol
+total that is still meaningful, to suppress one bad figure. **That would make the engine less useful
+than the model already is without it**, and it fails the phase's design law: show the data, attach
+the caveat, do not hide a figure because it is imperfect.
+
+**The rule.** Three outcomes, and `compose.ts`'s declared subject is what separates the second from
+the third:
+
+| outcome | when |
+|---|---|
+| publishes whole | no `DATA_ERROR`, population complete |
+| publishes with a figure withheld and explained | a `DATA_ERROR` touches a figure that is **not** the subject |
+| does not publish | a `DATA_ERROR` touches the **subject**, or the population behind the subject is incomplete |
+
+A balance overview whose balance is in error is not a report with a caveat — it is not a report.
+That escalation is the only one.
+
+⚠️ **A withheld figure is never a silent omission.** It appears as withheld with the condition named.
+Phase 1 measured what an unexplained flag costs: an unaccounted `incomplete` made the model invent a
+false reason for it.
+
+⚠️ **The declared subject becomes load-bearing twice** — it keeps a report on topic, and it decides
+what a data error costs. *Affects:* `engine/publish.ts` and `agent/compose.ts` (Phase 2).
+
 ⚠️ **"Incomplete population" is about the population, not the page** *(clarified 2026-09-06)*. A
 report reading 4,000 markets over 16 pages of 250 is **complete**; one that stopped at a budget with
 rows outstanding is **`INCOMPLETE`** and withholds, however many pages it read. See §5.18 — `first ≤

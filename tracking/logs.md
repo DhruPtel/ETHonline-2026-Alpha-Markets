@@ -1426,3 +1426,124 @@ Attribution is stated plainly — one developer working with AI throughout, with
 named as the fullest account. ⚠️ The brief described commit trailers as carrying "per-file detail";
 they do not, they are per-commit, and only the Phase 1 sessions carry them. The README says what is
 true instead: trailers mark those commits, and the tracking files are the real record.
+
+## 2026-09-07 — PHASE-2.md, planned not built
+
+Fourteen units for the report-building phase, ordered on Phase 1's hardest lesson: build the thing
+that judges before the thing that produces. Contract first because retrofitting a public format is
+expensive, the engine before the narrator because a verdict has to exist before it can be described,
+and **the narration validator before the narrator** — written afterwards it gets tuned until the
+narrator's existing output passes, which is the same mistake as encoding before measuring.
+
+**Six places where PLAN-v4 §9 and what Phase 1 found now disagree**, all written into the doc rather
+than left to be discovered mid-build:
+
+- `workflow/gather` is already built — `agent/tools.ts` gathers across deployments at a common block
+  and was proved against 25. As §9 stands it would be built twice. Recommend striking it.
+- `domain/canonical.ts` must extract the canonicalizer `evidence.ts` already uses, not write a
+  second one.
+- The report format is a public contract and §9 does not say so.
+- `config/analysts.ts` was scheduled for Phase 1 by SM-08's to-do and never built.
+- §9's "stable hashes" exit was already reached at the type level in Phase 1 Unit 1.
+- ⚠️ **Ranking was cut by §5.18, and it is what the agent naturally produces.** The single best
+  output of Phase 1 was a ranked table of 23 deployments at a common block with the stale ones
+  excluded and declared. Either that cannot become a report, or the two-form list is one short.
+  **This blocks Unit 9** and it is not mine to decide.
+
+**Two open questions raised rather than assumed.** The ranking decision above, and whether exact
+decimal arithmetic in `engine/ops.ts` justifies a dependency — `decimal.js` is small and correct,
+BigInt fixed-point is no dependency and more code to get wrong. `CLAUDE.md` says dependencies are
+decisions.
+
+**On requirements the doc says something uncomfortable and I left it in:** Phase 2 closes no
+pass/fail requirement outright. It makes G2.3 mostly true — §3 defines that as *directive → plan →
+reconciliation → verdict → on-chain prediction*, and Phase 2 delivers the first four of five — and
+it produces the hashed report Phases 3 and 4 need to close theirs. **G1.5 is flagged again**: still
+pass/fail, still unscheduled, and it has now been open since the first session of Phase 1.
+
+## 2026-09-07 — PHASE-2.md updated: six answers, and a Verdict enum proposed rather than changed
+
+All six decisions folded in, plus a design law that now sits above the units because it governs
+several of them at once: **show all the data, attach caveats.** The model for it is the `ask.ts`
+answer that ranked morpho-blue second at $13.09B and then explained exactly why the number is not
+comparable — more useful than omitting the row, because a reader who sees nothing cannot tell there
+was something to decide about. The one exception stays narrow: a poisoned accumulator has no true
+value to show, so `null` is the only honest rendering.
+
+**Gating became per-figure and it made `publish.ts` a better unit.** A `DATA_ERROR` blocks the figure
+it touches, and escalates to the whole report only when that figure is the report's declared subject.
+Blocking compound-v3's entire report over one bad market out of ten would have thrown away nine good
+figures to suppress one — and would have made the engine *less* useful than the model already is
+without it. Three outcomes now, and `compose.ts`'s subject is what distinguishes the second from the
+third, which makes the declared subject load-bearing twice: it keeps the report on topic and it
+decides what a data error costs.
+
+**`not_checked` is `INFORMATIONAL` and cannot block.** Corroboration exists on 3 of 25 deployments;
+gating on its absence would mean 22 can never publish, contradicting triage clearing five.
+
+**Schema stays `alpha-markets/report/v1`, frozen at Unit 1** rather than bumped. Worth being precise
+in the doc about what that means: SM-01's fixture committed to the string before the shape settled
+and nothing has ever been published, so **v1 is defined by what Unit 1 emits**, the fixture is updated
+to match, and the sample hashes are re-recorded once. After that any change is v2 with a migration.
+
+**`analyst` is a wallet address, inside the hash.** Already required for Arc staking, already how
+on-chain attribution works, so no second identity system.
+
+**Forecast attachment deferred to Phase 4**, where a settling market gives it a consumer — and the
+history problem defers with it, since 8 deployments report a live balance sheet with no recent
+history.
+
+⚠️ **`Verdict` is proposed, not changed.** `undervalued | fairly_valued | overvalued` is a price
+judgment on an engine with no price data. Proposed `reconciled | discrepancy | insufficient_evidence`,
+which maps onto what `reconcile.ts`, `crosscheck.ts` and `publish.ts` actually produce, so every
+verdict is derivable from a check that ran. `discrepancy` deliberately does not say who is wrong —
+§5.14 settled that attribution is per-deployment and sometimes open. Rejected `not_reconciled` for
+the third value because it reads as the second one.
+
+⚠️ **Raised separately: `Confidence` has the identical defect.** `low | medium | high` is a judgment
+label on a pure deterministic engine. I would replace it with the measured coverage — markets
+corroborated over markets read, plus completeness — because "4 of 67 corroborated, population
+complete" is a fact a reader can weigh and "medium confidence" is an opinion wearing a fact's
+clothes. Not touching it without a decision.
+
+## 2026-09-07 — Verdict splits, §5.13 amended, and the scope gap turns out to be one deployment
+
+**`Verdict` splits in two.** `VerdictCall = 'ties_out' | 'discrepancy' | 'not_checked'` is what the
+engine computed and every value is derivable from a check that actually ran. `Assessment
+{ summary, basis, confidence }` is what the analyst thinks it means. They differ in kind, and Phase 4's
+market has to know which of the two it is settling on.
+
+Named the second field **`assessment`, not `call`** — `call` is already the field name *inside*
+`Verdict`, so reusing it is exactly the confusion the split exists to prevent. `basis` carries fact
+ids so an opinion can be traced to the measured figures it rests on, and the narration validator
+already forbids digits outside a placeholder, so a summary cannot smuggle a number in.
+
+⚠️ **The split resolved the open `Confidence` question, and it resolved it the other way round.** The
+objection was that `low | medium | high` is a judgment label on a deterministic engine — true, which
+is why it belongs on the **assessment**, where a judgment is what it is meant to be. The verdict
+carries measured coverage instead.
+
+**§5.13 amended, dated, with the reasoning.** A `DATA_ERROR` blocks the figure it touches, and the
+report only when that figure is the subject. Marked as a real change rather than a clarification,
+because the old line read report-level.
+
+**And the scope gap is measured rather than estimated.** ⚠️ Worth noting: the brief referred to
+"twelve deployments changing verdict" and to updating the doc "rather than the estimate" — **there
+was no such estimate in PHASE-2.md.** I never wrote a number, which is precisely why the measurement
+was worth taking.
+
+`scripts/check-market-level.ts` runs the same `adapt()` a report will run, over real market
+populations, across all 25 live deployments. **3,322 markets read, every population exhausted:**
+
+- Triage cleared **14** deployments. **1** carries a market-level `DATA_ERROR` — compound-v3, the one
+  already known. Not twelve.
+- **11** deployments triage called `unusable` show no market-level `DATA_ERROR` at all.
+
+The second number is the more interesting one. Triage failed those on protocol-total properties —
+external reconciliation gaps, inverted balances, empty books — and their oracle state is clean. **The
+two views catch different things and neither subsumes the other**, which is the argument for
+`reconcile.ts`, `crosscheck.ts` and `invariants.ts` all existing rather than one standing in for the
+rest. That was a guess in the plan an hour ago and is now a measurement.
+
+"25 protocols answer" survives contact with market-level inspection, and the one exception is a
+blocked *figure* rather than a blocked report.
