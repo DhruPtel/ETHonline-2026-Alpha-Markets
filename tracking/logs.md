@@ -1369,3 +1369,33 @@ flagged Morpho's $13.09B as unusable and declined to substitute a corrected figu
 adapter and the triage verdict arriving together at the surface.
 
 4 turns, 4 tool calls, 29,747 tokens, 33s.
+
+## 2026-09-07 — `docs/phase-1-summary.md`
+
+A standalone record of what Phase 1 built and found — the thirteen units, the measurements, the
+findings that changed the design, and two mermaid diagrams (the data flow, and the trust layer that
+turns a returned number into one with an account attached). `README.md` untouched; that is a separate
+job for submission.
+
+⚠️ **One item in the brief was a claim we had already measured the other way, and I wrote the
+measurement instead.** The brief listed "six of 27 deployments report a different schema version than
+Messari's own config claims" among the findings. That was asserted once before, checked at the time
+across all 28 rows, and came back **zero disagreements** on the 25 that answer. The document says
+that instead — and says why the live-value dispatch is still worth keeping: the check costs nothing
+and the day it matters, it matters. This is the second time that particular claim has come round, so
+it is worth having it written down somewhere durable with the measurement beside it.
+
+Everything else in the document is a number from a run recorded in this log or in
+`smoke-results.md`. The parts I was careful to phrase as limits rather than achievements:
+
+- **The gating is not uniform.** Only revenue is genuinely withheld. Morpho's inflated TVL is flagged
+  and *present*, and it remains the model's judgment whether to use it. In practice the model has
+  declined every time, but that is behaviour, not a guarantee — turning a flag into a refusal is
+  Phase 2's engine.
+- **`corroborate.ts` and `evidence.ts` are unreached from the agent path.** Both work; neither is
+  called by a tool.
+- **Standards leverage has not been rehearsed**, which is the one pass/fail item Phase 1 leaves open.
+- Nothing is deployed.
+
+The "25 of 28 answer live" framing is used throughout rather than anything like "query any lending
+protocol", because the first is checkable by running one command and the second is not true.
