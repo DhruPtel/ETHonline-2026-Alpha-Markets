@@ -1222,3 +1222,37 @@ framework guarding nothing.
 `engine/invariants.ts` owns severity and does not exist yet, and adding to a frozen contract
 unprompted seemed worse than declaring them where they are used. They should move to `wire.ts` once
 the engine needs them.
+
+## 2026-09-07 — Unit 11: evidence, 374 bytes whether the response held 1 row or 750
+
+`src/graph/evidence.ts` — 48 lines. Takes what `client.ts` already returns and shapes it into a
+record: deployment hash, document, variables, block, timestamp, row count, completeness, and a
+SHA-256 over the canonical response. No storage, no fetching, and nothing reads it back.
+
+**The size claim holds and is the point.** A record over a one-row balance sheet is **374 bytes**; a
+record over a 750-row market page is **370**. It does not grow with the response, because it is a
+record and not a copy. The settlement-backing tier is 1,350 bytes on the same query — **3.6×** — and
+its `raw` reproduces `24821979322.20109981199238014954216` with no network at all, which is the whole
+reason that tier exists. The tier came from the caller; nothing about the query implied it.
+
+**The hash behaves.** Same query, same block, two runs: byte-identical `adf8c2b3aaa7f4ea…`. Five
+hundred blocks earlier: `1853331ad6044953…`. That is RFC 8785 JCS through the `canonicalize` package,
+the same path SM-01 proved against the RFC's own vectors — deliberately not a second implementation,
+because two canonicalizers that disagree is precisely the dispute nobody can resolve.
+
+**Two small design calls worth recording.**
+
+- **`document` is the registry id, and `documentHash` is always present.** A menu document records as
+  `"balance-sheet"`. An inline one — `corroborate.ts` has its own, off-menu by design — records
+  `document: null` with a hash that still pins it byte-for-byte. Naming it something invented would
+  have been a guess; leaving it entirely unidentified would have been worse.
+- **`completeness` is `null` when the caller did not paginate**, not `'incomplete'`. A query that
+  never asked for a population has not failed to exhaust one, and saying `incomplete` would be a
+  claim we did not make. The paginated proof records `incomplete` honestly for a 750-of-1,759 walk.
+
+⚠️ **`block` means two different things depending on the document, and the record cannot fix it.**
+Unit 4's menu documents request `_meta(block: $block)`, so on a pinned read `block` *is* the read
+block — the demo shows `block` and `requestedBlock` both 25922238. An off-menu document gets `_meta`
+injected unpinned by `client.ts`, so `block` is the indexing head instead. Anything asking "what
+block did this figure come from" wants `requestedBlock ?? block`, which is what the field comment
+says. Worth closing properly later by pinning the injected `_meta` too.
