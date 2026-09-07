@@ -1117,3 +1117,51 @@ others had passed the block and pruned it — a permanent condition reported as 
 sent the retention probe into a throw instead of a measurement. Now a deployment is LAGGING only if
 **every** indexer is short of the block. It was invisible on aave-v3, whose four indexers sit within
 5 blocks of each other.
+
+## 2026-09-07 — Unit 9: corroborate, and Morpho's −10,000,000 comes back through a new path
+
+`src/graph/corroborate.ts` — 86 lines. Reads a market's balance from the subgraph, resolves the
+block the subgraph **wrote** it, and `eth_call`s the contract at that block. Exact equality, no
+tolerance. Three outcomes and `not_checked` is one of them.
+
+**Result across six deployments: 10 match, 2 mismatch, 6 not_checked.**
+
+**aave-v3, aave-v2 and spark-lend match to the unit — 9 of 9.** Write-time blocks ranged from
+25912723 to 25922274, so aave-v2's WBTC market was read **9,500 blocks back**. A pruned node keeps
+about 128. Archive is not a convenience.
+
+**The Morpho reproduction is exact, and that is the real result.** SM-04 found USDC/PAXG off by
+exactly −10,000,000 through a throwaway script. This reaches it through an entirely different path —
+`client.ts`, config-driven dispatch, a new timestamp-to-block bisect, a different contract call — and
+gets **−10,000,000** again, on the same subgraph value SM-04 recorded to the digit. USDT/wstETH
+disagrees too, now by −17,698,383,936 where SM-04 saw −26,932,262,884; the market has traded since,
+and both are ~0.02%. USDC/sdeUSD matches exactly, as it did then. **Nothing was tuned to make any of
+this agree.**
+
+**Morpho's contract address is now measured rather than absent.** Unit 2 left `contractSource` null
+because no address was recorded anywhere and a plausible-looking one would have read as measured.
+`LendingProtocol.id` reports `0xbbbb…ffcb`, `eth_getCode` returns 31,248 bytes, and `market(bytes32)`
+answers. That is a measurement, so it went into config.
+
+**Two things the run established that config had wrong or missing.**
+
+- ✅ **spark-lend corroborates exactly, 3 of 3.** Its hint was null only because it was one of Unit
+  2's untested rows. It is an Aave v3 fork, the pattern transfers, and now it is measured rather than
+  assumed. Its semantic note also records what Unit 6 found — the same poisoned revenue accumulator
+  as aave-v3, inherited with the template.
+- ⛔ **compound-v3 is NOT Aave's pattern, and that is now a finding rather than an unknown.** Its
+  `outputToken` is the **base asset itself** — USDC, USDT — not a receipt token, so `totalSupply()`
+  returns the total supply of USDC: 5.07e16 against a market balance of 3.7e14. Had Unit 2 assumed
+  the accessor transferred, compound-v3 would have reported two enormous mismatches that are entirely
+  our own error, on a deployment triage calls `publishable`. `method` stays null and the reason is
+  written down.
+
+⚠️ **Fixed a note that asserted more than it knew.** Where config has no hint the code said "no
+write-time field on this schema" — but config cannot tell "measured absent" (compound-v2, where SM-04
+established the field does not exist) from "nobody has looked" (spark, until today). It now says "no
+corroboration hint in config", which is the thing actually known.
+
+⚠️ **The document is inline in `corroborate.ts`, not in `graph/queries/`.** Those are the agent's
+menu and their guarantee is that every one runs on every live schema version.
+`indexLastUpdatedTimestamp` is 3.1.0/3.0.0 only and `outputToken` is absent on 3.0.0, so putting this
+in the menu would break the one property the menu has.

@@ -160,8 +160,12 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
       'collateral-only ones are null (SM-04).',
     corroborationHint: {
       writeTimeField: 'indexLastUpdatedTimestamp',
-      // SM-04 surveyed field PRESENCE here; it never ran the eth_call, so the accessor is
-      // not established. Leaving these null rather than assuming Aave's pattern transfers.
+      // ⛔ Measured 2026-09-07 and it is NOT Aave's pattern — this is now a negative finding
+      // rather than an unknown. compound-v3's `outputToken` is the BASE ASSET (USDC, USDT), not
+      // a receipt token, so `totalSupply()` returns the total supply of USDC itself — 5.07e16
+      // against a market balance of 3.7e14. Assuming Aave's accessor transferred would have
+      // produced two enormous "mismatches" that are entirely our error. A correct accessor
+      // probably exists on the Comet contract; until one is measured this stays null.
       contractSource: null,
       method: null,
     },
@@ -211,9 +215,11 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
       'on Morpho balances until it is.',
     corroborationHint: {
       writeTimeField: 'lastUpdate',
-      // The Morpho Blue singleton address is not recorded anywhere in this repo, so it is
-      // not written here. SM-04 reached it through a throwaway path.
-      contractSource: null,
+      // ✅ Measured 2026-09-07, not guessed: this is `LendingProtocol.id` as the deployment
+      // reports it, confirmed to hold 31,248 bytes of code by `eth_getCode`. Unit 2 left it
+      // null because no address was recorded anywhere in the repo and inventing a plausible
+      // one would have looked measured.
+      contractSource: '0xbbbbbbbbbb9cc5e90e3b3af64bdaf62c37eeffcb',
       method: 'market(bytes32).totalSupplyAssets',
     },
     status: 'live', triageVerdict: 'unusable',
@@ -323,7 +329,13 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
   { slug: 'spark-lend-ethereum', subgraphId: 'GbKdmBe4ycCYCQLQSjqGg6UHYoYfbyJyq5WrG35pv1si',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',
     liveSchemaVersion: '3.1.0',
-    revenueAvailability: null, semanticNotes: null, corroborationHint: null,
+    revenueAvailability: null,
+    semanticNotes:
+      'An Aave v3 fork on the same Messari template, and it inherits the poisoned revenue ' +
+      'accumulator with it — $1.20e17, the same fault as aave-v3 (Unit 6). Balances are sound: ' +
+      'reconciles to DefiLlama within 1.2% and corroborates EXACTLY on its three largest markets.',
+    // ✅ Measured 2026-09-07: 3 of 3 largest markets match to the unit via the Aave pattern.
+    corroborationHint: { writeTimeField: 'indexLastUpdatedTimestamp', contractSource: 'market.outputToken.id', method: 'totalSupply()' },
     status: 'live', lastSwept: '2026-09-07', triageVerdict: 'flagged' },
   { slug: 'truefi-ethereum', subgraphId: '39F8fYCvLYmutjqpzEwx3dcEJTtFFVupvBzJqkEzftA7',
     network: 'ethereum', declaredSchemaVersion: '2.0.1', lendingType: 'POOLED',
