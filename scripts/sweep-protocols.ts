@@ -8,19 +8,13 @@
 import { writeFileSync } from 'node:fs';
 import { querySubgraphs, type QueryOutcome } from '../src/graph/client.js';
 import { PROTOCOLS } from '../src/config/protocols.js';
+import { BALANCE_SHEET } from '../src/graph/queries/index.js';
 
 // Tier 1 — the two fields every version that answered Unit 3 already served.
 const PROBE = `query { lendingProtocols(first: 1) { name schemaVersion } }`;
-// Tier 2 — the balance sheet. A field absent from a schema makes this whole query fail with
-// "has no field", which is how we learn the intersection: loudly, per deployment.
-const SHEET = `query {
-  lendingProtocols(first: 1) {
-    name schemaVersion
-    totalDepositBalanceUSD totalBorrowBalanceUSD totalValueLockedUSD
-    cumulativeTotalRevenueUSD
-  }
-}`;
-
+// Tier 2 — the real balance-sheet document (Unit 4). No longer inlined: `src/graph/queries/`
+// now exists, and it carries `lendingType`, which is why this column stopped being null.
+const SHEET = BALANCE_SHEET;
 type Sheet = { lendingProtocols: Record<string, string | null>[] };
 const slugs = PROTOCOLS.map((p) => p.slug);
 
@@ -41,10 +35,10 @@ const elapsed = Date.now() - t0;
 const byslug = <T>(rs: QueryOutcome<T>[]) => new Map(rs.map((r) => [r.slug, r]));
 const P = byslug(probes), S = byslug(sheets);
 
-const NUMERIC = ['totalDepositBalanceUSD', 'totalBorrowBalanceUSD', 'totalValueLockedUSD', 'cumulativeTotalRevenueUSD'];
+const NUMERIC = ['totalDepositBalanceUSD', 'totalBorrowBalanceUSD', 'totalValueLockedUSD', 'cumulativeTotalRevenueUSD', 'lendingType'];
 const now = Math.floor(Date.now() / 1000);
 
-type Row = { slug: string; live: string | null; deposits: number | null; borrows: number | null;
+type Row = { slug: string; live: string | null; lendingType: string | null; deposits: number | null; borrows: number | null;
   block: number | null; behind: number | null; lagSec: number | null; errs: boolean | null;
   nulls: string[]; status: string; note: string };
 
@@ -61,6 +55,7 @@ const rows: Row[] = slugs.map((slug) => {
   const note = p.ok ? (s.ok ? '' : `sheet: ${s.error.message.slice(0, 64)}`) : p.error.message.slice(0, 64);
   return {
     slug, live: lp?.schemaVersion ?? sp?.schemaVersion ?? null,
+    lendingType: (sp?.lendingType as string | undefined) ?? null,
     deposits: num(sp?.totalDepositBalanceUSD), borrows: num(sp?.totalBorrowBalanceUSD),
     block: meta?.blockNumber ?? null, behind: head && meta ? head - meta.blockNumber : null,
     lagSec: meta?.blockTimestamp ? now - meta.blockTimestamp : null,
@@ -75,11 +70,11 @@ const usd = (v: number | null) => (v == null ? '—' : v >= 1e9 ? `$${(v / 1e9).
 const lag = (s: number | null) => (s == null ? '—' : s < 3600 ? `${Math.round(s / 60)}m` : `${(s / 3600).toFixed(1)}h`);
 
 console.log(`\nchain head ${head ?? '(no RPC)'} · swept ${slugs.length} deployments in ${elapsed}ms\n`);
-console.log(pad('slug', 27) + pad('live', 8) + lpad('deposits', 10) + lpad('borrows', 10) +
+console.log(pad('slug', 27) + pad('live', 8) + pad('type', 8) + lpad('deposits', 10) + lpad('borrows', 10) +
   lpad('block', 11) + lpad('behind', 8) + lpad('lag', 7) + '  ' + pad('status', 12) + 'nulls / note');
 console.log('─'.repeat(130));
 for (const r of rows) {
-  console.log(pad(r.slug, 27) + pad(r.live ?? '—', 8) + lpad(usd(r.deposits), 10) + lpad(usd(r.borrows), 10) +
+  console.log(pad(r.slug, 27) + pad(r.live ?? '—', 8) + pad(r.lendingType ?? '—', 8) + lpad(usd(r.deposits), 10) + lpad(usd(r.borrows), 10) +
     lpad(r.block ? String(r.block) : '—', 11) + lpad(r.behind == null ? '—' : String(r.behind), 8) +
     lpad(lag(r.lagSec), 7) + '  ' + pad(r.status + (r.errs ? ' ⚠err' : ''), 12) +
     (r.nulls.length ? `NULL: ${r.nulls.join(', ')}` : r.note));
@@ -98,7 +93,7 @@ console.log('live schema versions:', JSON.stringify(dist));
 
 console.log('\n--- config patch (slug, liveSchemaVersion, status, lastSwept) ---');
 const today = new Date().toISOString().slice(0, 10);
-console.log(JSON.stringify(rows.map((r) => [r.slug, r.live, r.status, r.status === 'live' ? today : today]), null, 0));
+console.log(JSON.stringify(rows.map((r) => [r.slug, r.live, r.status, today, r.lendingType]), null, 0));
 
 // ─── docs/protocol-inventory.md ──────────────────────────────────────────────────────────
 // `npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory` regenerates the committed
@@ -131,9 +126,29 @@ Live schema versions: ${Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([v
 
 ## All ${rows.length} deployments, by deposits
 
-| deployment | schema | deposits | borrows | lag | status |
-|---|---|---:|---:|---:|---|
-${rows.map((r) => `| \`${r.slug}\` | ${r.live ?? '—'} | ${usd(r.deposits)} | ${usd(r.borrows)} | ${lag(r.lagSec)} | ${r.status}${r.errs ? ' ⚠️' : ''} |`).join('\n')}
+| deployment | schema | type | deposits | borrows | lag | status | verdict |
+|---|---|---|---:|---:|---:|---|---|
+${rows.map((r) => { const c = PROTOCOLS.find((x) => x.slug === r.slug)!; const v = c.triageVerdict; return `| \`${r.slug}\` | ${r.live ?? '—'} | ${c.lendingType ?? '—'} | ${usd(r.deposits)} | ${usd(r.borrows)} | ${lag(r.lagSec)} | ${r.status}${r.errs ? ' ⚠️' : ''} | ${v === 'publishable' ? '✅ publishable' : v === 'flagged' ? '⚠️ flagged' : v === 'unusable' ? '⛔ unusable' : '—'} |`; }).join('\n')}
+
+## Verdicts
+
+\`status\` asks whether a deployment **answers**. The verdict asks whether it is **right** — a
+different question, and the one that decides what can carry a report. Produced by
+\`scripts/triage-protocols.ts\`, which reconciles deposits − borrows against DefiLlama as an external
+reference, checks that borrows do not exceed deposits, asks for daily history over a recent window,
+and records whether revenue is plausible, absurd or zero.
+
+${(['publishable','flagged','unusable'] as const).map((v) => `- **${v}** — ${PROTOCOLS.filter((x) => x.triageVerdict === v).length}`).join('\n')}
+
+⚠️ **Revenue is deferred out of Phase 1 and gated by \`RevenueAvailability\`, so a deployment flagged
+only on revenue can still carry a balance report.** On that basis **${PROTOCOLS.filter((x) => x.triageVerdict === 'publishable').length + 2} deployments are usable today**:
+the three \`publishable\` rows plus \`aave-v3-ethereum\` and \`spark-lend-ethereum\`, whose balances
+reconcile to within 5% and whose only fault is a poisoned revenue accumulator.
+
+⚠️ **A percentage gap against a near-zero external reference reads larger than it is.** Where
+DefiLlama reports under $1M the gap is computed against a $1M floor, so figures like "1218%" mean
+"our subgraph says millions and the reference says roughly nothing" rather than a precise ratio. The
+direction is the finding; the magnitude is not.
 
 ## Open questions for triage
 

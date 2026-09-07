@@ -982,3 +982,59 @@ rather than typechecking it.
 `_meta` is explicit in all three documents rather than injected, so the client's injection path stays
 a backstop for anything hand-written. A fourth file, `index.ts`, holds the `DOCUMENTS` registry —
 that is the "menu" the agent picks from and what Unit 11's `documentId` will resolve against.
+
+## 2026-09-07 — Unit 6: triage, and the number is 3 of 28
+
+Two follow-ups then the unit. The sweep now runs Unit 4's real `BALANCE_SHEET` instead of the
+document it had inlined, which fills `lendingType` for all 28 rows as a side effect — **22 POOLED, 3
+CDP** (makerdao, liquity, qidao), 3 null because they do not answer. That column had been null since
+Unit 2 on the grounds that a value from a model's memory is indistinguishable later from one that came
+from a query. It is now measured, and the `CDP` rows immediately earned their keep: deposits − borrows
+against an external TVL is a POOLED convention, so triage records `NOT_CHECKED` on those three rather
+than a passing number.
+
+**`scripts/triage-protocols.ts` asks the question the sweep could not: not who answers, but who is
+right.** Four checks per deployment — external reconciliation against DefiLlama, internal
+plausibility, snapshot availability over a recent window, and revenue sanity. Euler's missing history
+went in as a general check rather than a special case, which was the right call: **eight deployments
+return no daily history at all**, not one.
+
+**The answer is 3 publishable, 11 flagged, 11 unusable, of the 25 that answer.** Of 28 configured.
+That is the number the inventory numbers were hiding.
+
+**The most useful thing it did was rediscover the protocol set from scratch.** Run blind across 25
+deployments with no knowledge of what Phase 0 chose, triage lands on `compound-v3`, `compound-v2` and
+`aave-v2` as publishable, and flags `aave-v3` on nothing but its revenue. Those are exactly the four
+Messari deployments Phase 0 picked by hand. The set was not lucky.
+
+It also found a fifth: **`spark-lend-ethereum` reconciles to within 1.2%** — $4.54B against
+DefiLlama's $4.485B — and is flagged only on revenue. §5.18 excluded it on curation signal, not on
+data quality, and the data quality is now measured and good.
+
+Findings worth carrying:
+
+- ⚠️ **The poisoned revenue accumulator is not unique to aave-v3.** `spark-lend` reads $1.20e17,
+  aave-v3 $2.79e17. Spark is an Aave v3 fork on the same Messari template, so this is the template's
+  fault surfacing twice, not one bad deployment. When revenue is picked back up, the blast radius is
+  larger than "fix aave-v3".
+- ⚠️ **`morpho-blue` is `unusable`, reached independently.** Deposits − borrows gives $1.67B against
+  DefiLlama's $4.38B, a 62% gap, plus a market at exactly 100% utilization and revenue of zero. Three
+  separate checks, none of which knew about the others or about `DECISIONS.md`.
+- **Eight deployments have no daily history in the last seven days**, several while reporting a live
+  balance sheet. `euler-finance` is the loud one — $188M TVL, zero snapshots — but `truefi`,
+  `qidao`, `aave-arc`, `aave-rwa`, `morpho-aave-v3`, `cream-finance` and `zerolend` are the same
+  shape. A deployment that answers a balance sheet and has no history cannot back a period question
+  or a settlement, and nothing before this noticed.
+- **`makerdao` has 2 markets at exactly 100% utilization** — the marker we had recorded as Morpho's.
+  It is not Morpho-specific.
+
+⚠️ **One honest limit in the numbers.** Where DefiLlama reports under $1M the gap is computed against
+a $1M floor, so `euler`'s "1218%" means "our subgraph says millions, the reference says roughly
+nothing" rather than a precise ratio. The direction is the finding; the magnitude is not, and the
+inventory says so rather than letting the figure stand unqualified. Four deployments have no confident
+DefiLlama match at all and are `NOT_CHECKED` rather than passed — `rari-fuse` among them, since
+DefiLlama's `rari-capital` is a Yield Aggregator and not the Fuse pools. Matching it would have
+manufactured a disagreement that says nothing about either.
+
+Verdicts are written back into `config/protocols.ts` as `triageVerdict`, and
+`docs/protocol-inventory.md` regenerates with a verdict column, the counts, and the caveats.
