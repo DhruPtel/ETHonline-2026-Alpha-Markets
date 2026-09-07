@@ -4,11 +4,11 @@
 // A null here does NOT mean a version mismatch: a field missing from a schema fails the
 // whole query loudly. A null means the field exists and was never written, which is the
 // morpho-blue revenue case.
-import { querySubgraphs } from '../src/graph/client.js';
+import { querySubgraphs } from '../../src/graph/client.js';
 import {
   BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, FIRST_PAGE,
   type BalanceSheetResult, type MarketsResult, type FinancialSnapshotsResult,
-} from '../src/graph/queries/index.js';
+} from '../../src/graph/queries/index.js';
 
 const REPS: [string, string][] = [
   ['3.1.0', 'aave-v3-ethereum'],

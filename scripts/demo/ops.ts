@@ -1,6 +1,6 @@
 // Unit 3's proof — the operations against known inputs, and the cases that break naive arithmetic.
-import { net, ratio, sum, compare, groupBy, rank } from '../src/engine/ops.js';
-import type { Decimal } from '../src/types/wire.js';
+import { net, ratio, sum, compare, groupBy, rank } from '../../src/engine/ops.js';
+import type { Decimal } from '../../src/types/wire.js';
 
 let failures = 0;
 const is = (label: string, got: unknown, want: unknown) => {
@@ -60,8 +60,12 @@ for (const bad of ['1e18', '12,345', 'abc', '']) {
   try { sum([bad as Decimal]); console.log(`  ⛔ accepted "${bad}"`); failures++; }
   catch (e) { console.log(`  ✅ rejected ${JSON.stringify(bad).padEnd(12)}${(e as Error).message}`); }
 }
-try { sum(['1.' + '1'.repeat(41) as Decimal]); console.log('  ⛔ accepted 41 decimal places'); failures++; }
-catch (e) { console.log(`  ✅ rejected 41dp    ${(e as Error).message}`); }
+// ⚠️ 47 decimal places is a real observed value (a token price on a live deployment), so the test
+// asserts the boundary at the current scale rather than at a number that used to be past it.
+try { sum(['0.' + '0'.repeat(14) + '162926873065418174459347072777589' as Decimal]); console.log('  ✅ accepted 47dp    a real observed token price'); }
+catch (e) { console.log(`  ⛔ rejected a real value: ${(e as Error).message}`); failures++; }
+try { sum(['1.' + '1'.repeat(81) as Decimal]); console.log('  ⛔ accepted 81 decimal places'); failures++; }
+catch (e) { console.log(`  ✅ rejected 81dp    ${(e as Error).message}`); }
 
 console.log(`\n${failures === 0 ? '✅ all checks passed' : `⛔ ${failures} failed`}\n`);
 if (failures) process.exit(1);

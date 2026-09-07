@@ -5,7 +5,7 @@
 //   4. block pinning, which is how Phase 4 settlement re-reads the past
 //   5. a read below the retained window, to capture the PRUNED string PLAN-v4 §8 still
 //      lists as an unlooked-up Day 1 item
-import { querySubgraph, querySubgraphs, SubgraphError } from '../src/graph/client.js';
+import { querySubgraph, querySubgraphs, SubgraphError } from '../../src/graph/client.js';
 
 // No _meta here on purpose — the client injects it. If these printed blocks and deployment
 // hashes, injection worked.

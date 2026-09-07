@@ -1,6 +1,6 @@
 // Unit 9's proof. Subgraph number beside chain number, at the block the value was written.
-import { corroborate } from '../src/graph/corroborate.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { corroborate } from '../../src/graph/corroborate.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 const SET = ['aave-v3-ethereum', 'aave-v2-ethereum', 'compound-v3-ethereum', 'compound-v2-ethereum', 'spark-lend-ethereum', 'morpho-blue'];
 const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);

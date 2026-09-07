@@ -3,7 +3,7 @@
 // The fourth is the point: "is X a good investment" is not answerable here, and the planner has to
 // say so structurally rather than write a confident essay around the gap.
 import Anthropic from '@anthropic-ai/sdk';
-import { compose } from '../src/agent/compose.js';
+import { compose } from '../../src/agent/compose.js';
 
 const DIRECTIVES = [
   ['narrow, one deployment', "What are Aave v3's total deposits on Ethereum right now?"],
@@ -26,7 +26,6 @@ for (const [label, directive] of DIRECTIVES) {
   }
   const p = r.plan;
   console.log(`  ✅ plan`);
-  console.log(`     form        ${p.form}`);
   console.log(`     subject     ${p.subject.directive}`);
   console.log(`     headline    ${p.subject.headline}   ← an error here blocks the whole report`);
   console.log(`     deployments ${p.subject.deployments.join(', ')}`);

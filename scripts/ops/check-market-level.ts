@@ -7,11 +7,11 @@
 // ⚠️ This measures the GAP between those two views. It is not a new check — it runs the same
 // `adapt()` every report will run, over a real market population, and reports where the two
 // disagree. The gap is the finding.
-import { querySubgraph } from '../src/graph/client.js';
-import { paginate } from '../src/graph/paginate.js';
-import { adapt } from '../src/graph/adapter.js';
-import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { paginate } from '../../src/graph/paginate.js';
+import { adapt } from '../../src/graph/adapter.js';
+import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 const MAX_PAGES = 8; // 2,000 markets — enough to exhaust every deployment measured in Unit 7
 const live = PROTOCOLS.filter((p) => p.status === 'live');

@@ -2,11 +2,11 @@
 // visible rather than asserted.
 import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
-import { runLoop, MODEL } from '../src/agent/loop.js';
-import { TOOLS, execute } from '../src/agent/tools.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { runLoop, MODEL } from '../../src/agent/loop.js';
+import { TOOLS, execute } from '../../src/agent/tools.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
-const skill = (n: string) => readFileSync(new URL(`../src/agent/skills/${n}.md`, import.meta.url), 'utf8');
+const skill = (n: string) => readFileSync(new URL(`../../src/agent/skills/${n}.md`, import.meta.url), 'utf8');
 const live = PROTOCOLS.filter((p) => p.status === 'live').map((p) => p.slug).join(', ');
 const BASE = `You are a lending-protocol analyst working from live Graph data. Configured deployments: ${live}.
 Use get_capabilities before quoting a figure you are unsure of, and run_document to read data. Pass every deployment you want to compare in a single run_document call so they are read at one common block.`;

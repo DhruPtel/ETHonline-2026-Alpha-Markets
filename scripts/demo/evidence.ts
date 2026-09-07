@@ -1,9 +1,9 @@
 // Unit 11's proof. A record, its settlement-backed twin, and the hash behaving.
-import { querySubgraph } from '../src/graph/client.js';
-import { paginate } from '../src/graph/paginate.js';
-import { buildEvidence } from '../src/graph/evidence.js';
-import { canonical } from '../src/domain/canonical.js';
-import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { paginate } from '../../src/graph/paginate.js';
+import { buildEvidence } from '../../src/graph/evidence.js';
+import { canonical } from '../../src/domain/canonical.js';
+import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../../src/graph/queries/index.js';
 
 const size = (o: unknown) => `${JSON.stringify(o).length.toLocaleString()} bytes`;
 

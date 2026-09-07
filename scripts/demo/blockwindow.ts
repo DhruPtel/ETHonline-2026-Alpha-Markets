@@ -1,6 +1,6 @@
 // Unit 8's proof. A common block across the publishable set, then two real refusals.
-import { commonBlock, RETENTION_FLOOR, FINALITY_LAG } from '../src/graph/blockwindow.js';
-import { querySubgraph } from '../src/graph/client.js';
+import { commonBlock, RETENTION_FLOOR, FINALITY_LAG } from '../../src/graph/blockwindow.js';
+import { querySubgraph } from '../../src/graph/client.js';
 
 const DEV = ['aave-v3-ethereum', 'aave-v2-ethereum', 'compound-v3-ethereum', 'compound-v2-ethereum', 'spark-lend-ethereum'];
 const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);

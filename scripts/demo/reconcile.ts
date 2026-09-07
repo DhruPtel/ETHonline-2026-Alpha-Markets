@@ -2,15 +2,15 @@
 //
 // ⚠️ DefiLlama is fetched HERE, not in the engine. reconcile.ts takes the figure as an observation,
 // so a published report never fails because a third party is down.
-import { querySubgraph } from '../src/graph/client.js';
-import { paginate } from '../src/graph/paginate.js';
-import { adapt } from '../src/graph/adapter.js';
-import { check } from '../src/engine/invariants.js';
-import { corroborate } from '../src/graph/corroborate.js';
-import { reconcile, type ExternalReference } from '../src/engine/reconcile.js';
-import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
-import { net } from '../src/engine/ops.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { paginate } from '../../src/graph/paginate.js';
+import { adapt } from '../../src/graph/adapter.js';
+import { check } from '../../src/engine/invariants.js';
+import { corroborate } from '../../src/graph/corroborate.js';
+import { reconcile, type ExternalReference } from '../../src/engine/reconcile.js';
+import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
+import { net } from '../../src/engine/ops.js';
 
 const LLAMA: Record<string, string> = {
   'aave-v3-ethereum': 'aave-v3', 'aave-v2-ethereum': 'aave-v2', 'compound-v3-ethereum': 'compound-v3',

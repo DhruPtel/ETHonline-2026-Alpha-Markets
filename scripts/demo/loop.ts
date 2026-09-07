@@ -1,11 +1,11 @@
 // Unit 12's proof. A plain-English question, a real tool against the real data layer, and a
 // budget that stops the loop honestly.
 import Anthropic from '@anthropic-ai/sdk';
-import { runLoop, MODEL } from '../src/agent/loop.js';
-import { querySubgraph } from '../src/graph/client.js';
-import { adapt } from '../src/graph/adapter.js';
-import { BALANCE_SHEET, type BalanceSheetResult } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { runLoop, MODEL } from '../../src/agent/loop.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { adapt } from '../../src/graph/adapter.js';
+import { BALANCE_SHEET, type BalanceSheetResult } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 // A trivial stand-in for Unit 13's menu — one tool, so the loop has something real to call.
 const TOOL: Anthropic.Tool = {

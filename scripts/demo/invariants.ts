@@ -1,10 +1,10 @@
 // Unit 4's proof. Which findings fire, at what severity, and what each one blocks.
-import { querySubgraph } from '../src/graph/client.js';
-import { paginate } from '../src/graph/paginate.js';
-import { adapt } from '../src/graph/adapter.js';
-import { check, blockedFigures, figureRef } from '../src/engine/invariants.js';
-import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { paginate } from '../../src/graph/paginate.js';
+import { adapt } from '../../src/graph/adapter.js';
+import { check, blockedFigures, figureRef } from '../../src/engine/invariants.js';
+import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 // ⚠️ The publishable five plus morpho-blue exercise only three of the five checks — none of them
 // has inverted balances or an empty book. `truefi-ethereum` (187% utilization) and

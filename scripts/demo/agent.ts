@@ -1,9 +1,9 @@
 // Unit 13's proof — and Phase 1's. A plain-English question spanning three deployments, read at
 // one common block, answered with every flag intact. Then a protocol we do not have.
 import Anthropic from '@anthropic-ai/sdk';
-import { runLoop, MODEL } from '../src/agent/loop.js';
-import { TOOLS, execute } from '../src/agent/tools.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { runLoop, MODEL } from '../../src/agent/loop.js';
+import { TOOLS, execute } from '../../src/agent/tools.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM = `You are a lending-protocol analyst. Configured deployments: ${PROTOCOLS.filter((p) => p.status === 'live').map((p) => p.slug).join(', ')}.

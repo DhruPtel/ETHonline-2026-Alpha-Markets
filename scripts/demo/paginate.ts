@@ -3,9 +3,9 @@
 // ⚠️ The brief expected aave-v3 to have hundreds of markets. It has 67 — one page — so it does
 // not exercise paging at all. morpho-blue does: 1,759 markets over 8 pages. It is `unusable`
 // for publishing and a perfectly good population to walk.
-import { paginate, PAGE_SIZE } from '../src/graph/paginate.js';
-import { MARKETS, type MarketRow } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { paginate, PAGE_SIZE } from '../../src/graph/paginate.js';
+import { MARKETS, type MarketRow } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
 const lpad = (s: string, n: number) => s.padStart(n).slice(-n);

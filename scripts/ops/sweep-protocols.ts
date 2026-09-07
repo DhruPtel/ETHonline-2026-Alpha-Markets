@@ -6,9 +6,9 @@
 // throwaway script from pre-empting Unit 4's still-open decision about how the documents
 // cover five live schema versions. This sweep is what tells us that.
 import { writeFileSync } from 'node:fs';
-import { querySubgraphs, type QueryOutcome } from '../src/graph/client.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
-import { BALANCE_SHEET } from '../src/graph/queries/index.js';
+import { querySubgraphs, type QueryOutcome } from '../../src/graph/client.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
+import { BALANCE_SHEET } from '../../src/graph/queries/index.js';
 
 // Tier 1 — the two fields every version that answered Unit 3 already served.
 const PROBE = `query { lendingProtocols(first: 1) { name schemaVersion } }`;

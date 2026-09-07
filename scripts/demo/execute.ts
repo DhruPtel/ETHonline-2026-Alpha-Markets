@@ -1,11 +1,10 @@
 // Unit 9's proof. A plan in, a structured report out. Three runs.
-import { execute, type ExecuteState } from '../src/agent/execute.js';
-import { figureRef } from '../src/engine/invariants.js';
-import type { ReportPlan } from '../src/types/report.js';
+import { execute, type ExecuteState } from '../../src/agent/execute.js';
+import { figureRef } from '../../src/engine/invariants.js';
+import type { ReportPlan } from '../../src/types/report.js';
 
 const ANALYST = '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7';
 const plan = (directive: string, slugs: string[], headSlug: string, headField: string): ReportPlan => ({
-  form: 'balance-overview',
   subject: { directive, deployments: slugs, headline: figureRef(headSlug, headField) },
   reads: [{ documentId: 'balance-sheet', slugs, variables: {} }, { documentId: 'markets', slugs, variables: {} }],
   checks: ['internal-consistency', 'chain-corroboration', 'market-population'],

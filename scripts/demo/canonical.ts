@@ -1,7 +1,7 @@
 // Unit 2's proof. The old fixture's recorded hashes must still reproduce, and a Unit 1 report must
 // behave — because this hash is what a market settles on.
-import { canonical, hashCanonical, reportHash, reportHashBytes } from '../src/domain/canonical.js';
-import type { Report } from '../src/types/report.js';
+import { canonical, hashCanonical, reportHash, reportHashBytes } from '../../src/domain/canonical.js';
+import type { Report } from '../../src/types/report.js';
 
 const short = (h: string) => `${h.slice(0, 8)}…${h.slice(-6)}`;
 const check = (label: string, got: string, want: string) =>
@@ -39,6 +39,7 @@ console.log(`  one cent moved              ${short(h2)}   ${h2.startsWith(RECORD
 console.log('\n\n2 · a full report on the current contract\n');
 const report: Report = {
   schema: 'alpha-markets/report/v1',
+  form: 'balance-overview',
   analyst: '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7',
   subject: { directive: 'Aave v2 deposits — do the books tie out?', deployments: ['aave-v2-ethereum'], headline: 'aave-v2.deposits' },
   block: 25922313,

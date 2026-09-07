@@ -1,9 +1,9 @@
 // Unit 10's proof. Real numbers through the adapter — nothing corrected, everything annotated.
-import { querySubgraph } from '../src/graph/client.js';
-import { paginate } from '../src/graph/paginate.js';
-import { adapt, type Finding } from '../src/graph/adapter.js';
-import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../src/graph/queries/index.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { querySubgraph } from '../../src/graph/client.js';
+import { paginate } from '../../src/graph/paginate.js';
+import { adapt, type Finding } from '../../src/graph/adapter.js';
+import { BALANCE_SHEET, MARKETS, type BalanceSheetResult, type MarketRow } from '../../src/graph/queries/index.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 
 const SET = ['aave-v3-ethereum', 'aave-v2-ethereum', 'compound-v3-ethereum', 'compound-v2-ethereum', 'spark-lend-ethereum', 'morpho-blue'];
 const ICON: Record<Finding['severity'], string> = { DATA_ERROR: '⛔', INCONSISTENCY: '⚠️ ', SIGNAL: '📣', INFORMATIONAL: '· ' };

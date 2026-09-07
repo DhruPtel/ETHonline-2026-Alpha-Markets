@@ -4,12 +4,12 @@
 //
 // ⚠️ This measures. It fixes nothing and encodes nothing — the adapter does that (Unit 10).
 import { writeFileSync } from 'node:fs';
-import { querySubgraphs } from '../src/graph/client.js';
-import { PROTOCOLS } from '../src/config/protocols.js';
+import { querySubgraphs } from '../../src/graph/client.js';
+import { PROTOCOLS } from '../../src/config/protocols.js';
 import {
   BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, FIRST_PAGE,
   type BalanceSheetResult, type MarketsResult, type FinancialSnapshotsResult,
-} from '../src/graph/queries/index.js';
+} from '../../src/graph/queries/index.js';
 
 // DefiLlama is a REFERENCE, not a data source — nothing is built on it and no figure it
 // returns reaches a report. `null` means no confident match, which becomes NOT_CHECKED
