@@ -722,3 +722,90 @@ demonstrably differ from each other** — but differing *heads* is not the same 
 and each explanation was plausible. Testing them took three probes and disproved all three. **An
 unreproduced failure that has been chased and not caught is a different thing from a fixed one, and
 writing it down as the first is the only honest option.**
+
+## 2026-09-07 — morpho-blue's cumulative deposits read $378 sextillion, and nothing we built catches it
+
+**What we expected.** Phase 1 established morpho-blue's problems precisely: revenue never written,
+TVL semantics inverted, a −10,000,000 disagreement with its own contract. Three known faults, all
+flagged, all handled.
+
+**What happened.** The agent, writing a balance overview with the new skills loaded, printed:
+
+> **Morpho's cumulative deposits read $3.78 × 10²³** — roughly $378 sextillion. This is not a large
+> number, it is a broken one, and I have left it out of the table rather than print it as if it meant
+> something.
+
+Verified directly:
+
+| deployment | `cumulativeDepositUSD` |
+|---|---|
+| aave-v3-ethereum | 2.21e+12 — $2.21T, plausible |
+| compound-v2-ethereum | 3.11e+11 — $311B, plausible |
+| **morpho-blue** | **3.78e+23** |
+
+It is a **fourth** independent fault on that deployment, and it is a different one: the revenue
+accumulator was never written, this one is written and absurd.
+
+**What we do not have.** `RevenueAvailability` gates revenue figures per deployment because SM-03
+swept them. **There is no equivalent for cumulative flow figures**, and nothing in `invariants.ts`
+bounds them — the checks look at current balances, utilization, oracle state and market sums.
+`cumulativeDepositUSD`, `cumulativeBorrowUSD` and `cumulativeLiquidateUSD` reach a report unexamined.
+
+**What changes.**
+
+- ⚠️ **A plausibility bound on cumulative figures is missing and should be a check.** The shape
+  already exists in triage's revenue test — `> 1e12` is absurd for a lending protocol — and the same
+  reasoning applies to lifetime flows, with a higher ceiling. Recorded rather than built, because it
+  belongs in `invariants.ts` and that unit is closed.
+- ⚠️ **The sweep should test cumulative fields the way SM-03 tested revenue.** We know how many
+  deployments have poisoned revenue because someone looked at all five. Nobody has looked at
+  cumulative deposits across 25.
+
+**The part worth keeping.** This was not found by a check. It was found by a model that had been told
+to lead with the answer and justify every figure, looking at a number and saying *this cannot be
+right*. **Our checks encode the faults we already knew about; the thing that found a new one was
+asking for a defensible report and watching what refused to go in it.** That is an argument for the
+skills being load-bearing rather than decorative, and also a warning: the check suite is a record of
+past findings, not a net.
+
+## 2026-09-07 — A determinism test that lets each run pick its own block tests nothing
+
+**What we expected.** Unit 9's proof runs the same plan twice and asserts the hash is identical —
+the property Phase 4's market settles against. The instruction was explicit: if it differs, stop.
+
+**What happened.** It differed, and the diff pointed at a real-looking culprit:
+
+```
+a: "value":"417588213.6204767011585996247070755"
+b: "value":"417588213.6330579891865771488389195"
+```
+
+aave-v2's cumulative revenue, apparently at the same block, differing between two runs seconds apart.
+That reads exactly like the pinned-read instability recorded on 2026-09-07 and never reproduced.
+
+**It was the test.** Each run called `execute` with fresh state, so **each resolved its own common
+block** — and the chain head moves between them. The two reports were of different moments and
+*should* hash differently. Measured to confirm:
+
+| probe | result |
+|---|---|
+| 8 balance-sheet reads at one pinned block | 1 distinct value per field |
+| 3 `execute` runs, no market walk | identical block, identical hash |
+| 2 `execute` runs, second reusing the first's block | **identical hash** |
+
+**What changes.** The proof now passes run 1's resolved block into run 2 through the state it hands
+back — which also exercises the resumable-state shape rather than just declaring it. A determinism
+test has to fix everything the run does not control, and the block is the largest such thing.
+
+**Two things worth separating.**
+
+- **This does not explain the 2026-09-07 evidence-hash anomaly.** That case used one `pinned`
+  constant for both reads, so it was genuinely the same block. It remains unreproduced — and this
+  investigation strengthens rather than resolves it, because reads at a fixed block have now been
+  measured deterministic across 13 more attempts.
+- ⚠️ **This is the fifth failed check this session that was the check's fault**, after SM-01's key
+  ordering, the report fixture's replacer array, `ops.ts`'s hand-typed quotient, and the skills demo's
+  unflushed stdout. The pattern is stable enough to state as a rule: **when a check fails against
+  something that has no other reason to be broken, the check is the more likely suspect — and the
+  more alarming the failure looks, the more true that is.** Three of the five looked like serious
+  findings on first read.

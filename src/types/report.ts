@@ -237,6 +237,76 @@ export interface Report {
   readonly atsTokenAddress: string | null;
 }
 
+// ─── The analyst contract ────────────────────────────────────────────────────────────────────────
+//
+// Not the report shape — what an analyst works FROM. Declared here so someone building their own
+// analyst can read the contract without importing any of our logic.
+
+/** One form for now. The forecast attachment is deferred until a market exists to settle it. */
+export type ReportForm = 'balance-overview';
+
+/** What a deployment can and cannot tell you. Every field is measured, never inferred. */
+export interface Capabilities {
+  readonly slug: string;
+  /** The `schemaVersion` the deployment SERVES, not the one its publisher's config declares. */
+  readonly liveSchemaVersion: string | null;
+  readonly lendingType: string | null;
+  readonly status: string;
+  readonly triageVerdict: string | null;
+  /** `usable` | `poisoned` | `not_tracked` | `not_in_schema`, or a note that it was never swept. */
+  readonly revenue: string;
+  readonly revenueUsable: boolean;
+  /** Whether figures here can be checked against the chain, and by what. */
+  readonly corroboration: string;
+  /** How deposit USD is derived. Decides whether a zero price is an error or expected. */
+  readonly depositBasis: string;
+  /** What this deployment means by the standard field names, where it differs. */
+  readonly semanticNotes: string | null;
+  readonly lastSwept: string | null;
+}
+
+/** A document to run, and against which deployments. The planner never writes GraphQL (§5.6). */
+export interface PlannedRead {
+  readonly documentId: string;
+  readonly slugs: readonly string[];
+  readonly variables: Readonly<Record<string, string | number | boolean | null>>;
+}
+
+export type PlannedCheck =
+  | 'internal-consistency'
+  | 'chain-corroboration'
+  | 'external-reference'
+  | 'market-population';
+
+/**
+ * What the model decides, before any data is read. Deterministic code executes it.
+ *
+ * ⚠️ **`subject.headline` is load-bearing twice.** It keeps the report on topic — a directive about
+ * a borrowing deficit should not drift into a general overview, which is the easier report to write
+ * — and it decides what a `DATA_ERROR` costs: an error touching the headline blocks the report,
+ * while an error elsewhere withholds one figure.
+ */
+export interface ReportPlan {
+  readonly form: ReportForm;
+  readonly subject: Subject;
+  readonly reads: readonly PlannedRead[];
+  readonly checks: readonly PlannedCheck[];
+  /** Why this scope answers the directive. Read by a human reviewing the plan before it runs. */
+  readonly rationale: string;
+}
+
+/**
+ * ⚠️ A first-class outcome, not an error. A directive that names no subject, no answerable question
+ * or no deployment gets this back with the specific gap named — never a confident essay built on a
+ * guess about what was meant.
+ */
+export interface Clarification {
+  readonly missing: readonly ('subject' | 'deployment' | 'question' | 'scope')[];
+  readonly reason: string;
+  /** Concrete directives that would work, so the ask is answerable rather than a refusal. */
+  readonly suggestions: readonly string[];
+}
+
 /**
  * Fields that come into existence only after the hash is committed. The type-level half of the
  * runtime denylist; the two must not drift.

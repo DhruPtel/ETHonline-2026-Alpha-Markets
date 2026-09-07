@@ -1823,3 +1823,183 @@ observations directly to decide its tier-1 claim. So the two are parallel consum
 rather than a chain, which is what keeps them from restating each other: crosscheck produces the
 per-market findings a report shows, reconcile produces a verdict. Flagging it because the unit brief
 described it as serial, and if a serial wiring is wanted, `reconcile` is the file that changes.
+
+## 2026-09-07 — Phase 2 Unit 7: the skills, and what they measurably change
+
+`src/agent/skills/balance-overview.md` (84 lines) and `conventions.md` (68). Markdown, loaded into a
+system prompt, written as instructions to an analyst rather than documentation about our code.
+
+**The proof ran the same directive twice — without the skills, then with — because "visibly shaped"
+is a claim that should be checked rather than asserted.** Both runs completed, 3 turns each, against
+the same three deployments at a common block.
+
+| | without | with |
+|---|---|---|
+| answer | 5,421 chars | 8,059 chars |
+| gross-vs-net distinction | **absent** | 3 mentions, with the correction |
+| separates checks it RAN from checks read out of config | **no** | yes |
+| structure | per-deployment sections | fixed Summary / Figures / Checks |
+
+**The most valuable difference was not one the skills asked for.** With them loaded, the agent wrote:
+
+> **What was not performed here:** I did not read any contract. The corroboration statuses below come
+> from the platform's last triage sweep (2026-09-07), not from a check I ran at block 25,923,371.
+
+Nothing in either file says that. It follows from "be specific about the method, not just the
+outcome" and "absence is not a finding" — and it is a genuine epistemic distinction our own code does
+not currently draw. `get_capabilities` returns a config row without saying that its corroboration
+field is a past measurement rather than a live one.
+
+The gross-vs-net instruction did exactly what it was written for: the with-skills report carries a
+**Net (deposits − borrows)** row beside the gross one, and warns that comparing gross to an external
+reference "will look like a 40% discrepancy that does not exist". The baseline report has no net
+figure anywhere. Both runs handled Morpho well, which is the tool layer and the config semantic notes
+working — the skills did not rescue that, they changed the shape and the honesty of the framing
+around it.
+
+⚠️ **And it found a fault nobody had found.** morpho-blue's `cumulativeDepositUSD` reads **3.78e+23**
+— $378 sextillion — against aave-v3's plausible 2.21e+12. Verified directly. That is a fourth
+independent fault on that deployment and a new kind: revenue was never written, this is written and
+absurd. **Nothing in `invariants.ts` bounds cumulative figures**, and there is no `RevenueAvailability`
+equivalent for them, so they reach a report unexamined. Written up in `lessons.md` with the honest
+conclusion: our checks encode the faults we already knew about, and the thing that found a new one was
+asking for a defensible report and watching what refused to go in it.
+
+⚠️ **The first proof run failed in a way that looked like a model failure and was not.** The
+with-skills answer printed a header and stopped — ~460 chars, exit code 0. Re-running it alone gave
+`stopReason=answered`, 8,059 chars. **Node exited before its piped stdout had drained.** The script
+now waits for the flush and prints `stopReason` and answer length alongside the token counts, so the
+next truncation is legible as one. Fourth time this session the harness was wrong rather than the
+thing under test.
+
+## 2026-09-07 — Market count pinned at 8, and Unit 9 is blocked on Unit 8
+
+**The skill now fixes the market table at eight rows, and the number is measured rather than picked.**
+The same directive had been producing 5 markets one run, 10 the next, 8 the third — none wrong, but
+two overviews of the same protocol should be comparable, which is the entire reason the form is fixed.
+
+Measured what each cut actually covers:
+
+| deployment | markets | top 3 | top 5 | **top 8** | top 12 |
+|---|---|---|---|---|---|
+| aave-v3 | 67 | 48% | 71% | **90%** | 96% |
+| compound-v3 | 73 | 50% | 67% | **85%** | 96% |
+| spark-lend | 20 | 75% | 86% | **96%** | 100% |
+| compound-v2 | 20 | 80% | 93% | **98%** | 100% |
+| morpho-blue | 1,759 | 75% | 81% | **85%** | 90% |
+
+Five leaves a third of Aave's book unaccounted for; twelve buys six points for half again as many
+rows. Eight covers 85–98% everywhere, so the omitted tail can be described in a sentence rather than
+shown. Added a rule for comparisons too — **eight rows total from the combined set, not eight each**,
+since a 24-row table is the wall of rows under a different name.
+
+⚠️ **The other two cleanup items describe things that do not exist, and Unit 9 is blocked on the same
+gap.**
+
+`src/agent/compose.ts` has never existed — confirmed against the full history, not just the working
+tree. The units built so far are 1 through 7; **Unit 8 was skipped.** Consequences:
+
+- **"Move `ReportPlan` and `Capabilities` to `types/report.ts`"** — neither type is defined anywhere
+  in `src/`. `ReportPlan` appears only as prose in `PHASE-2.md`'s description of Unit 9. There is
+  nothing to move.
+- **"compose.ts hardcodes the model and loop.ts names one too — two places"** — only `loop.ts` names
+  a model. One place, so there is no duplication to remove. Moving it to config is still worth doing
+  on its own merits, but it is a different task from the one described and I have not done it
+  unasked.
+- **Unit 9 takes a `ReportPlan` and runs it.** The type it consumes and the file that produces it are
+  both Unit 8. Building Unit 9 would mean inventing the plan shape here, which is precisely the
+  decision Unit 8 exists to make — and `compose.ts` is where `needs_clarification`, subject
+  declaration and form selection all land. The declared subject in particular is load-bearing for
+  Unit 9's own blocking rule.
+
+Same shape as the Unit 5 sweep, which was told to reuse a balance-sheet document Unit 4 had not yet
+written. Recorded rather than worked around.
+
+## 2026-09-07 — Phase 2 Unit 8: compose, the unit that was skipped
+
+`src/agent/compose.ts` — 108 code lines. One model turn, before any data is read. `ReportPlan`,
+`Capabilities`, `PlannedRead`, `PlannedCheck` and `Clarification` went into `types/report.ts` from the
+start rather than being moved there later, which is cleanup items 1 and 2 becoming unnecessary.
+
+⚠️ **I did not have a Unit 8 brief** — the briefs received ran 1 through 7, then cleanup and Unit 9.
+"The four test directives" were never specified, so I worked from PHASE-2.md's own compose section
+and §5.6 and chose four that exercise the paths: a narrow single-deployment question, a specific
+finding that should NOT become an overview, a three-way comparison, and one that is not answerable
+here.
+
+**`needs_clarification` is structural, not a prompt instruction.** The model gets two tools —
+`propose_plan` and `need_clarification` — with `tool_choice: { type: 'any' }`, so it must call one.
+Asking politely in a system prompt gets a confident essay whenever the model would rather write one;
+forcing a choice between two typed outputs does not.
+
+**Compose does no I/O beyond the model call.** Capabilities come from `config/protocols.ts`, every
+field of which was measured against a live deployment during the Phase 1 sweep. Planning does not
+need the network, which also means a plan can be reviewed before anything is fetched.
+
+**All four directives behaved, and two did better than the bar:**
+
+- *"Does Morpho Blue's borrowing exceed what it holds?"* → headline `morpho-blue.totalBorrowBalanceUSD`,
+  **not** deposits. It stayed on the question asked, and noted that because the deployment is triaged
+  `unusable` the report "must foreground that the figures may not support a conclusion at all".
+- *"Compare deposits across aave-v2, compound-v2 and spark-lend"* → it picked aave-v2 as the headline
+  on the reasoning that it is the only one of the three with a publishable verdict **and** a chain
+  accessor, and observed that corroboration will therefore cover two of the three slugs. That is the
+  capability data being used to make a scoping decision rather than just being reported.
+- *"Is Aave a good investment?"* → `needs_clarification` on two grounds, and the second one I had not
+  anticipated: no price data, **and** "Aave" does not name a deployment — there are five on Ethereum
+  whose data quality differs sharply. Four concrete alternative directives came back with it.
+
+⚠️ **Nothing chose `external-reference` as a check** across four plans. Either the name does not
+convey what it does, or the planner does not see when it would help — the capability summary says
+nothing about an external reference being available. Recorded rather than fixed, because the fix is
+either a wording change in the system prompt or a field in `Capabilities`, and both are decisions.
+
+⚠️ **The unknown-slug validation path is untested.** `compose` re-checks proposed deployments against
+config rather than trusting the tool schema — an enum constrains the shape of a slug, not whether that
+deployment exists or answers — but none of the four directives provoked it.
+
+## 2026-09-07 — Phase 2 Unit 9: execute, and a hash scare that was the test
+
+`src/agent/execute.ts` — 101 code lines. `ReportPlan` in, `DraftReport` out: resolve a common block,
+run the plan's documents pinned to it, adapt, run invariants and crosscheck and reconcile, assemble
+facts and checks and provenance, hash. It composes what exists and reimplements nothing.
+
+**All three proofs pass.**
+
+1. *Balance overview for Aave v3* — block 25923517, 6 facts, verdict `ties_out` on 67 markets with 3
+   corroborated, 2 provenance records, 5 queries, 2.8s. Revenue comes through `withheld` with
+   `revenue_unavailable` rather than as a number.
+2. *compound-v3 deposits* — `blocked`, naming the figure and the reason. **2b is the half that
+   matters:** the same deployment with `totalBorrowBalanceUSD` as the headline **completes**, with the
+   deposit figure withheld and explained. One `DATA_ERROR`, two subjects, two outcomes — the amended
+   §5.13 working through the whole pipeline rather than in a unit test.
+3. Same plan twice — identical hash, after a correction.
+
+⚠️ **The hash differed on the first attempt and I stopped, as instructed. It was the test.** Each run
+called `execute` with fresh state, so each resolved its own common block — the head moves between
+them, so the two reports were of different moments and *should* differ. Confirmed by measurement: 8
+reads at a pinned block give 1 distinct value per field, and 3 `execute` runs at a fixed block give
+one hash. The proof now passes run 1's block into run 2 through the state it hands back, which
+exercises the resumable shape instead of merely asserting it. Written up in `lessons.md` — fifth
+failed check this session that was the check's fault, and three of the five looked serious on first
+read.
+
+**Two things the unit forced that are worth recording.**
+
+- ⚠️ **A pinned `_meta` returns `blockTimestamp: null`**, measured and consistent. So `observedAt` —
+  which is inside the hash — cannot come from the subgraph on a pinned read, and it must be
+  deterministic. It now comes from `eth_getBlockByNumber`, which is exact and immutable. **That makes
+  `ETHEREUM_RPC_URL` required for every report**, not only for corroboration. `execute` fails loudly
+  saying so rather than inventing a timestamp.
+- ⚠️ **`execute` cannot produce a complete `Report`.** `sections` and `assessment` are narration, and
+  narration is inside the report hash. So it returns `DraftReport = Omit<Report, 'sections' |
+  'assessment'>` and a **`dataHash`** over that — explicitly not the identity a market settles
+  against, which only exists after Unit 10. The brief asked for "a complete Report object"; this is
+  the honest version of that.
+
+⚠️ **`Report.analyst` has no source.** It is a required field and `config/analysts.ts` does not exist,
+so `execute` takes the address as a caller parameter. That is fine for a proof and is not fine for a
+product — the analyst identity is what a leaderboard and an on-chain claim both key on.
+
+⚠️ **No token budget.** This step makes no model calls, so bounding tokens here would be theatre; it
+bounds queries, market pages and wall clock, and reports which one stopped it.
