@@ -191,8 +191,11 @@ doesn't hold.
 
 `first ≤ 250`, stable ordering, deduplication, explicit completeness.
 
-⚠️ **An incomplete population does not get a clean verdict.** It's marked `INCOMPLETE` and the
-reconciliation withholds.
+⚠️ **An incomplete population blocks publishing.** It's marked `incomplete` and the reconciliation
+withholds. *(Wording corrected 2026-09-06, Unit 1.)* It does **not** produce a different verdict —
+`Verdict` is the analytical call (`{ call, confidence }`, the shape SM-01 already hashes), while
+completeness is a separate flag that lives on `Computed` and never reaches the hashed `Report`.
+§5.13 names the only two blocking conditions: `DATA_ERROR` and an incomplete population.
 
 *Proof:* pulls >250 markets from aave-v3 and reports completeness honestly.
 

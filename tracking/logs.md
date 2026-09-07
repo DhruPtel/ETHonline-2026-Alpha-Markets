@@ -746,3 +746,46 @@ the other. A split anywhere else means the seam was wrong.
 Unit 11 stays at two tools, confirmed rather than changed. `get_capabilities` is not a hedge against
 `run_document` being insufficient — it is how the agent learns aave-v3's revenue is poisoned *before*
 quoting it. Folding it in would mean discovering the flag only after asking for the number.
+
+## 2026-09-06 — Unit 1: the wire contracts, and a shape SM-01 had already half-frozen
+
+First Phase 1 unit. `src/types/wire.ts` — 45 lines of declarations under about as many lines of
+comment, no logic, no imports. It is the shared vocabulary: twelve files are going to need to mean
+the same thing by "a report", "a verdict", "revenue we can't trust", and this is where that is
+settled once.
+
+**The unit turned on a question the plan couldn't answer.** SM-01 had already hashed a sample report
+back on 2026-09-05, with golden vectors headed for the Foundry verifier — and that shape is flat,
+with `figures` as bare `string | null` and `cumulativeTotalRevenueUSD: null` for aave-v3's poisoned
+accumulator. It has nowhere to put the three flags Phase 0 forced. So either the flags go in and
+SM-01's vectors break, or they live somewhere else. Asked rather than guessed, and the answer settles
+the file: **`Report` is the hashed shape and `Computed` is the rich internal view.** The flags
+describe *how we know* a figure; the hash commits to *what the figure is*.
+
+The reasoning worth keeping is the Phase 4 one. If a flag were inside the hash, revising the
+adapter's judgement about a deployment would change the hash of a report **whose figures never
+moved** — and a market on Arc holding the old hash could no longer verify the report it settles
+against. That is a live failure, not a tidiness argument, and it is why the projection
+`Computed → Report` keeps the values and drops the provenance of judgment. Where a flag says
+poisoned or not_tracked, the figure projects to `null`, which is exactly what SM-01's fixture already
+encoded — it just had no way to record *why*.
+
+**Byte-compatibility was verified rather than claimed.** Typed SM-01's exact fixture as a `Report`,
+canonicalized and hashed it in a throwaway script, and got `49cfaa6c…3db9b7` — the hash
+`smoke-results.md` recorded a day earlier. Moving one cent gives `b3688035…bfe3ec`, also matching, and
+attaching `atsTokenAddress` leaves the hash untouched. `HashableReport = Omit<Report, LifecycleField>`
+is the type-level half of SM-01's runtime `LIFECYCLE` set, frozen here so the two cannot drift —
+which closes the SM-01 to-do that was repointed at this unit last session.
+
+Three smaller calls, all stated rather than buried. `Computed` carries **no** `Verdict`: it holds what
+a deterministic engine derives, and the verdict is a judgement supplied at report assembly, which is
+what keeps §5.14's engine pure. `VerdictCall` is closed at three members — an open string invites the
+narrator to invent a category, the same way §5.11 stops it inventing digits. And the unit spec listed
+"period" as a `Report` field, which SM-01's fixture does not have; the pinned instant is carried by
+`block` + `observedAt` instead, because adding a top-level key changes the canonical bytes. A forecast
+attachment will probably need a real period, and that is Phase 2's problem to raise.
+
+Also corrected PHASE-1's Unit 6 line, which said an incomplete population "does not get a clean
+verdict". It blocks publishing; it does not produce a different verdict. And added `src/**/*` to
+`tsconfig.json`, without which the unit's proof cannot run. `npx tsc --noEmit` passes across scripts
+and src together.
