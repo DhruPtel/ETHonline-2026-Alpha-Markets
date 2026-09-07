@@ -1733,3 +1733,54 @@ logic module to read the enum. ⚠️ `Finding` is the same problem one level do
 imports it from `adapter.ts`, which is at least the right direction, since the engine consumes what
 the graph layer produces. It would sit better in `types/report.ts` beside `Severity` and
 `CheckResult`. One line, flagged rather than taken, since that is a third file.
+
+## 2026-09-07 — Phase 2 Unit 5: reconcile, and a tie-out narrow enough to defend
+
+`Finding` moved to `types/report.ts` alongside `Severity` — last of that cleanup. `adapter.ts` and
+`invariants.ts` both import it now and there is one of each type in the codebase.
+
+`src/engine/reconcile.ts` — 124 code lines against a ~110 estimate. Three tiers, four verdicts, and
+it **judges rather than re-checks**: tier 0 is read from the findings `invariants.ts` already
+produced, so no fact is checked in two files and no report can say the same thing twice in different
+words.
+
+**The argument the file rests on is measured, not assumed.** SM-03 found aave-v3's revenue sides
+summing exactly on all 31 days while the total read $2.79e17 — *"the corruption is in the input, not
+the addition."* An internal-consistency tie-out would have certified a figure wrong by ten orders of
+magnitude. So internal consistency can never produce `ties_out`; only a source outside the mapping
+code can.
+
+**All four verdicts fire against real deployments:**
+
+```
+aave-v3, aave-v2, spark-lend   ✅ ties_out         chain + DefiLlama, 0.9–2.5% apart
+compound-v2, compound-v3       ✅ ties_out         DefiLlama only — no write-time field
+compound-v2, no reference      ◻️  consistent_only  the common case
+compound-v2, truncated walk    ·  not_checked      parts cannot be compared to the whole
+morpho-blue                    ⛔ discrepancy       both independent checks disagree
+```
+
+`consistent_only` is worded as a normal result, because it is one — most financial reporting is
+consistency checking against a single source, and the report says plainly what was and was not
+independently verified rather than apologising for the difference.
+
+**morpho-blue is the case the design exists for.** Chain corroboration disagrees on 2 of 3 sampled
+markets, DefiLlama is 62.1% apart, and **internal consistency passes**. A tie-out built on internal
+arithmetic would have called it clean.
+
+**The honest thing is in the output, per instruction.** The strongest check works on **4 of 25 live
+deployments** — aave-v3, aave-v2, spark-lend, morpho-blue — and the report names them. Everywhere
+else the tie-out rests on an external reference or on internal consistency alone.
+
+⚠️ **DefiLlama is fetched in the demo, never in the engine.** `reconcile.ts` takes an
+`ExternalReference` as an observation, so a published report cannot fail because a third party is
+down and the engine stays pure. The adapter that would produce it is a separate file and does not
+exist yet — the caller supplies it or omits it, and omitting it degrades the verdict rather than
+breaking anything.
+
+⚠️ **Two bugs the proof caught.** `coverage.marketsRead` was counting corroboration samples rather
+than the population — `Computed` does not carry a market count, so it now comes in as an input. And
+"largest gap" compared **signed** deltas, which on morpho-blue reported −10,000,000 as worse than
+−17,698,383,936; it compares magnitude now. Worth noting the second only became visible because the
+data moved: USDT/wstETH's delta has fallen to −4,482,721 since Unit 9, so USDC/PAXG genuinely is the
+largest today and the wrong code would have printed the right answer.

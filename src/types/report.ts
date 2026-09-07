@@ -37,6 +37,19 @@ export type FactId = string;
 /** §5.13. Only `DATA_ERROR` gates anything; the other three are reported and never suppress. */
 export type Severity = 'DATA_ERROR' | 'INCONSISTENCY' | 'SIGNAL' | 'INFORMATIONAL';
 
+/**
+ * What a check produces on its way to becoming a `CheckResult`.
+ *
+ * `Finding` is the engine's working shape; `CheckResult` below is what reaches a report. They are
+ * kept apart because a finding is per-condition and a report presents one row per check.
+ */
+export interface Finding {
+  readonly severity: Severity;
+  /** `"{slug}.{field}"` — the figure this bears on, so blocking can be decided per figure. */
+  readonly appliesTo: string;
+  readonly rationale: string;
+}
+
 // ─── What the report is about ────────────────────────────────────────────────────────────────────
 
 /**
@@ -119,11 +132,26 @@ export interface Exclusion {
 /**
  * What the ENGINE computed, deterministically. Every value is derivable from a check that ran.
  *
+ * | value | means |
+ * |---|---|
+ * | `ties_out` | a source **outside the mapping code** was consulted and agreed |
+ * | `consistent_only` | the figures are internally consistent; no independent source was available |
+ * | `discrepancy` | a check ran and disagreed, and the gap is measured |
+ * | `not_checked` | nothing could be checked — an incomplete population, or no figures to check |
+ *
+ * ⚠️ `consistent_only` is a normal, expected result and is not a lesser one. Most financial
+ * reporting is consistency checking against a single source — that is what an auditor's opinion is.
+ * It says plainly what was and was not independently verified.
+ *
+ * ⚠️ **Internal consistency alone can never be `ties_out`.** aave-v3's revenue sides sum exactly on
+ * all 31 days measured while the total reads $2.79e17 (SM-03): the corruption is in the input, not
+ * the addition. A check that a source agrees with itself cannot detect a wrong number.
+ *
  * ⚠️ `discrepancy` does not say which side is wrong. Attribution is per-deployment and sometimes
  * open — a subgraph disagreeing with its own contract may be a mapping bug or a documented
  * derivation, and the check cannot tell. It reports that two sources disagree and by how much.
  */
-export type VerdictCall = 'ties_out' | 'discrepancy' | 'not_checked';
+export type VerdictCall = 'ties_out' | 'consistent_only' | 'discrepancy' | 'not_checked';
 
 /** How much of the picture the verdict rests on. Measured, so a reader can weigh it themselves. */
 export interface Coverage {

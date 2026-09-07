@@ -20,7 +20,7 @@
 // Only `DATA_ERROR` blocks anything. A `SIGNAL` — borrows exceeding deposits — is a finding about
 // the protocol and the thing a report exists to surface, not a reason to withhold.
 
-import type { Finding } from '../graph/adapter.js';
+import type { Finding } from '../types/report.js';
 import type { Computed, Decimal } from '../types/wire.js';
 import type { ProtocolConfig } from '../config/protocols.js';
 import type { MarketRow } from '../graph/queries/index.js';
