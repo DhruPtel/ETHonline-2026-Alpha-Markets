@@ -789,3 +789,46 @@ Also corrected PHASE-1's Unit 6 line, which said an incomplete population "does 
 verdict". It blocks publishing; it does not produce a different verdict. And added `src/**/*` to
 `tsconfig.json`, without which the unit's proof cannot run. `npx tsc --noEmit` passes across scripts
 and src together.
+
+## 2026-09-06 — Unit 2: 28 rows, and three columns that had to stay empty
+
+`src/config/protocols.ts` — the lookup table. 28 rows: every Ethereum lending deployment in Messari's
+`deployment/deployment.json` that is both `status: prod` and has a decentralized-network query-id,
+plus morpho-blue, which Morpho publish themselves. IDs copied out of the JSON by script rather than
+transcribed, because a mistyped subgraph ID fails as an empty result rather than an error.
+
+**The 27 resolves exactly, and it is worth writing down how.** Ethereum lending has 31 entries.
+Twenty-seven are prod with a published query-id. The other four are `dev`: silo-finance, synthetix and
+**morpho-blue-ethereum** have no decentralized query-id at all, and notional-finance has one but is
+not prod. So Messari has their own morpho-blue entry — dev, schema 3.2.0, unpublished — which is a
+different thing from the 3.0.0 deployment we query. Ours is Morpho's own publication on Messari's
+template, and that distinction is now in the file rather than in someone's head.
+
+**`lendingType` is null on all 28 rows, including the five we have measured.** It was listed as a
+known column and it is not in `deployment.json` anywhere — it is a field on the live `LendingProtocol`
+entity, and SM-02 queried name, schemaVersion and balances, not that. Everyone knows Aave is POOLED
+and MakerDAO is CDP, and filling it from that knowledge is exactly the guessing this table exists to
+prevent: a value that came from a model's memory is indistinguishable, three weeks later, from one
+that came from a query. The sweep fills it.
+
+**Two more columns stayed empty for the same reason.** compound-v3 has a `corroborationHint` with the
+write-time field but a null contract accessor — SM-04 surveyed field *presence* there and never ran
+the `eth_call`, so assuming Aave's `outputToken.id → totalSupply()` pattern transfers would be
+inventing a check. And morpho-blue's hint carries `market(bytes32).totalSupplyAssets` but a null
+contract source, because **the Morpho Blue singleton address is not recorded anywhere in this repo**.
+SM-04 reached it through a throwaway path that did not survive. Writing a plausible address into
+config would be the worst kind of wrong — it would look measured.
+
+The count came out one off from the brief: 27 Messari prod rows minus the four we have tested leaves
+**23 untested, not 22** — morpho-blue is the fifth tested row but is not one of Messari's 27, so it
+does not net out. 28 rows, 5 measured, 23 untested, 28 unique IDs.
+
+⚠️ **`schemaVersion` is named `declaredSchemaVersion`** so that nothing reads it as authoritative.
+`adapter.ts` dispatches on the version a deployment reports *live*; this column records what we
+expected, which is only useful if a disagreement is visible rather than silent.
+
+One thing worth noticing for later: of the 23 untested rows, six declare 3.1.0 — aave-amm, aave-arc,
+aave-rwa, spark-lend, uwu-lend and zerolend — and the G1.5 demo needs exactly one 3.1.0 POOLED
+protocol to add on camera. **spark-lend is the obvious-looking pick and is the wrong one**: §5.18 rules
+it out on 1.0 GRT signal against a recommended 3,000. That is recorded in the plan, not in this table,
+because untested rows assert nothing.
