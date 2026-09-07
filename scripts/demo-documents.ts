@@ -6,7 +6,7 @@
 // morpho-blue revenue case.
 import { querySubgraphs } from '../src/graph/client.js';
 import {
-  BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, STABLE_ORDER,
+  BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, FIRST_PAGE,
   type BalanceSheetResult, type MarketsResult, type FinancialSnapshotsResult,
 } from '../src/graph/queries/index.js';
 
@@ -40,7 +40,7 @@ for (const o of await querySubgraphs<BalanceSheetResult>(slugs, BALANCE_SHEET)) 
 console.log('\n\n═══ 2 · markets (first 3, paged on the stable key) ═══\n');
 console.log(pad('version', 9) + pad('slug', 27) + pad('rows', 6) + pad('market', 26) + pad('token', 8) + pad('balance', 13) + pad('rates', 7) + 'nulls');
 console.log('─'.repeat(120));
-for (const o of await querySubgraphs<MarketsResult>(slugs, MARKETS, { first: 3, skip: 0, ...STABLE_ORDER })) {
+for (const o of await querySubgraphs<MarketsResult>(slugs, MARKETS, { first: 3, lastId: FIRST_PAGE })) {
   const v = verOf.get(o.slug)!;
   if (!o.ok) { console.log(pad(v, 9) + pad(o.slug, 27) + `✗ ${o.error.kind}: ${o.error.message.slice(0, 70)}`); continue; }
   const ms = o.result.data.markets;

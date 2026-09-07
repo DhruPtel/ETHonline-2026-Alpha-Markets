@@ -197,7 +197,13 @@ withholds. *(Wording corrected 2026-09-06, Unit 1.)* It does **not** produce a d
 completeness is a separate flag that lives on `Computed` and never reaches the hashed `Report`.
 §5.13 names the only two blocking conditions: `DATA_ERROR` and an incomplete population.
 
-*Proof:* pulls >250 markets from aave-v3 and reports completeness honestly.
+*Proof:* walks a population past one page and reports completeness honestly.
+
+⚠️ **Corrected 2026-09-07 — aave-v3 cannot prove this.** This line read "pulls >250 markets from
+aave-v3". **aave-v3 has 67 markets**, so it returns in a single page and never exercises paging at
+all. Measured market counts: morpho-blue **1,759** (8 pages), rari-fuse **823** (4), compound-v3 73,
+makerdao 63, aave-v2 37, compound-v2 20, spark-lend 20. The proof runs against morpho-blue, which is
+`unusable` for publishing and a perfectly good population to walk.
 
 ### 7 · `src/graph/corroborate.ts` — **LOGIC**, ~100 lines ★ *(was Unit 9)*
 

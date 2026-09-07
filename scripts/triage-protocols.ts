@@ -7,7 +7,7 @@ import { writeFileSync } from 'node:fs';
 import { querySubgraphs } from '../src/graph/client.js';
 import { PROTOCOLS } from '../src/config/protocols.js';
 import {
-  BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, STABLE_ORDER,
+  BALANCE_SHEET, MARKETS, FINANCIAL_SNAPSHOTS, FIRST_PAGE,
   type BalanceSheetResult, type MarketsResult, type FinancialSnapshotsResult,
 } from '../src/graph/queries/index.js';
 
@@ -46,7 +46,7 @@ for (const p of (await (await fetch('https://api.llama.fi/protocols')).json()) a
 const [sheets, snaps, mkts] = await Promise.all([
   querySubgraphs<BalanceSheetResult>(slugs, BALANCE_SHEET),
   querySubgraphs<FinancialSnapshotsResult>(slugs, FINANCIAL_SNAPSHOTS, { first: 10, skip: 0, startTimestamp: String(start), endTimestamp: String(end) }),
-  querySubgraphs<MarketsResult>(slugs, MARKETS, { first: 100, skip: 0, ...STABLE_ORDER }),
+  querySubgraphs<MarketsResult>(slugs, MARKETS, { first: 100, lastId: FIRST_PAGE }),
 ]);
 const idx = <T>(a: { ok: boolean; slug: string }[]) => new Map(a.map((r) => [r.slug, r as T]));
 const S = idx<(typeof sheets)[number]>(sheets), N = idx<(typeof snaps)[number]>(snaps), M = idx<(typeof mkts)[number]>(mkts);

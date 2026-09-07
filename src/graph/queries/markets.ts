@@ -1,17 +1,24 @@
-// Market-level detail. Shaped for pagination (Unit 7): `$first` is the page size, `$skip`
-// the offset, and `$orderBy`/`$orderDirection` are variables so a page can be walked on a
-// STABLE key (`id`) while a report asks for the same rows by size.
+// Market-level detail, shaped for one paging strategy and only one.
 //
-// ⚠️ Paging on `totalValueLockedUSD` is not stable — balances move between pages and rows
-// get skipped or repeated. Page on `id`; sort for presentation afterwards.
+// ⚠️ **Amended for Unit 7 (2026-09-07).** This document previously took `$skip`, `$orderBy` and
+// `$orderDirection`. It now takes `$lastId` and orders by `id` ascending, fixed, because
+// `paginate.ts` walks a population with `where: { id_gt: $lastId }`:
+//
+//   - `skip` breaks when rows shift between pages, and the gateway caps it at 5,000 anyway.
+//   - A variable `orderBy` is a footgun next to `id_gt`. Ordering by TVL while paging on id
+//     silently drops and repeats rows, and nothing about the result looks wrong.
+//   - Ranking from a single page is not possible honestly regardless — you cannot say "the
+//     largest market" until the population is exhausted. Sort after paginating, not during.
 //
 // All fields are in the measured five-version intersection (introspected 2026-09-07).
 
-export const MARKETS = `query Markets(
-  $first: Int!, $skip: Int!, $orderBy: Market_orderBy!, $orderDirection: OrderDirection!, $block: Block_height
-) {
+export const MARKETS = `query Markets($first: Int!, $lastId: ID!, $block: Block_height) {
   _meta(block: $block) { deployment hasIndexingErrors block { number timestamp } }
-  markets(first: $first, skip: $skip, orderBy: $orderBy, orderDirection: $orderDirection, block: $block) {
+  markets(
+    first: $first, block: $block
+    orderBy: id, orderDirection: asc
+    where: { id_gt: $lastId }
+  ) {
     id name isActive
     canBorrowFrom canUseAsCollateral
     maximumLTV liquidationThreshold liquidationPenalty
@@ -54,5 +61,5 @@ export interface MarketRow {
 
 export interface MarketsResult { markets: MarketRow[] }
 
-/** Page on this. Unique and immutable, so pages cannot overlap or drop rows. */
-export const STABLE_ORDER = { orderBy: 'id', orderDirection: 'asc' } as const;
+/** The first page's cursor. Every id sorts after the empty string. */
+export const FIRST_PAGE = '' as const;

@@ -1038,3 +1038,43 @@ manufactured a disagreement that says nothing about either.
 
 Verdicts are written back into `config/protocols.ts` as `triageVerdict`, and
 `docs/protocol-inventory.md` regenerates with a verdict column, the counts, and the caveats.
+
+## 2026-09-07 — Unit 7: paginate, and a flag that only says `complete` on evidence
+
+`src/graph/paginate.ts` — 50 lines. It walks a population with `where: { id_gt: $lastId }`,
+deduplicates, stops at a budget, and returns `Completeness` from `wire.ts`.
+
+**The rule that makes the flag trustworthy is one line: `complete` requires a SHORT page.** A page
+shorter than the page size is the only evidence a population ran out. A full page proves nothing —
+it cannot distinguish "the end" from "more to come" — so stopping on one is `incomplete` even if we
+happened to have reached the end, because at that moment we do not know that we did. The proof shows
+both sides of that boundary one page apart: 7 pages of morpho-blue gives 1,750 rows and `incomplete`;
+8 pages gives 1,759 and `complete`, because the eighth page held 9 rows.
+
+⚠️ **The brief's proof could not run as written, and the phase doc had the same error.** Both said to
+pull >250 markets from aave-v3. **aave-v3 has 67 markets** — one page — and never exercises paging.
+Measured counts: morpho-blue 1,759, rari-fuse 823, compound-v3 73, makerdao 63, aave-v2 37,
+compound-v2 20, spark-lend 20. **Not one of the five deployments cleared for balance reports exceeds
+a single page.** The proof runs against morpho-blue instead, and PHASE-1.md is corrected.
+
+⚠️ **`markets.ts` had to change, and the change removes a footgun.** `id_gt` paging needs a `$lastId`
+variable, which the document did not have. It also had `$skip`, `$orderBy` and `$orderDirection`,
+and ordering by TVL while paging on id silently drops and repeats rows with nothing about the result
+looking wrong. Ordering is now fixed at `id` ascending and `skip` is gone. Ranking from a single page
+was never honest anyway — you cannot name the largest market until the population is exhausted — so
+sorting moved to after the walk, where the proof does it.
+
+**`blockDrift` earned itself on the first real run.** The 7-page walk of morpho-blue came back with
+**5 blocks of drift** between its first and last page. On an unpinned walk the pages are not from one
+moment, so any total across them blends two states — invisible without the field, and zero when a
+block is pinned. It is now reported alongside completeness.
+
+Two things for later, both about scale rather than correctness:
+
+- ⚠️ **Unit 6's triage undercounts its markers.** It sampled `first: 100` markets per deployment. On
+  morpho-blue that is 100 of **1,759** — 5.7%, taken in id order, which is not a sample of anything
+  in particular. It reported 1 market at exactly 100% utilization where SM-02 found 28 across the
+  top 500. The verdicts stand, since none of them turned on that count, but the marker figures in
+  `docs/protocol-inventory.md` are floors and should not be quoted as totals.
+- **The 8-page walk took 29 seconds** — about 3.6s per sequential page against the gateway. Fine for
+  a script; worth remembering against Vercel's 300s ceiling when a report walks several deployments.
