@@ -138,7 +138,13 @@ export function adapt(input: AdaptInput): Adapted {
       protocol: input.slug, deployment: input.meta.deployment, block: input.meta.blockNumber,
       observedAt: new Date((input.meta.blockTimestamp ?? 0) * 1000).toISOString(),
       figures, revenue: revenue ?? 'not_tracked',
-      completeness: input.completeness ?? 'incomplete', provenance: input.provenance,
+      // ⚠️ Completeness is about the population BEHIND these figures, and a protocol-level read
+      // has a population of one row which we have. Defaulting a market-less read to `incomplete`
+      // emitted an unexplained flag with no finding beside it — and in Unit 13's proof the model
+      // duly invented a reason for it ("3.x-only fields being omitted"), which was false. A flag
+      // nobody can account for is worse than no flag.
+      completeness: input.markets ? (input.completeness ?? 'incomplete') : 'complete',
+      provenance: input.provenance,
     },
     findings,
   };

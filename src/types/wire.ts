@@ -77,22 +77,17 @@ export type CorroborationStatus = 'match' | 'mismatch' | 'not_checked';
  */
 export type Completeness = 'complete' | 'incomplete';
 
-// ─── Verdict ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Closed on purpose. Bounding what the narrator can emit is the point — an open string
- * invites it to invent a category, and §5.11 already forbids it inventing digits.
- */
-export type VerdictCall = 'undervalued' | 'fairly_valued' | 'overvalued';
-
-/** Also closed. A confidence that can be any string is not a confidence. */
-export type Confidence = 'low' | 'medium' | 'high';
-
-/** The analytical call — the thing an analyst is paid for, not a data-quality gate. */
-export interface Verdict {
-  readonly call: VerdictCall;
-  readonly confidence: Confidence;
-}
+// ─── Verdict, Assessment and the Report itself have MOVED ───────────────────────────────
+//
+// They now live in `types/report.ts`, which is the PUBLIC contract another team's agent has to be
+// able to produce. This file is the internal vocabulary the data layer speaks — `Computed`,
+// `Provenance` and the three flags — and the two are different audiences.
+//
+// Removed from here 2026-09-07: `Report`, `Verdict`, `VerdictCall`, `Confidence`, `LifecycleField`
+// and `HashableReport`. Nothing imported them. **Two `Report` types in one codebase is exactly the
+// drift this file exists to prevent**, and the superseded pair had already diverged — `VerdictCall`
+// here still read `undervalued | fairly_valued | overvalued`, a price judgment on an engine that has
+// no price data.
 
 // ─── Provenance ──────────────────────────────────────────────────────────────────────────
 
@@ -142,38 +137,3 @@ export interface Computed {
   readonly completeness: Completeness;
   readonly provenance: Provenance;
 }
-
-// ─── Report — the hashed, published shape ────────────────────────────────────────────────
-
-/**
- * Flat, and byte-compatible with the shape SM-01 hashes. Adding, nesting or renaming a key
- * here changes the canonical bytes and invalidates the golden vectors shared with Foundry.
- *
- * ⚠️ `null` means "not available for this deployment" and is spelled out, never omitted — an
- * absent key and a null key canonicalize to different bytes, so omission would hash two
- * reports differently for a reason that is not about their content (SM-01, §5.10).
- */
-export interface Report {
-  readonly schema: 'alpha-markets/report/v1';
-  readonly protocol: string;
-  readonly deployment: string;
-  readonly block: number;
-  readonly observedAt: Timestamp;
-  readonly figures: Readonly<Record<string, Decimal | null>>;
-  readonly verdict: Verdict;
-  /** LIFECYCLE — set after the hash is committed. Excluded from the hash. See below. */
-  readonly atsTokenAddress?: string;
-}
-
-/**
- * Fields that come into existence only AFTER the hash is committed, and are stripped before
- * hashing. The ATS creation event carries the hash, so the hash cannot carry the token —
- * that is circular. Anything with that property belongs in this union.
- *
- * SM-01 holds the same set as a runtime constant; this is the type-level half of it, frozen
- * here so the two cannot drift.
- */
-export type LifecycleField = 'atsTokenAddress';
-
-/** A `Report` as it is canonicalized and hashed — lifecycle fields removed. */
-export type HashableReport = Omit<Report, LifecycleField>;
