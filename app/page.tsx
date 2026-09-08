@@ -1,21 +1,22 @@
-// The index: every published report, newest first. Read straight from the store.
+// The marketplace. Every published report, newest first, with enough to choose one.
 //
 // ⚠️ **A server component reading the store directly — no API route, and none should be added.** A
 // route here would be a second copy of `list()` behind a fetch the server makes to itself, with its
 // own serialisation, its own error shape and its own URL to keep working in production. The reading
-// surface is server-rendered; the payment surface (Units 12–14) is where routes start, because a
-// paying agent genuinely needs an HTTP contract and a browser reading HTML does not.
+// surface is server-rendered; the payment surface (Unit 14) is where routes start, because a paying
+// agent genuinely needs an HTTP contract and a browser reading HTML does not.
 //
 // ⚠️ **Plain `<a href>`, not `next/link` — deliberate, and it is about more than prefetching.** This
-// is a two-page server-rendered memo site; soft navigation and prefetch buy nothing here. The real
-// reason is that `tsconfig.app.json` is `nodenext` (so Turbopack resolves `src/`'s `.js` specifiers),
-// and `next` ships no `exports` map and is CJS — `next/link.js` is `module.exports = require(...)`.
+// is a server-rendered memo site; soft navigation and prefetch buy nothing here. The real reason is
+// that `tsconfig.app.json` is `nodenext` (so Turbopack resolves `src/`'s `.js` specifiers), and
+// `next` ships no `exports` map and is CJS — `next/link.js` is `module.exports = require(...)`.
 // Under Node ESM semantics, which nodenext models, a default import of a CJS module binds
 // `module.exports` itself, so `Link` arrives as the namespace object rather than the component.
-// Named imports (`next/navigation.js`, `next/server.js`) are unaffected. An `<a>` makes the type
-// model and the runtime model agree instead of hiding that they disagree.
+// Named imports (`next/navigation.js`, `next/server.js`) are unaffected.
 
 import { list } from '../src/store/reports.js';
+import { tokensFor } from '../src/store/tokens.js';
+import { REPORT_PRICE_HBAR } from '../src/config/pricing.js';
 
 export const runtime = 'nodejs';
 
@@ -29,8 +30,15 @@ export const dynamic = 'force-dynamic';
  *  meaning depending on where it was rendered, which is not a property a published record wants. */
 const when = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 
+/** ⚠️ A directive is user-supplied and unbounded. Bounded here because this is a listing; the report
+ *  page shows it whole, since truncating it there would misstate what the report answers. */
+const BOUND = 140;
+const bound = (s: string) => (s.length > BOUND ? `${s.slice(0, BOUND)}…` : s);
+
 export default async function Home() {
   const reports = await list();
+  // One query for the page, not one per row — see `tokensFor`.
+  const tokens = await tokensFor(reports.map((r) => r.hash));
 
   return (
     <main>
@@ -38,25 +46,37 @@ export default async function Home() {
         <h1>Alpha Markets</h1>
         <p className="lede">Verified DeFi protocol financials, published by AI analysts. Every
           report is hashed over its canonical form, and the hash is its identity.</p>
+        <p className="lede">Previews are public. <strong>{REPORT_PRICE_HBAR} HBAR</strong> buys one read of
+          the full report — its figures, its table and the analyst&rsquo;s assessment.</p>
       </header>
 
       {reports.length === 0 ? (
         <p className="empty">No reports published yet.</p>
       ) : (
         <ol className="reports">
-          {reports.map((r) => (
-            <li key={r.hash}>
-              <a href={`/report/${r.hash}`}>{r.directive}</a>
-              <div className="meta">
-                <span>block {r.block}</span>
-                <span>{when(r.createdAt)}</span>
-                <span className="mono">{r.analyst}</span>
-              </div>
-              {/* ⚠️ Full hash, not a prefix — this is the value a token commits, and a reader who
-                  cannot copy it off the page cannot check anything against it. */}
-              <div className="mono hash">{r.hash}</div>
-            </li>
-          ))}
+          {reports.map((r) => {
+            const token = tokens.get(r.hash);
+            return (
+              <li key={r.hash}>
+                <a href={`/report/${r.hash}`}>{bound(r.directive)}</a>
+                {/* ⚠️ Existing classes only. `globals.css` is out of scope for this unit, so the
+                    tokenized/untokenized distinction is carried by <strong> and by the text itself
+                    rather than by a badge that would need new CSS. */}
+                <div className="meta">
+                  <span>{REPORT_PRICE_HBAR} HBAR</span>
+                  {token
+                    ? <strong>Tokenized · {token.isin}</strong>
+                    : <span>Not tokenized</span>}
+                  <span>block {r.block}</span>
+                  <span>{when(r.createdAt)}</span>
+                  <span className="mono">{r.analyst}</span>
+                </div>
+                {/* ⚠️ Full hash, not a prefix — this is the value a token commits, and a reader who
+                    cannot copy it off the page cannot check anything against it. */}
+                <div className="mono hash">{r.hash}</div>
+              </li>
+            );
+          })}
         </ol>
       )}
     </main>

@@ -3487,3 +3487,151 @@ checked at runtime: assignable to `AssetAmount` both bare and as `{price: AssetA
 `RouteConfig` consumes it; `typeof amount === 'string'`; asset equals `HBAR_ASSET_ID`; the amount is
 an integer string with no float; and `BigInt(amount) > 0n`, which is the `quotes.price_tinybars`
 CHECK constraint it will have to satisfy in Unit 13. No store import, no quotes logic, no route change.
+
+## 2026-09-08 — Phase 3 Unit 6b: the reading surface becomes a marketplace, and the paywall is real
+
+`src/store/tokens.ts` (new), `app/page.tsx` and `app/report/[hash]/page.tsx`. **The report body no
+longer leaves the server on the public page**, and `report_tokens` is finally visible to a reader —
+seam 3 from the loop sweep closes.
+
+⚠️ **One thing needs a decision before this is committed. See the bundle section at the end.**
+
+**The split needed nothing from `Report` or `render()`, exactly as planned.** `subject.directive`,
+`analyst`, `block`, `observedAt` and `verdict.coverage` are separate fields from `sections`,
+`assessment` and `facts`, so the preview is the old page composing its identity panel and simply not
+calling `render()`. No preview mode was added to `render()` — that would put the paywall inside the
+one function whose output a paying buyer receives verbatim.
+
+⚠️ **The body is absent, not hidden, and that is what the proof checks.** Twelve probes against the
+served HTML — `24.63B`, `9.96B`, `5.34B`, `Protocol total`, `WETH`, `weETH`, `Utilization`,
+`Live data from The Graph`, `<table`, the assessment's opening clause — **all zero**. A CSS-hidden
+table would have passed a visual check and failed this one.
+
+**What the preview does carry:** directive, analyst, block, `observedAt`, the full hash, `140` figures
+measured, `67` markets read, corroboration and checks counts, the ISIN, the proxy address and a
+HashScan link — plus a stated boundary: *0.001 HBAR buys one read*, and a read is not a subscription
+and does not transfer the token.
+
+**The index now shows what is for sale.** Four reports, **two tokenized** (`XXCQBDTBC9X2`,
+`XX5FVRD1TMD1`) rendering as bold `Tokenized · <ISIN>` against plain `Not tokenized`, with price,
+block, created-at and analyst on every row.
+
+⚠️ **`created_at` is not on the report page and could not be.** `load()` returns a `Report`, which
+carries `observedAt` but not the row's insert time; that lives only on `list()`. Reaching it would
+mean changing `store/reports.ts`, which this unit may not touch. `observedAt` is shown instead and is
+arguably the better field — when the figures were true rather than when the row was written. The
+index shows created-at. Flagged rather than worked around.
+
+⚠️ **`globals.css` was out of scope, so every class used is one the stylesheet already defines.**
+`.paywall`, `.counts`, `.tag`, `.price` and `.subject` were written first and then removed: the
+preview is wrapped in `.memo` so the existing `h1`/`p` rules apply, the counts reuse `.identity`, and
+the tokenized distinction is carried by `<strong>` and by the words rather than a badge that would
+need new CSS. It is presentable; ~15 lines of CSS would make it good.
+
+⚠️ **`app/markdown.tsx` now has no importer.** The preview does not render markdown, and nothing else
+does. Deliberately left in place — Unit 14 serves the body and it is the only thing that knows how to
+turn `render()`'s output into escaped elements with 140-character cell bounds. Not deleted, and worth
+knowing it is currently unreferenced.
+
+**Escaping is unchanged and still holds.** No `dangerouslySetInnerHTML` anywhere in the two pages or
+`tokens.ts`; the directive still renders `what&#x27;s inside it`. The directive is bounded at 140
+characters **on the index only** — truncating it on the report page would misstate what the report
+answers.
+
+**`src/store/tokens.ts`** is read-only; `tokenize/ats.ts` remains the only writer. `tokensFor()` takes
+the page's hashes and does **one** query, because `tokenFor` in a loop is fine at two rows and a
+page-load problem at fifty. ⚠️ It memoizes **a second connection pool** — `reports.ts` keeps its own
+client and does not export it, so the separation the brief required costs a duplicate pool. Acceptable
+at this size, noted rather than hidden; the fix is a shared accessor in `db.ts`, not a third copy.
+
+### ⚠️ The bundle measurement moved, and the brief said to stop rather than work around it
+
+| route | before | after | delta |
+|---|---|---|---|
+| `/` | 1,787,309 B | **4,027,101 B** | **+2,239,792 B (+125%)** |
+| `/report/[hash]` | 1,847,372 B | **4,086,923 B** | **+2,239,551 B** |
+| `/api/probe` | 10,473,708 B | 10,473,708 B | unchanged |
+
+**It did not tree-shake.** Traced files on `/` went 111 → 222, and the new arrivals are unmistakable:
+`@grpc/grpc-js`, `pino`, `sonic-boom`, `thread-stream`, `@pinojs/redact`, `safe-stable-stringify` —
+**`@hiero-ledger/sdk`'s transitive dependencies**, pulled in because `config/pricing.ts` imports
+`HBAR_ASSET_ID` from `@x402/hedera` and that package hard-pins the SDK. Importing one string constant
+costs 2.24 MB. This is the same 2.3 MB Unit 1 measured for the x402/Hedera stack, arriving on a page
+that has no business talking to Hedera.
+
+**It is not a limit problem** — 4.0 MB against 250 MB is 1.6%, with 246 MB of headroom. It is a
+correctness-of-shape problem: a marketplace listing page now carries a gRPC client and a logging
+framework to render the string `0.001`.
+
+**Three ways out, none taken, because this unit may not touch `pricing.ts`:**
+1. **Accept it.** Cheapest. Unit 14's route imports `@x402/hedera` anyway, so the cost is real only on
+   the two pages, and the headroom is enormous.
+2. **Inline `'0.0.0'` in `pricing.ts`.** Pages return to 1.8 MB — but it restates a vendor constant,
+   which is the pattern `pricing.ts` explicitly argues against in its own header.
+3. **Split the constant:** a dependency-free tinybar amount that the pages import, with the
+   `AssetAmount` assembled where `@x402/hedera` is already loaded (Units 13/14). Keeps both properties
+   and costs one small change to `pricing.ts`.
+
+**Everything else passes:** `tsc -p tsconfig.json --noEmit` exits 0, `next build` exits 0, route table
+unchanged (`ƒ /`, `○ /_not-found`, `ƒ /api/probe`, `ƒ /report/[hash]`), unknown hash still 404s.
+**Deployed half not run** — this is uncommitted and deploys come from the repo.
+
+## 2026-09-08 — pricing.ts splits: the pages get a price without a gRPC client
+
+`src/config/pricing.ts` and the two pages that read it. **The 2.24 MB regression Unit 6b measured is
+gone** — `/` is back to 1,788,478 B and **111 traced files, Unit 6's exact count**.
+
+**The split.** `REPORT_PRICE_TINYBARS` (a plain string) and `REPORT_PRICE_HBAR` (derived from it) have
+no vendor import at runtime and are what a page displays. `reportPrice(asset)` assembles the
+`AssetAmount` a challenge needs, taking the asset id **as an argument** from a caller that has
+`@x402/hedera` loaded anyway — Units 13 and 14. `AssetAmount` is an `import type` and erases.
+
+⚠️ **The property the original file argued for is kept rather than traded away.** This file still
+never writes HBAR's asset id down — checked mechanically, there is no `'0.0.0'` literal in it. The
+vendor constant still comes from the vendor; it just arrives through a parameter instead of an import,
+at the one call site where the SDK is already paid for.
+
+**How "one price, one place" is guaranteed, rather than asserted.** `REPORT_PRICE_TINYBARS` is the
+only literal. `REPORT_PRICE_HBAR` is **derived by division**, not written out. `reportPrice()`
+**returns** the same constant rather than restating it. There is no second number in the file that
+could drift — verified by counting occurrences of the literal in non-comment source: exactly one.
+
+**Demonstrated, not asserted.** Served both pages, scraped the price React actually shipped (it splits
+`{expr} HBAR` with a `<!-- -->` marker, so the scrape targets the expression's own text node), and
+compared against a challenge assembled the way Unit 14 will:
+
+```
+  single definition   REPORT_PRICE_TINYBARS = 100000
+  displayed (derived) REPORT_PRICE_HBAR     = 0.001
+  challenge           reportPrice(HBAR)     = {"asset":"0.0.0","amount":"100000"}
+  index page ships    0.001        preview page ships  0.001
+  ✅ challenge.amount IS the single definition        ✅ converts to what pages display
+  ✅ every price on the index is that value           ✅ every price on the preview is that value
+  ✅ asset came from @x402/hedera, not restated       ✅ no second numeric literal in the file
+```
+
+**Traced sizes, against Unit 6's numbers:**
+
+| route | now | Unit 6 | 6b (regressed) | delta vs Unit 6 | files |
+|---|---|---|---|---|---|
+| `/` | **1,788,478 B** | 1,787,309 | 4,027,101 | **+1,169** | **111** |
+| `/report/[hash]` | **1,848,286 B** | 1,847,372 | 4,086,923 | **+914** | 112 |
+| `/api/probe` | 10,473,708 | 10,473,708 | 10,473,708 | 0 | 216 |
+
+The residual ~1 KB is the pages' own new code — the paywall section and the token panel. **Confirmed
+absent from `/`'s trace: `@grpc/grpc-js`, `pino`, `sonic-boom`, `thread-stream`, `@pinojs/redact`,
+`@hiero-ledger/*` and `@x402/*` — zero files each.**
+
+⚠️ **The header was rewritten, not patched.** It previously argued for importing the vendor constant;
+that reasoning is now half-true, so it records what was measured and reverted, why the split exists,
+and which half a caller should reach for. The standing rule that the header is part of the diff
+applies most when the header is what turned out to be wrong.
+
+**Also removed: a duplication the pages were carrying.** Both computed
+`(Number(REPORT_PRICE.amount) / 1e8).toFixed(3)` independently. That formatting now lives once, in
+`REPORT_PRICE_HBAR`, which is the same "one place" property applied to display.
+
+**Paywall re-verified after the edits** — the body is still absent from the served HTML on all eight
+probes, and the preview still shows the boundary and the ISIN. `tsc -p tsconfig.json --noEmit` exits
+0; `next build` exits 0 with the route table unchanged. **Deployed half not run** — uncommitted, and
+deploys come from the repo.
