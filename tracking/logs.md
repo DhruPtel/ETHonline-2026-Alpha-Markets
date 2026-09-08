@@ -3440,3 +3440,50 @@ the `"(for hooks)"` cell above, and the whole Next 15 / `--legacy-peer-deps` / `
 Unit 1's M2 already superseded — we are on Next 16.3.4, the supported peer, there is no `.npmrc` in
 the repo and none is needed. The note's line-number claims about the dist match the installed file,
 so it was read against the real 2.25.0; it is reliable on internals and loose in one summary cell.
+
+## 2026-09-08 — `config/pricing.ts`: the price gets a producer, and it is a number already proven
+
+One file, 54 lines. `REPORT_PRICE: AssetAmount = { asset: '0.0.0', amount: '100000' }` — flat per
+report, platform-wide. **Seam 6 from the loop sweep closes**; Units 6b, 13, 14 and 15 were all sitting
+behind a constant that did not exist.
+
+**The number is not newly chosen, which was the point of picking it.** 100,000 tinybars (0.001 HBAR)
+is what SM-05 settled a real payment with on 2026-09-06 and what the probe route advertises. Verified
+three ways rather than asserted: the probe's source literal, **the live deployed 402 challenge read
+back and base64-decoded** (`amount=100000 asset=0.0.0`), and the new constant — all identical. The
+first priced report is priced at a figure already proven end to end through Blocky402.
+
+⚠️ **HBAR, and the file says why so nobody has to re-derive it.** A `"$…"` string does not work:
+`defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no entry for asset
+`0.0.0`, so a dollar price **throws** rather than converting. Testnet prices in HBAR; the mainnet
+cutover prices in USDC at the end of Phase 4, moving the token id, this amount, the buyer's
+`allowedAssets` entry and the facilitator's advertised asset together (R12). The cost meanwhile — no
+USD-legible price, H1.7 forfeited until the cutover — is written into the file rather than implied.
+
+⚠️ **A deliberate break with `src/config/`'s dependency-free property, named in the file.** Every
+other config module imports only relative paths; `model.ts` explicitly notes "config depends on
+nothing". This one imports `HBAR_ASSET_ID` from `@x402/hedera` rather than restating `'0.0.0'`,
+because a restated vendor constant that silently disagrees with the package is precisely the class of
+bug this project keeps finding. `AssetAmount` is an `import type` and erases entirely. **Flagged for
+Unit 6b to measure rather than guess:** whether pulling `@x402/hedera` in for one string moves the
+page's traced size. Unit 1's 10.0 MB came from five heavy imports all referenced at runtime, which is
+not this case, so an assumption in either direction would be unfounded.
+
+**A type alignment worth recording, because it is the opposite of an earlier trap.**
+`AssetAmount.amount` is typed `string`, and `quotes.price_tinybars` is `BIGINT`, which the `postgres`
+driver also returns as a **string**. The two line up with no coercion — where `Report.block` needed a
+coercion that had to be confined to one display-only site. Written into the file so nobody "fixes"
+either end into a number.
+
+**Flat is a decision, not a placeholder.** Each analyst already has its own `payTo`, so per-analyst
+pricing is the obvious extension — a field on the `analysts.ts` row seeded from this constant, the
+same shape `MODEL` and `AnalystConfig.model` already have. Noted in the file as additive and not
+built. One price ships because one analyst ships.
+
+**Proof.** `tsc -p tsconfig.json --noEmit` exits 0 — which is itself the type proof, since the file
+annotates `REPORT_PRICE: AssetAmount` against the installed `@x402/core` type
+(`{asset: string; amount: string; extra?}`, read from `node_modules`, not assumed). Additionally
+checked at runtime: assignable to `AssetAmount` both bare and as `{price: AssetAmount}` the way a
+`RouteConfig` consumes it; `typeof amount === 'string'`; asset equals `HBAR_ASSET_ID`; the amount is
+an integer string with no float; and `BigInt(amount) > 0n`, which is the `quotes.price_tinybars`
+CHECK constraint it will have to satisfy in Unit 13. No store import, no quotes logic, no route change.
