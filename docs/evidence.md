@@ -29,7 +29,7 @@ supply 1 and decimals 0 — one report, one token.
 
 ## Contract verified on HashScan
 
-**Where:** [Sourcify record, chain 296](https://repo.sourcify.dev/296/0x60c955b9b2d0896b5EEAF285133891D9A7CF7648) · reproduce with `npx tsx scripts/verify-ats.ts 0x60c955b9b2d0896b5EEAF285133891D9A7CF7648`
+**Where:** [Sourcify record, chain 296](https://repo.sourcify.dev/296/0x60c955b9b2d0896b5EEAF285133891D9A7CF7648) · reproduce with `npx tsx scripts/ops/verify-ats.ts 0x60c955b9b2d0896b5EEAF285133891D9A7CF7648`
 **What it proves:** The report token's source is verified against its deployed bytecode as an
 `exact_match`, so its events render as readable source rather than raw hex.
 **When:** 2026-09-06

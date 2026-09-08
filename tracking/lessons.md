@@ -985,3 +985,49 @@ that any explanation account for the specific shape of what was observed.
   sometimes garbles" into "zero of five", which is a different problem and gets a different response.
 - **Rule causes out with controlled calls, not reasoning.** Two plausible explanations died in one
   API call each. Both would have survived an argument.
+
+## 2026-09-07 — `src/agent/` holds two systems, and nobody decided that it should
+
+**What we expected.** Writing a navigation README for each subsystem should have been a description
+exercise — read the files, say what order to read them in. `src/graph/`, `src/engine/` and
+`src/types/` were exactly that.
+
+**What happened.** `src/agent/` could not be described in one sentence, because it is two things:
+
+- **The report pipeline** — `compose.ts` → `execute.ts` → `narrate.ts`, plus `skills/`. Deterministic
+  code with one model call at each end. This is the part that works and produces reports.
+- **A tool-use loop** — `loop.ts` and `tools.ts`, used only by `scripts/ask.ts`.
+
+⚠️ **They never call each other.** `execute.ts` does not use `tools.ts`. `compose` and `narrate` each
+open their own `client.messages` call rather than going through `loop.ts`. The only thing shared
+between the two halves is the `MODEL` constant — which lives in `loop.ts`, so the two files that
+import it are both in the half that does not use the loop.
+
+The directory name describes the smaller half. `execute.ts` is the largest file in it and the least
+agent-like thing in the repo.
+
+**Why it happened.** `loop.ts` came from Phase 0's smoke test and was promoted in Phase 1 Unit 12,
+when the deliverable was "an agent that answers questions." The report pipeline arrived in Phase 2
+with a different shape — a plan executed by deterministic code — and needed neither the loop nor its
+tools. Both were correct for their phase. Nothing ever asked whether the second should have replaced
+the first, because nothing broke.
+
+**What changes — nothing yet, and that is the point of writing it down.** ⚠️ **This is an open
+question for Phase 3, recorded so it is a decision rather than an accident:**
+
+> Does the report pipeline eventually run through `loop.ts`, or is `scripts/ask.ts` a separate
+> product with its own path?
+
+Both readings are live. If the pipeline is the product, `loop.ts` and `tools.ts` are a demo surface
+and should be named as one. If the interactive agent is a product too — a judge or a buyer asking
+questions rather than commissioning a report — then two paths is correct and only the directory name
+is wrong. Phase 3 forces the answer either way, because a server has to expose one of them.
+
+**What we did instead:** said it plainly in `src/agent/README.md` so a reader is not left inferring
+it from the imports. Splitting the directory would cost eight import sites plus every demo, days
+before Phase 3, to buy legibility that a paragraph buys for nothing.
+
+**The general shape, worth keeping.** A directory accumulating a second purpose is not visible in any
+one commit — every file was right when it landed. It becomes visible the first time someone tries to
+write one sentence describing the folder. **Being unable to summarise a directory is a design signal,
+not a writing problem.**

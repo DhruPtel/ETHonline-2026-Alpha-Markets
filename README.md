@@ -14,16 +14,18 @@ stake their own USDC on their own conclusions. Accurate analysis earns. Sloppy a
 |---|---|---|
 | **Phase 0** | Nine smoke tests, each proving one integration against the real thing | ✅ **complete** — 8 pass, 1 partial |
 | **Phase 1** | The data layer: read The Graph, and bound what can be trusted | ✅ **complete** — 13 units |
-| Phase 2 | Report building — reconciliation, invariants, narration | ⬜ not built |
-| Phase 3 | ATS report tokens + x402 paywall + access checkpoint | ⬜ not built |
-| Phase 4 | The prediction market on Arc | ⬜ not built |
+| **Phase 2** | Report building: a directive becomes a plan, the plan is executed against live data, the model writes the report | ✅ **works** — 10 of 11 units. The digit validator is the one still open |
+| Phase 3 | ATS report tokens + x402 paywall + access checkpoint | ⬜ **not built** |
+| Phase 4 | The prediction market on Arc | ⬜ **not built** |
 
 **Nothing is deployed.** There is no web app yet. What exists runs from the command line against
 live networks — no mocks, no fixtures, no local index anywhere in the data path.
 
 Phase 0 put real transactions on Hedera and Arc testnets; those are linked below and verifiable
-without us. Phase 1 built the analyst's ability to read. Phases 2–4 are the parts that turn a
-reading into a report, sell it, and settle a market on it.
+without us. Phase 1 built the analyst's ability to read. **Phase 2 turned reading into reporting** —
+ask a question in plain English and get back a financial report: a table of figures that each trace
+to a query at a specific block, and an analyst's read of what they mean. Phases 3 and 4 are what
+remain: selling a report, and settling a market on it.
 
 ---
 
@@ -31,14 +33,15 @@ reading into a report, sell it, and settle a market on it.
 
 ```mermaid
 flowchart TD
-  subgraph BUILT["✅ Built — Phases 0 and 1"]
+  subgraph BUILT["✅ Built — Phases 0 to 2"]
     G(["The Graph<br/>25 live lending deployments"]) --> CL["client · documents · pagination<br/>common-block pinning"]
     CL --> TR["trust layer<br/>corroboration · triage · adapter"]
-    TR --> AG["analyst agent<br/>plain-English questions"]
+    TR --> PL["report pipeline<br/>compose · execute · narrate"]
+    PL --> RPT["report<br/>reconciled, narrated, hashed"]
+    TR --> AG["interactive agent<br/>plain-English questions"]
   end
 
-  subgraph PLANNED["⬜ Planned — Phases 2 to 4"]
-    AG -.-> RPT["report<br/>reconciled, narrated, hashed"]
+  subgraph PLANNED["⬜ Planned — Phases 3 and 4"]
     RPT -.-> ATS["Hedera<br/>report token via ATS"]
     RPT -.-> PAY["Hedera<br/>x402 paywall"]
     RPT -.-> MKT["Arc<br/>analyst stakes own USDC<br/>on its own conclusion"]
@@ -51,8 +54,8 @@ flowchart TD
 
   classDef built fill:#dff0d8,stroke:#3c763d,color:#1b3a1b
   classDef planned fill:#f5f5f5,stroke:#999,color:#444,stroke-dasharray:4 3
-  class G,CL,TR,AG built
-  class RPT,ATS,PAY,MKT,HUM,SET,SCR planned
+  class G,CL,TR,PL,RPT,AG built
+  class ATS,PAY,MKT,HUM,SET,SCR planned
 ```
 
 Settlement calls the *same* query function the analyst does. That reuse is the point: The Graph is
@@ -66,12 +69,15 @@ load-bearing at both ends, not a fetch step at the start.
   gateway. The other three have no healthy indexer, and the table says which and why.
 - **One query document runs unchanged across five live schema versions** — 3.1.0, 3.0.1, 3.0.0,
   2.0.1 and 1.3.0 — returning populated fields on all 25.
-- **The agent answers plain-English questions** across them, reading every deployment in a comparison
-  at a single common block.
+- **A question in plain English produces a financial report** — a table whose every figure traces to
+  a query at a specific block, and one paragraph on what the numbers mean. The model that writes it
+  cannot type a number: it references figures by id and code substitutes the values.
+- **Every deployment in a comparison is read at a single common block**, or the report says which
+  ones were dropped and why.
 - **Every figure carries whether it can be trusted, and why.**
 
 ```bash
-npx tsx --env-file=.env scripts/ask.ts "which protocol has the most deposits?"
+npx tsx --env-file=.env scripts/demo/narrate.ts "top 10 protocols by deposits"
 ```
 
 ---
@@ -185,28 +191,28 @@ Links and reasoning: **[docs/evidence.md](docs/evidence.md)**
 ```bash
 cp .env.example .env      # GRAPH_API_KEY and ANTHROPIC_API_KEY are enough for the data layer
 npm install
-npx tsx --env-file=.env scripts/ask.ts "which protocol has the most deposits?"
+npx tsx --env-file=.env scripts/demo/narrate.ts "top 10 protocols by deposits"
 ```
 
-Questions that show the interesting behaviour:
+That is the whole build in one command: a directive is planned, executed against 25 live
+deployments at one shared block, checked, and written up as a table and a paragraph.
+
+Two more that show the interesting behaviour:
 
 ```bash
-# both poisoned by the same template fault — watch it refuse to estimate around them
-npx tsx --env-file=.env scripts/ask.ts "compare aave-v3 and spark-lend — can I trust their revenue?"
+# per-market breakdown — the model shows the significant rows and says how many it left out
+npx tsx --env-file=.env scripts/demo/narrate.ts "list makerdao's individual markets with their deposits and borrows"
 
-# usable AND uncorroborated; it tends to volunteer the difference
-npx tsx --env-file=.env scripts/ask.ts "what's compound-v3's revenue, and can you verify it?"
-
-# 1,759 markets over 8 pages — completeness is reported honestly
-npx tsx --env-file=.env scripts/ask.ts "how many markets does morpho-blue have?"
+# the interactive path: the same data layer, answering questions rather than writing a report
+npx tsx --env-file=.env scripts/ask.ts "which protocol has the most deposits?"
 ```
 
 Reproduce the measurements directly:
 
 ```bash
-npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory   # who answers
-npx tsx --env-file=.env scripts/triage-protocols.ts              # who is right
-npx tsx --env-file=.env scripts/demo-corroborate.ts              # subgraph vs chain, per market
+npx tsx --env-file=.env scripts/ops/sweep-protocols.ts --inventory   # who answers
+npx tsx --env-file=.env scripts/ops/triage-protocols.ts              # who is right
+npx tsx --env-file=.env scripts/demo/corroborate.ts                  # subgraph vs chain, per market
 ```
 
 The last one also needs `ETHEREUM_RPC_URL`, and it must be **archive-capable** — a market's
