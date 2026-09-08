@@ -20,7 +20,7 @@
 //                     two agree; Mirror Node is the recorded source because it is the account's own
 //                     answer rather than ours about it.
 
-import { MODEL } from '../agent/loop.js';
+import { MODEL } from './model.js';
 
 /**
  * One analyst. The three addresses are three roles of one identity, not three identities.

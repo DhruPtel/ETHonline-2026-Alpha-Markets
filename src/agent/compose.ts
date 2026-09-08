@@ -22,7 +22,7 @@ import type { Capabilities, Clarification, PlannedCheck, ReportPlan } from '../t
 import { PROTOCOLS } from '../config/protocols.js';
 import { DOCUMENT_IDS, DOCUMENT_BRIEF } from '../graph/queries/index.js';
 import { figureRef } from '../engine/invariants.js';
-import { MODEL } from './loop.js';
+import { MODEL } from '../config/model.js';
 
 /**
  * The figures a report can be ABOUT. Narrower than the document, on purpose.

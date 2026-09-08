@@ -21,7 +21,7 @@ import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Assessment, Fact, Report, Section } from '../types/report.js';
 import type { DraftReport } from './execute.js';
-import { MODEL } from './loop.js';
+import { MODEL } from '../config/model.js';
 
 const skill = (name: string) => readFileSync(new URL(`./skills/${name}.md`, import.meta.url), 'utf8');
 

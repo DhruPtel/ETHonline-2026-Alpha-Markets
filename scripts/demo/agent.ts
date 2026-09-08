@@ -1,7 +1,7 @@
 // Unit 13's proof — and Phase 1's. A plain-English question spanning three deployments, read at
 // one common block, answered with every flag intact. Then a protocol we do not have.
 import Anthropic from '@anthropic-ai/sdk';
-import { runLoop, MODEL } from '../../src/agent/loop.js';
+import { runLoop } from '../../src/agent/loop.js';
 import { TOOLS, execute } from '../../src/agent/tools.js';
 import { PROTOCOLS } from '../../src/config/protocols.js';
 

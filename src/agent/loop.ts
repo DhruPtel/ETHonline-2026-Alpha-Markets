@@ -11,8 +11,11 @@
 // (Unit 13) can change the menu without touching the loop.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { MODEL } from '../config/model.js';
 
-export const MODEL = 'claude-sonnet-5';
+// ⚠️ `MODEL` used to be DEFINED here and is now imported. It moved to `config/model.ts` on
+// 2026-09-08 because the report pipeline imported it from this file, and the pipeline does not
+// use this file for anything else. It is not re-exported: importers take it from config.
 
 /** Why the loop returned. ⚠️ A loop that stops silently is indistinguishable from one that finished. */
 export type StopReason = 'answered' | 'budget' | 'error';

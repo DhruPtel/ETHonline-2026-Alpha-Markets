@@ -2677,3 +2677,51 @@ with the config address in the report, and its own determinism check still repor
 
 The DECISIONS entry recording why the analyst row carries Hedera fields landed in the same commit's
 worth of work, because this is the change that makes the config load-bearing.
+
+## 2026-09-08 — Phase 3: the src/agent/ split is named, and MODEL moves to config
+
+`src/config/model.ts` (new), eight import sites, and a rewritten `src/agent/README.md`. No file moved,
+no directory split, `loop.ts` and `tools.ts` unchanged and unrenamed — **the decision is that the
+split is named, and restructuring is the thing explicitly not done.**
+
+**The open question from `lessons.md` 2026-09-07 is closed.** The report pipeline is the product;
+`loop.ts` and `tools.ts` are the demo surface behind `scripts/ask.ts` and they stay. The README now
+says so in its first three lines, so nobody has to infer it from the imports — which was the actual
+complaint, since being unable to summarise the directory was how the problem surfaced in the first
+place.
+
+⚠️ **The recon's list of MODEL importers was one short, and the missing one was the interesting one.**
+`src/config/analysts.ts` imported `MODEL` from `agent/loop.ts` — while `agent/execute.ts` imports
+`config/analysts.ts`. So config depended on agent while agent depended on config. Moving the constant
+to `config/model.ts` removes that edge entirely; `src/config/` now imports nothing from `src/agent/`,
+checked by grep. That was not the reason for the move and it is the better outcome of it.
+
+**Its own file, not a row in an existing config module.** `protocols.ts` is the deployment table and
+`analysts.ts` is the analyst table; a model name is neither, and `src/config/` runs one concern per
+file. `analysts.ts` was the closest fit because it consumes `MODEL` for a row's `model` field — and
+that is exactly why it is the wrong home: *which model this analyst runs* and *the platform default*
+are two ideas sharing one value today, and separate analysts running separate models is the premise
+of the product. Defining the default inside the table that may one day disagree with it is how the two
+stop being distinguishable.
+
+**Eight sites, and one of them was dead.** `scripts/demo/agent.ts` imported `MODEL` and never used it;
+that import was dropped rather than re-pointed. `loop.ts` now imports the constant it used to define,
+and does not re-export it, so every importer takes it from config.
+
+⚠️ **`scripts/smoke/06-agent-tool-call.ts` has its own local `const MODEL = "claude-opus-5"` and was
+left alone.** It is a different constant with a different value inside a closed Phase 0 smoke test.
+Unifying it would change what that test ran, which is not a move — flagging it rather than touching it.
+
+**Proofs.** Nothing in the pipeline imports `loop.ts` or `tools.ts` — `compose`, `execute`, `narrate`
+and `validate` show zero import hits. `loop.ts`'s only remaining importers are `ask.ts` and three
+demos. `tsc -p tsconfig.json --noEmit` exits 0. `ask.ts` answered a live question in 3 turns and 2
+tool calls, printing `model claude-sonnet-5` from the new location. `demo/execute.ts` runs all four
+cases and its determinism check still reports `run 1 / run 2 ✅ identical` at a shared block.
+
+No output differed in any way attributable to the change: the live figures and blocks move between
+runs because the chain does, and the invariant that does not move — the same plan at the same block
+hashing identically — held.
+
+**The README also gained `validate.ts`,** which it had never mentioned because Unit 11 landed after it
+was written. Since the file was being rewritten anyway, an absent unit was a false sentence by
+omission.

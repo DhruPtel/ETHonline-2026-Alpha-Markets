@@ -4,7 +4,8 @@
 //
 // Nothing new here — this is `loop.ts` and `tools.ts` wired to a command line.
 import Anthropic from '@anthropic-ai/sdk';
-import { runLoop, MODEL } from '../src/agent/loop.js';
+import { runLoop } from '../src/agent/loop.js';
+import { MODEL } from '../src/config/model.js';
 import { TOOLS, execute } from '../src/agent/tools.js';
 import { PROTOCOLS } from '../src/config/protocols.js';
 
