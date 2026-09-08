@@ -34,9 +34,15 @@ export interface AdaptInput {
   readonly provenance: Provenance;
   readonly markets?: readonly MarketRow[];
   readonly completeness?: Completeness;
-  /** Per-market, from `corroborate.ts`. Protocol-level figures are never corroborated. */
-  readonly corroboration?: ReadonlyMap<string, CorroborationStatus>;
 }
+
+// ⚠️ **Corroboration findings do NOT come from here** *(the path was removed 2026-09-07)*. This
+// file used to accept a corroboration map and turn a mismatch into a `DATA_ERROR`, and no caller
+// ever passed it — verified across all nine `adapt()` call sites. `engine/crosscheck.ts` does the
+// job instead, and the two disagreed on the thing that matters: crosscheck emits a mismatch as a
+// `SIGNAL` and says "which side is wrong is not established", while a `DATA_ERROR` would null the
+// figure and thereby assert the contract is the correct side. That is a claim corroboration cannot
+// support. If you are here to re-add it, add it to crosscheck instead.
 
 export interface Adapted { readonly computed: Computed; readonly findings: Finding[] }
 
@@ -71,7 +77,7 @@ export function adapt(input: AdaptInput): Adapted {
     rationale: `borrows exceed deposits — utilization ${((borrows / deposits) * 100).toFixed(0)}%`,
   });
   if (markets) {
-    const ceiling = markets.filter((m) => num(m.totalBorrowBalanceUSD)! > 0 && m.totalBorrowBalanceUSD === m.totalDepositBalanceUSD);
+    const ceiling = markets.filter((m) => (num(m.totalBorrowBalanceUSD) ?? 0) > 0 && m.totalBorrowBalanceUSD === m.totalDepositBalanceUSD);
     if (ceiling.length) findings.push({
       severity: 'SIGNAL', appliesTo: 'markets',
       rationale: `${ceiling.length} of ${markets.length} markets report deposits exactly equal to borrows`,
@@ -80,6 +86,15 @@ export function adapt(input: AdaptInput): Adapted {
 
   // ── 3 · Does the market population add up to the protocol total? Only answerable on a complete
   //        population — an incomplete one cannot distinguish a real gap from rows we never read.
+  //
+  // ⚠️ **Float here is a deliberate exception to the no-floating-point rule, and it is bounded.**
+  // `ops.ts` exists because a rounded figure is a wrong figure with a plausible face — but nothing
+  // computed in this block becomes a figure. It decides whether a finding FIRES at a 1% threshold,
+  // and summing sixty-odd values around 1e9 carries relative error near 1e-16, six orders inside
+  // the smallest gap that could change the answer. The reason not to use `ops.ts` is positive
+  // rather than lazy: it validates its inputs and throws on anything outside a plain decimal
+  // string, which would turn one malformed market value into a crash for the whole deployment —
+  // and this is the plausibility layer, whose entire job is to survive bad data and annotate it.
   if (markets && deposits != null) {
     if (input.completeness !== 'complete') findings.push({
       severity: 'INFORMATIONAL', appliesTo: 'totalDepositBalanceUSD',
@@ -99,7 +114,7 @@ export function adapt(input: AdaptInput): Adapted {
   //        condition and the same field names mean opposite things depending on how the deployment
   //        derives deposit USD, so severity comes from a measured fact and never from a slug.
   if (markets) {
-    const zeroPrice = markets.filter((m) => num(m.inputTokenPriceUSD) === 0 && num(m.inputTokenBalance)! > 0);
+    const zeroPrice = markets.filter((m) => num(m.inputTokenPriceUSD) === 0 && (num(m.inputTokenBalance) ?? 0) > 0);
     if (zeroPrice.length) findings.push(
       cfg.depositBasis === 'price_x_balance' ? {
         severity: 'DATA_ERROR', appliesTo: 'inputTokenPriceUSD',
@@ -122,16 +137,9 @@ export function adapt(input: AdaptInput): Adapted {
   // these documents use, so there is no branch to write — and building the mechanism for a case we
   // have not hit would be a framework guarding nothing.
 
-  if (input.corroboration) for (const [marketId, status] of input.corroboration)
-    if (status === 'mismatch') findings.push({
-      severity: 'DATA_ERROR', appliesTo: `market ${marketId}`,
-      rationale: 'subgraph and contract disagree at the block the value was written',
-    });
-
   return {
     computed: {
       protocol: input.slug, deployment: input.meta.deployment, block: input.meta.blockNumber,
-      observedAt: new Date((input.meta.blockTimestamp ?? 0) * 1000).toISOString(),
       figures, revenue: revenue ?? 'not_tracked',
       // ⚠️ Completeness is about the population BEHIND these figures, and a protocol-level read
       // has a population of one row which we have. Defaulting a market-less read to `incomplete`

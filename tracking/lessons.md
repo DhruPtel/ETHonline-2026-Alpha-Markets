@@ -852,3 +852,43 @@ covering 85–98% of every deployment's book — was cut with the rest. The meas
 this file's history; the rule may come back if a report ever needs a market table. It is a fair
 example of the cost: stripping back loses good rules along with the ones that were smothering the
 output.
+
+## 2026-09-07 — The narrator's prompt is mostly digits, and the FACTS block is nearly all of them
+
+**What we expected.** Three typed-digit incidents in a week — a computed utilization column, market
+population counts, "Twenty-three of the 63" — and a plausible culprit: the CHECKS block. Every
+`CheckResult.rationale` is rendered into the narrator's prompt verbatim, and rationales are full of
+formatted numbers the model cannot cite as `{fact:ID}`. The hypothesis was that stripping numbers
+out of rationales would relieve the pressure.
+
+**What happened.** Measured rather than argued, by rebuilding exactly the strings `context()` sends
+and counting maximal digit runs in each block:
+
+| plan | facts | digit runs in FACTS | of which in values | digit runs in CHECKS |
+|---|---:|---:|---:|---:|
+| aave-v3, balance-sheet only | 6 | 22 | 10 | 5 |
+| makerdao, markets + balance-sheet | 132 | **1,644** | 190 | **5** |
+
+Two things fall out. **The FACTS block dominates by between four and three hundred times**, so
+rationales were never the main source. And **CHECKS is flat at 5 while FACTS scales with the market
+population** — the check count barely moves whether a deployment has one row or sixty-three, while
+every market contributes an id, a label and a value. The 1,644 is mostly fact ids: market addresses
+are hex, so `0x...` ids carry many digit runs each, which is why the total is far larger than the
+190 runs inside actual values.
+
+**What changes — nothing, deliberately, and that is the point.** The FACTS block stays exactly as it
+is. The model needs to see values to reason about magnitude: it cannot say a book is unusually
+concentrated, or that a gap is a rounding error, without knowing whether the numbers are large or
+small. Blinding it would make the prose shallower, which is the thing the whole format is optimised
+for. The rationales stay too — they are the engine's honest record and they are in the hash.
+
+⚠️ **The guarantee moves to the boundary instead.** This is what Unit 11 was always for: the model
+sees everything, reasons freely, and the validator rejects any digit in narration text that is not
+inside a `{fact:ID}` placeholder. Fixing it by removing information from the prompt would have
+traded a real capability for a check we can perform exactly at the output.
+
+**What this measurement is for.** It sizes the pressure Unit 11 has to hold against. A single-
+deployment report shows the model 22 digit runs; a market breakdown shows it 1,644, of which 190 are
+figures it might plausibly want to quote. The validator is not guarding against an occasional slip —
+it is the only thing standing between a prompt that is mostly numbers and a report that must contain
+none the reader cannot trace.

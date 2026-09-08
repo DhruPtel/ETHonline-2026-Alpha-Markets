@@ -129,7 +129,12 @@ export interface Computed {
   readonly protocol: string;
   readonly deployment: string;
   readonly block: number;
-  readonly observedAt: Timestamp;
+  // ⚠️ **No `observedAt` — removed 2026-09-07, and it should not come back here.** The adapter
+  // could only derive it from `_meta.block.timestamp`, which a PINNED read returns as null
+  // (measured, consistently) — so it produced `1970-01-01` on every pinned read and nothing ever
+  // noticed, because nothing read it. `execute.ts` owns this fact and gets it from the chain via
+  // `eth_getBlockByNumber`, which is the only source that answers for a pinned block. Two sources
+  // for one fact is how they diverge, and this one is inside the report hash.
   readonly figures: Readonly<Record<string, ComputedFigure>>;
   /** Per-deployment, from config. Gates which figures may carry a number into `Report`. */
   readonly revenue: RevenueAvailability;
