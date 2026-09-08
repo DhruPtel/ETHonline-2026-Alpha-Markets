@@ -2169,3 +2169,94 @@ skills do not ask for a market table, so it is a capability we lack rather than 
 
 Status written to `tracking/phases/PHASE-2-status.md`, the board in `phase-2-tasks.md` updated to 10
 of 11, and the compliance-document lesson recorded in `lessons.md`.
+
+## 2026-09-07 — The narrator's schema was the bug, and strict mode is only half of it
+
+A directive about Aave's markets by category came back as **29 sections and no assessment**, and
+`narrate` threw. The renderer was not at fault: the tool schema took `sections` as an array with no
+cardinality whose `id` had exactly one legal value, so it carried no information and offered only
+repetition. A model with 29 things to show read it as 29 tables, which is a fair reading. `sections`
+is now a single `table` string — one table is not something the model can get wrong, because a
+scalar makes the alternative unrepresentable rather than merely discouraged. `narrate` still maps it
+into the `Section[]` the wire contract expects, so `types/report.ts` and the hash are untouched.
+
+**`strict: true` went on the tool at the same time**, because `required` had been advisory all along
+— without it the API returns whatever the model produced, which is how `assessment` went missing in
+the same call. Measured rather than assumed: a throwaway that explicitly instructed the model to omit
+`assessment` still got both keys back, so strict does enforce, and it does so alongside a forced
+`tool_choice`, which was the one compatibility I was unsure of.
+
+⚠️ **The error message cost a diagnostic round and is now the more useful change.** It reported
+"assessment missing" for two different failures — an absent object and a present one with an empty
+summary — and under strict only the second is possible. It now says which, and how long the table
+was. The general lesson is the one this repo keeps relearning from the other direction: a check that
+cannot distinguish its failure modes sends you looking in the wrong place.
+
+**Truncation was ruled out by measurement, not by argument.** At `max_tokens: 400` the same call
+returns `stop_reason: max_tokens` with an empty argument object; the failure showed `tool_use` with a
+populated table. So the cap was never the cause, and the comment in `narrate.ts` warning about
+partial arguments describes a real but different failure.
+
+**`execute` now reports the market population alongside the rows.** The markets walk pushes a
+`market-population` check per deployment carrying the count and whether the walk reached the end,
+which reaches the narrator through the CHECKS block it already reads. Not a row cap — how many rows
+to show stays the model's decision, and `report.md` now says so explicitly along with the rule that
+showing fewer means saying so. It worked first time: the memo closes with "the underlying market
+populations were read to exhaustion (67, 37, 23, 4 and 8 markets respectively)".
+
+⚠️ **And it typed those five numbers.** They are not `{fact:ID}` placeholders — there is no
+population fact — so the report now carries five digits nobody can trace, which is precisely what
+Unit 11 exists to reject. The population count solved the honesty problem and created a provenance
+one. Second time this week the model has reached for a figure the fact table cannot supply; the
+utilization column was the first.
+
+Two runs of the failing directive now complete. Both planned Aave's five deployments rather than one
+deployment's markets, so the 29-market path did not recur and the empty-summary theory is untested.
+
+## 2026-09-07 — The planner could not see the registry, and scope contradicted the reads
+
+`compose` had never once planned the `markets` document, including when a directive asked for
+markets by name. The reason was not a missing rule: the planner was shown the entire document
+catalogue as `Available documents: balance-sheet, markets, financial-snapshots` — three bare strings
+with no indication that one of them returns a row per market. It also carried a warning I had added
+two days earlier telling it the markets walk "costs a great deal" and to request it only when
+necessary, so the sum of what it knew was a name and a discouragement.
+
+**The catalogue now lives beside the registry** in `graph/queries/index.ts` as `DOCUMENT_BRIEF`, one
+line each on what a document returns and at what granularity, rendered into the planner's prompt.
+Description next to definition so the two cannot drift. The discouragement is gone; the cost stays as
+a fact it can weigh — one query per 250 markets — rather than an instruction. `reads` is now required
+on the plan, because omitting it fell through to a balance-sheet default and a planner that never
+considered documents produced a protocol-level plan by construction with nothing recording that no
+choice had been made.
+
+**It worked on the first attempt, and immediately exposed a second bug.** The plan came back with
+`reads: [{markets, [makerdao-ethereum]}, {balance-sheet, [makerdao-ethereum]}]` — exactly right — and
+the run was **declined**. `subject.deployments` was empty, which expands to all 25 live deployments,
+so a question about MakerDAO was scoped to the whole fleet and one deployment too stale to share a
+block took the report down. The plan contradicted itself: its reads named one deployment and its
+subject named twenty-five. Scope now falls back to the slugs the reads name before it falls back to
+everything. Cost of the fix, measured: execute went from a 25-deployment walk to **2 queries and
+778ms**.
+
+**Market rows reach the fact table for the first time.** `paginate` has walked markets since Phase 1
+— 1,759 of Morpho's — but nothing turned a row into a `Fact`, so even a correct plan would have
+produced a protocol-level table and an apology. `MARKET_FIGURES` is deliberately two fields, deposits
+and borrows, because every column multiplies by the population.
+
+⚠️ **No cap on how many markets become facts, deliberately, and the risk is real.** MakerDAO's 63
+markets are 126 facts. Morpho's 1,759 would be 3,518 in the narrator's prompt, and `maxMarketPages`
+would stop the walk at 2,500 and mark the population incomplete before that. Untested, and the first
+thing that will break if someone asks about Morpho's markets.
+
+**The row count came out genuinely dynamic**, which is what the population count was for. "Top 5
+collateral type markets" produced five rows and a whole-book line; "list makerdao's individual
+markets" produced twenty-three and said so — *"Twenty-three of the 63 markets in the complete book
+are shown here, the significant few plus the two PSM ilks flagged for having deposits exactly equal
+to borrows, which is expected behaviour for a peg-stability module rather than an anomaly."* Nobody
+told it five or twenty-three.
+
+⚠️ **And it typed the counts again.** "63", "Twenty-three of the 63", and a whole utilization column
+of percentages are model-typed, not `{fact:ID}` substitutions. Third instance this week. The pattern
+is now unmistakable: give the narrator a true number it cannot cite and it will type it, because the
+alternative is saying something false. Unit 11 will reject all three reports as written.

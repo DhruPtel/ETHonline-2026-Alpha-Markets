@@ -6,6 +6,15 @@
 // Two exports: one deployment, and many. `querySubgraph` throws a typed `SubgraphError`;
 // `querySubgraphs` catches per slug and returns an outcome each, so one dead endpoint
 // returns a failure for THAT deployment instead of taking the set down (finding #8).
+//
+// ⚠️ **Nothing is cached here, and nothing should be.** Every call is a real request to the
+// gateway, which is what lets a figure in a report be traced to a query that actually happened —
+// the property §5.18 depends on when it says provenance is a record of what we did, never a cache
+// of what we got. A cache would be an easy speed win and it would quietly break that: two reports
+// could cite the same block and the same deployment hash while only one of them ever asked. The
+// retained window is roughly 500 blocks anyway, so a cache would mostly serve state the gateway
+// can no longer confirm. If a run is slow, the answer is fewer queries in the plan, not remembered
+// answers here.
 
 import { PROTOCOLS } from '../config/protocols.js';
 
@@ -77,10 +86,25 @@ export interface QueryMeta {
   /** The deployment hash — `Qm…`. Changes on republish even when the subgraph ID does not. */
   readonly deployment: string;
   /**
-   * ⚠️ The INDEXING HEAD, not necessarily the block the data came from. `_meta` is injected
-   * unpinned, so on a pinned read this is the head while the figures are from
-   * `requestedBlock`. Anything recording "the block these numbers are from" wants
-   * `requestedBlock ?? meta.blockNumber`, never this alone.
+   * ⚠️ **The block these figures came from.** Not the indexing head — this comment said the
+   * opposite until 2026-09-07 and was left behind by the pinning change recorded in the file
+   * header. Phase 4 settlement reads this field to decide which block a disputed figure came
+   * from, so the distinction is the difference between a resolvable dispute and an unresolvable
+   * one.
+   *
+   * How it holds: when a `block` is requested, `_meta` is pinned to it — the three menu documents
+   * declare `_meta(block: $block)` themselves, and `withMeta` injects a pinned one into any
+   * document that does not. When no block is requested, the read ran against the head and the head
+   * IS where these figures came from. Either way, this is the answer.
+   *
+   * ⚠️ One precondition, unenforced: an off-menu document that declares its OWN `_meta` **without**
+   * `(block: $block)` is returned untouched by `withMeta`, so pinning it would report the head
+   * here. No document in this repo does that — `blockwindow.ts` passes an unpinned `_meta` but
+   * requests no block, which is the honest case. A new document must pin its `_meta` or omit it.
+   *
+   * `requestedBlock` on the result records whether a pin was ASKED for. It is not a better answer
+   * to "which block", and nothing should fall back through it — verified 2026-09-07 that nothing
+   * does.
    */
   readonly blockNumber: number;
   readonly blockTimestamp: number | null;
@@ -215,10 +239,14 @@ export async function querySubgraph<T = unknown>(
     if (json.errors?.length) throw classify(slug, json.errors.map((e) => e.message));
     if (!json.data) throw new SubgraphError('GRAPHQL', slug, 'Response had neither data nor errors');
 
-    const meta = json.data._meta as
+    // Named `metaResult` rather than `meta`: the module-level `meta()` at the top of this file
+    // builds the _meta SELECTION, and this is the row that came back. Shadowing the two is safe
+    // only because `withMeta` has already run, which is not a thing the next editor should have
+    // to know.
+    const metaResult = json.data._meta as
       | { deployment: string; hasIndexingErrors: boolean; block: { number: number; timestamp: number | null } }
       | null;
-    if (!meta) throw new SubgraphError('GRAPHQL', slug, '_meta was requested but did not come back');
+    if (!metaResult) throw new SubgraphError('GRAPHQL', slug, '_meta was requested but did not come back');
 
     const { _meta, ...data } = json.data;
     void _meta;
@@ -226,10 +254,10 @@ export async function querySubgraph<T = unknown>(
       slug,
       data: data as T,
       meta: {
-        deployment: meta.deployment,
-        blockNumber: meta.block.number,
-        blockTimestamp: meta.block.timestamp,
-        hasIndexingErrors: meta.hasIndexingErrors,
+        deployment: metaResult.deployment,
+        blockNumber: metaResult.block.number,
+        blockTimestamp: metaResult.block.timestamp,
+        hasIndexingErrors: metaResult.hasIndexingErrors,
       },
       document,
       variables: vars,
