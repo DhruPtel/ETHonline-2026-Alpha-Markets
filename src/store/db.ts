@@ -1,4 +1,10 @@
-// The two connections, and nothing else. No queries live here — `save`, `load` and `list` are Unit 5.
+// The connections, and nothing else. No queries live here — `save`, `load` and `list` are Unit 5.
+//
+// Two endpoints and one shared client:
+//
+//   `pooled()` / `direct()`  construct. Every call builds a new client.
+//   `db()`                   the SHARED pooled client — memoized, and what every module should use.
+//   `closePool()`            closes it. Scripts only.
 //
 // ⚠️ **Two URLs, two purposes, and they are not interchangeable.** Neon's pooled endpoint goes
 // through PgBouncer in transaction mode, which does not carry the session-level state DDL needs.
@@ -41,14 +47,61 @@ function required(name: string): string {
  *
  * `postgres` is lazy about the socket too: the pool opens on first query, not on construction.
  */
-export const pooled = () => postgres(required('DATABASE_URL'), {
-  // Neon terminates idle pooled connections; a serverless invocation is short and should not hold
-  // one open waiting to be reaped.
-  idle_timeout: 20,
-  // ⚠️ Off because PgBouncer in transaction mode cannot guarantee the same backend across
-  // statements, which is what a named prepared statement needs.
-  prepare: false,
-});
+export const pooled = () => {
+  clientsCreated += 1;
+  return postgres(required('DATABASE_URL'), {
+    // Neon terminates idle pooled connections; a serverless invocation is short and should not hold
+    // one open waiting to be reaped.
+    idle_timeout: 20,
+    // ⚠️ Off because PgBouncer in transaction mode cannot guarantee the same backend across
+    // statements, which is what a named prepared statement needs.
+    prepare: false,
+  });
+};
+
+// ─── The shared pooled client ────────────────────────────────────────────────────────────────────
+//
+// ⚠️ **`pooled()` CONSTRUCTS; `db()` is the one everything should call.** Every call to `pooled()`
+// builds a new client with its own connection pool. Three modules — `store/reports.ts`,
+// `store/tokens.ts` and `payments/quotes.ts` — each memoized their own, so a request touching all
+// three opened three, and Unit 14's gate would have made it four.
+//
+// ⚠️ **Why that matters more on Vercel than it looks.** Each invocation is its own process and Neon
+// caps concurrent connections, so four-per-request instead of one reaches the ceiling four times
+// sooner — and a connection-limit failure presents as a *timeout*, not as a limit error. That is a
+// confusing failure at exactly the moment the payment path is under load.
+
+let client: ReturnType<typeof pooled> | null = null;
+
+/** How many pooled clients this process has constructed. Observability only; nothing branches on it. */
+let clientsCreated = 0;
+export const pooledClientsCreated = (): number => clientsCreated;
+
+/**
+ * The shared pooled client. **Lazy and memoized — call this, do not call `pooled()`.**
+ *
+ * Same property `pooled()` has and for the same reason: constructing at module scope turns a missing
+ * env var into a cold-start crash on every route that transitively imports this file. Calling the
+ * function is what connects, and a warm invocation reuses one client.
+ */
+export function db(): ReturnType<typeof pooled> {
+  return (client ??= pooled());
+}
+
+/**
+ * Close the shared client. **For scripts, which have to exit — a route handler must never call it.**
+ *
+ * ⚠️ **Idempotent, because it has more than one caller now.** `reports.ts`, `tokens.ts` and
+ * `quotes.ts` all re-export this as their own `close`, and a script that closes two of them would
+ * otherwise call `end()` twice on the same client. The reference is cleared before awaiting, so a
+ * second call is a no-op rather than a second `end()`.
+ */
+export async function closePool(): Promise<void> {
+  if (!client) return;
+  const closing = client;
+  client = null;
+  await closing.end();
+}
 
 /**
  * ⚠️ **Migrations only.** One connection, no pool: DDL is a single serial operation run by a human

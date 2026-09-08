@@ -9,22 +9,15 @@
 // ⚠️ **Read-only. `tokenize/ats.ts` is the only writer** — it inserts the row in the same call that
 // deploys the proxy, because a row written anywhere else could name an asset nobody minted.
 
-import { pooled } from './db.js';
+import { closePool, db } from './db.js';
 
-/**
- * ⚠️ **A second memoized pool, and that is a real cost of the file separation.** `reports.ts` keeps
- * its own client and does not export it, so this file cannot share one — `pooled()` constructs a new
- * client per call. Two clients means two connection pools in a warm serverless invocation. It is
- * acceptable at this size and it is not free; the fix, if it ever matters, is a shared accessor in
- * `db.ts` rather than a third copy of this pattern in the next store module.
- */
-let client: ReturnType<typeof pooled> | null = null;
-const db = () => (client ??= pooled());
-
-/** For scripts, which have to exit. A route handler should never call this. */
-export async function close(): Promise<void> {
-  if (client) { await client.end(); client = null; }
-}
+// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
+// three modules each memoized their own, so a request touching all three opened three connections
+// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
+// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
+//
+// For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
+export { closePool as close };
 
 /** What a reader needs to know about a report's token. Not the whole row — the tx hashes are ours. */
 export interface ReportToken {

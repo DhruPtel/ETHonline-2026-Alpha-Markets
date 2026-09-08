@@ -17,20 +17,14 @@
 
 import type { Report } from '../types/report.js';
 import { canonical, reportHash } from '../domain/canonical.js';
-import { pooled } from './db.js';
-
-/**
- * ⚠️ Lazy and memoized. `db.ts` deliberately exports a factory rather than a module-scope client so
- * a missing env var is not a cold-start crash; this keeps that property while reusing one pool
- * across calls, which is what a warm serverless invocation wants.
- */
-let client: ReturnType<typeof pooled> | null = null;
-const db = () => (client ??= pooled());
-
-/** For scripts, which have to exit. A route handler should never call this. */
-export async function close(): Promise<void> {
-  if (client) { await client.end(); client = null; }
-}
+import { closePool, db } from './db.js';
+// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
+// three modules each memoized their own, so a request touching all three opened three connections
+// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
+// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
+//
+// For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
+export { closePool as close };
 
 /** Enough to render an index. ⚠️ Not a `Report` — see `block` below. */
 export interface ListedReport {

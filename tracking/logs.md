@@ -3834,3 +3834,58 @@ puts its restore *outside* its `finally`, which is the hazard the loop sweep fou
 one place it was cheap not to repeat it.
 
 `tsc -p tsconfig.json --noEmit` exits 0.
+
+## 2026-09-08 — One shared database client: three copies of a pattern collapse into db.ts
+
+`src/store/db.ts` gains `db()` and `closePool()`; `store/reports.ts`, `store/tokens.ts` and
+`payments/quotes.ts` drop their own clients and import the shared one. **A move, not a redesign** —
+no retry logic, no connection options, no pool tuning, no parameters. `pooled()` and `direct()` are
+untouched, `required()` is untouched, and `migrate.ts` still owns the direct URL alone.
+
+**Why now rather than later:** three modules each memoized their own client, so a request touching
+all three opened three connections, and Unit 14's gate would have made it four. ⚠️ On Vercel each
+invocation is its own process and Neon caps concurrent connections, so four-per-request reaches the
+ceiling four times sooner — **and a connection-limit failure presents as a timeout, not as a limit
+error.** That is the worst possible failure at the moment the payment path is under load.
+
+**Proof that it is actually one client, observed rather than inferred from the code shape.**
+`pooled()` now increments a counter and `pooledClientsCreated()` exposes it; nothing branches on it.
+
+```
+  after importing all three modules              clients created: 0
+  after reports.list() → 3 rows                  clients created: 1
+  after tokens.tokensFor() → 2 tokens            clients created: 1
+  after quotes.quote() → quoted                  clients created: 1
+  ✅ exactly one pooled client for reports + tokens + quotes
+```
+
+⚠️ **The first line is the other half of the proof: zero after importing all three.** Nothing is
+constructed at module scope, so a missing `DATABASE_URL` is still a failure at first query rather
+than a cold-start crash on every route that transitively imports the store.
+
+⚠️ **`closePool()` had to become idempotent, and that is a consequence of the consolidation rather
+than a nicety.** All three modules re-export it as their own `close`, and scripts already import two
+of them — `scripts/demo/quotes.ts` closes reports *and* quotes. Before, those were two clients and
+two `end()` calls; now they are one client and would have been a double `end()`. The reference is
+cleared before awaiting, so the second call is a no-op. Proved by calling `close()` four times across
+three modules without throwing.
+
+**Regressions, all re-run.** Unit 5's store proof passes **end to end on a fresh real report** —
+140 facts, 70,916 canonical bytes byte-identical, hash matches the key, tamper detection fires and
+names both hashes, the row restores, re-save is a no-op, `list()` works. Unit 13's quotes proof passes
+with the table left at 0 rows. `/`, `/report/[hash]` and `/api/health` all 200 locally, the index
+still shows its tokenized markers, and the paywall still holds — zero occurrences of a known figure.
+`tsc -p tsconfig.json --noEmit` exits 0; `next build` exits 0 with the route table unchanged.
+
+⚠️ **A fourth consumer exists that this unit could not touch: `src/tokenize/ats.ts` calls `pooled()`
+directly at lines 111 and 244.** Each call constructs a **new** client and neither is ever closed, so
+a single `tokenize` run leaks two. It is outside this unit's four files. It is also the least
+exposed of the consumers — a deliberate CLI operation, once per report, not a request path — so it is
+a tidy-up rather than a risk. Switching those two calls to `db()` is a two-line change whenever a
+brief touches that file. `scripts/ops/tokenize.ts:108` does the same thing and is a script, which is
+the case `pooled()` stays exported for.
+
+⚠️ **One comment went stale outside the allowed set and was left alone:** `src/payments/server.ts:78`
+says "Same shape as `store/reports.ts`'s `let client = null; const db = () => (client ??= pooled())`".
+That code now lives in `db.ts`, not `reports.ts`. The pattern it describes is still exactly right;
+only the address is wrong. Flagged rather than edited, because `server.ts` is not one of the four.

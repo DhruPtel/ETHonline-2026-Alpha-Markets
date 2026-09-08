@@ -21,22 +21,14 @@
 import { randomUUID } from 'node:crypto';
 import type { AssetAmount } from '@x402/core/types';
 import { REPORT_PRICE_TINYBARS } from '../config/pricing.js';
-import { pooled } from '../store/db.js';
-
-/**
- * ⚠️ **A third memoized pool in this repo, and that is now worth fixing.** `store/reports.ts` and
- * `store/tokens.ts` each keep their own client and neither exports it, so every new module that
- * touches the database opens another. Three copies of this pattern is the point at which a shared
- * accessor in `db.ts` stops being a nicety — flagged rather than done, because `db.ts` is out of
- * scope for this unit.
- */
-let client: ReturnType<typeof pooled> | null = null;
-const db = () => (client ??= pooled());
-
-/** For scripts, which have to exit. A route handler should never call this. */
-export async function close(): Promise<void> {
-  if (client) { await client.end(); client = null; }
-}
+import { closePool, db } from '../store/db.js';
+// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
+// three modules each memoized their own, so a request touching all three opened three connections
+// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
+// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
+//
+// For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
+export { closePool as close };
 
 /**
  * ⚠️ **90 seconds, deliberately under Hedera's ~120-second transaction validity window.** A quote
