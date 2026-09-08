@@ -3062,3 +3062,63 @@ resolves empty at runtime. Restating it because Unit 12 replaces this route with
 `payments/server.ts` and this is the exact failure the empty-env-var trap describes: the value is
 present, the challenge is well-formed, and the field is blank. **It is not a regression from Unit 6**
 — the reading surface does not touch it — but it is a live 402 advertising nobody to pay.
+
+## 2026-09-08 — Phase 3 Unit 7: an ISIN per report, derived from the hash, proved before anything costs gas
+
+`src/tokenize/isin.ts` (97 lines, 31 of them not comment) and `scripts/demo/isin.ts` as the proof.
+No network: this unit is arithmetic, and a proof that reached for a database or a chain would be
+proving something else.
+
+**The check digit was promoted, not rewritten.** SM-07's `makeIsin` was already asserted against
+three real ISINs before it spent anything, and it mirrors `factory/isinValidator.sol` line for line —
+same letter expansion, same `pairing` parity trick, same digit-sum, same `(10 - sum % 10) % 10`.
+Reimplementing a validated algorithm to make it look native here would have traded a proven thing for
+a plausible one. `scripts/smoke/07-ats-issue-transfer.ts` was not touched.
+
+⚠️ **The new part is the body, and the decision is base 36 rather than a slice of the hash.** The ISIN
+alphabet is `0-9A-Z`; a report hash is hex. Taking nine characters off the hash would spend nine ISIN
+positions carrying sixteen values each — **16⁹ ≈ 6.87e10 against 36⁹ ≈ 1.02e14, using 0.0677% of the
+space** while still looking like a nine-character identifier. So the hash is read as one 256-bit
+integer and re-encoded: `BigInt(hash) % 36⁹`, base-36, uppercased, zero-padded to nine.
+
+**Collision probability, with the arithmetic rather than a reassurance.** Space is
+36⁹ = 101,559,956,668,416. Birthday bound `p ≈ 1 - exp(-n(n-1)/2N)`:
+
+| reports | p(collision) | | naive hex slice |
+|---|---|---|---|
+| 1,000 | 4.92e-9 | 1 in 203,323,237 | 7.27e-6 |
+| 10,000 | 4.92e-7 | 1 in 2,031,403 | 7.27e-4 |
+| 100,000 | 4.92e-5 | 1 in 20,313 | 7.02e-2 |
+| 1,000,000 | 4.91e-3 | 1 in 204 | **0.999 — near-certain** |
+
+⚠️ **The last row is the argument for base 36.** At a million reports hex truncation collides with
+probability 0.999; base 36 with probability 0.005. For any realistic number of reports this project
+will ever publish the risk is negligible, and the cost of getting it right was one modulo.
+
+**Two traps, both silent rather than loud.** `toString(36)` emits **lowercase**, and the contract
+would accept it — `_byteToCode` does no alphabet check and maps lowercase to the same expansion our
+generator does, so a lowercase ISIN is self-consistent and passes on-chain while not being an ISIN by
+ISO 6166. And a small remainder encodes to fewer than nine characters, which is the wrong length and
+reverts `WrongISIN`. Hence `.toUpperCase()` and `.padStart(9, '0')`, both load-bearing.
+
+**Proof — five checks, all pass, in 4.1s.** Three real ISINs reproduce (`US9311421039`,
+`GB0002634946`, `US0378331005` — the same three SM-07 used, so the promotion is verifiably faithful).
+Stable within the process and in a **separate process**, re-entered through `tsx` rather than
+asserted. **1,000,002 distinct hashes → 1,000,002 distinct ISINs, zero collisions** (2 real + 1,000,000
+synthetic; expected collisions at that n is 4.9e-3, so zero is the expected outcome and not luck).
+The check digit validates under an **independent implementation** that shares no code — it reverses
+the digit string and doubles from index 0 rather than computing a parity, folds with the Luhn
+shortcut `x - 9`, and unlike the contract it *rejects* anything outside `0-9A-Z`. All 1,000,002 agree.
+`tsc -p tsconfig.json --noEmit` exits 0.
+
+The two real reports now in Neon map to `XXCQBDTBC9X2` and `XX37EMRMEZ29`.
+
+⚠️ **Raised, not changed: `report_tokens.isin` has no UNIQUE constraint.** It is `TEXT NOT NULL`;
+`report_hash` is the PRIMARY KEY and `proxy_address` is UNIQUE, so nothing stops two rows sharing an
+ISIN. Since the ISIN is a pure function of `report_hash` and that column is already unique, a
+duplicate ISIN can only mean a genuine base-36 collision — exactly the event the arithmetic above
+says is rare and does not say is impossible. A UNIQUE constraint would turn it from a silent
+duplicate into a failed insert. ⚠️ **But note the ordering cost:** Unit 8 deploys the proxy and then
+records the row, so the constraint would fire *after* the gas was spent. Catching it before spending
+means Unit 8 checking for an existing ISIN before it deploys, with the constraint as the backstop
+rather than the mechanism. Both are Unit 8's to decide; the schema is untouched here.
