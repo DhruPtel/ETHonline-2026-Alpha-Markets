@@ -2771,3 +2771,93 @@ the object dump gone.
 
 `postgres@3.4.9` was already declared from the Unit 1 probe and is confirmed a leaf: `dependencies {}`,
 `peerDependencies {}`, and `npm ls postgres --all` shows nothing beneath it.
+
+## 2026-09-08 — .env.example catches up with the store, and one variable that does not belong in it
+
+Two names added — `DATABASE_URL` and `DATABASE_URL_DIRECT` — plus a header note that an empty value
+is a missing value. Nothing else changed; `.env` untouched.
+
+**The Neon block carries the reason there are two.** Pooled for route handlers, direct for migrations,
+with the host difference spelled out (`-pooler` present or absent) and where each comes from in the
+Neon console. ⚠️ It says plainly that copying one string into both is a mistake this project has
+already made, and why it is expensive: PgBouncer in transaction mode cannot carry the session state
+DDL needs, so the failure surfaces as errors about prepared statements that read like a bug in the
+`.sql` file rather than a wrong connection.
+
+**The empty-value note went in the header rather than beside a variable**, because it is a property of
+the whole codebase and not of one name. It cites the case that produced it: a variable set to empty
+in Vercel production produced a live x402 challenge with an empty `payTo`, which read as a facilitator
+error and was a config one.
+
+⚠️ **`ARC_WALLET` is in `.env` and was deliberately NOT added.** It is a 42-character `0x…` address
+and **nothing in the repo reads it** — grepped across `src/`, `scripts/`, `app/`, `docs/` and
+`tracking/`, zero references. The file's own rule is that a variable arrives with the unit that needs
+it, so adding it would make `.env.example` a list of things someone once set rather than a list of
+what the repo requires. Reported, not added, and not removed from `.env` either. Worth someone
+deciding what it was for: the likely candidates are SM-09's MetaMask demo wallet or a hand-noted copy
+of the Circle wallet address, and if it is the latter it duplicates `analysts.ts`'s `arcAddress`,
+which is the one that is verified live.
+
+**Reverse direction: nothing is stale.** Every one of the 13 pre-existing names has at least one code
+reference under `src/` or `scripts/`, checked by grep per name. Nothing to report as dead.
+
+**The secret check was mechanical rather than asserted**, three ways. Every one of the 16 non-empty
+values in `.env` was searched as a substring of `.env.example` — two matched, `HEDERA_NETWORK=testnet`
+and `HEDERA_TESTNET_RPC=https://testnet.hashio.io/api`, both pre-existing non-secret defaults the file
+ships on purpose. Every one of the 15 assignments was checked for a non-empty right-hand side — only
+those same two, both allow-listed. And a pattern sweep for hex ≥32 chars, `0x…` keys, `postgres://`
+URLs, `sk-ant-` keys, Circle `TEST_API_KEY` prefixes and UUIDs found one hit in the whole file:
+`0x3600…0000` in a comment, which is Arc's public native USDC contract address and pre-existing. Of
+the 34 lines added, zero matched any pattern and both assignments have an empty RHS.
+
+## 2026-09-08 — Phase 3 Unit 5: a real report survives the round trip, and the BIGINT trap never fires
+
+`src/store/reports.ts` — `save`, `load`, `list`, plus `close` for scripts — and `scripts/demo/store.ts`
+as the proof. All five checks pass on a **real** report: 140 facts, 70,718 canonical bytes, a decimal
+tail 26 places long, one explicit null. `demo/canonical.ts`'s fixture would have passed this trivially
+at nine fields and one fact; the point was to run it against the shape that actually breaks.
+
+```
+  ✅ canonical bytes are byte-identical  70718 vs 70718 bytes
+  ✅ recomputed hash equals the stored key
+  ✅ block is a number, not a driver string  typeof=number
+  ✅ no-op rather than error  inserted=false
+  ✅ load THREW rather than serving the row
+```
+
+⚠️ **The BIGINT coercion trap does not exist on the load path, and that is a design choice rather than
+luck.** `load` parses `canonical_json` and never reassembles a `Report` from columns, so `block` comes
+out of the JSON as the number it was serialised as instead of out of the driver as the string
+`"25930486"`. Measured beforehand: `{"block":25930486}` and `{"block":"25930486"}` are different
+bytes, so a careless coercion would have been a silent identity change inside a hashed object. The
+columns beside `canonical_json` are for querying and display, not a second source of truth. **The one
+coercion in the file is in `list()`**, where `block` is display-only, flagged at both its type and its
+call site, and can never re-enter a hashed object because `load` is the only path back to a `Report`.
+
+⚠️ **A subtlety the brief did not mention and the round trip surfaced: `canonical()` strips
+`atsTokenAddress`.** The stored JSON therefore has no such key, and parsing it yields `undefined`
+rather than the `null` the contract requires ("unavailable is `null`, spelled out, never an absent
+key"). `load` reattaches it as `null`. Verified that this is invisible to both checks, because
+`canonical()` strips it again on the way in — the two forms hash identically. Which token belongs to a
+report lives in `report_tokens`, and joining it is Unit 8's business.
+
+**Two checks in `load`, not one, and both were made to fire.** Check 1 recomputes the hash and
+compares it to the primary key — the proof flips one digit in the database and it throws, naming both
+hashes. Check 2 asserts the stored bytes are *canonical*, not merely equivalent: re-serialising the
+same content with reordered keys passes check 1 (canonicalization normalises it away) and fails check
+2 at the same byte length. Demonstrated separately since the main proof only exercises the first.
+
+**`ON CONFLICT (hash) DO NOTHING`** for the re-save. Safe rather than lossy: the hash is derived from
+the content, so a conflict means the incoming report is byte-identical by construction and there is
+nothing to overwrite. `DO UPDATE` would let one hash hold two versions, which is the thing the
+identity exists to make impossible. `save` computes the hash itself and never takes one from a caller,
+so the key and the bytes cannot disagree.
+
+⚠️ **One thing raised rather than solved: `rendered_md` may be the wrong column.** It is `NOT NULL`,
+but `save(report)` has no markdown to put in it — rendering is `narrate.ts`'s `render()`, and
+importing it here would make the store depend on the agent, which is the dependency direction that
+just got straightened. So `renderedMd` is an optional second parameter defaulting to `''`, which
+honestly means "nothing rendered" rather than a fabricated heading that would look like a rendering.
+**The deeper question is whether the column should exist at all:** `render()` is a pure function of a
+stored `Report`, so this is a cache of something derivable, and a cache can diverge from its source.
+Not altered — changing the schema is not this unit's to do.
