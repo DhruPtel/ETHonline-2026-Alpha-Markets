@@ -892,3 +892,96 @@ deployment report shows the model 22 digit runs; a market breakdown shows it 1,6
 figures it might plausibly want to quote. The validator is not guarding against an occasional slip —
 it is the only thing standing between a prompt that is mostly numbers and a report that must contain
 none the reader cannot trace.
+
+## 2026-09-07 — Half the file headers described designs that had been removed
+
+**What we expected.** Reading six files end to end — `client`, `adapter`, `reconcile`, `compose`,
+`execute`, `narrate` — the header comments should be the most reliable thing in each of them. They
+are the first thing anyone reads, they are written when the file is young and its shape is clear,
+and nothing about them is subtle.
+
+**What happened.** **Three of the six headers were wrong**, each describing a design that had been
+deliberately removed, and each contradicted by a correct comment further down the same file:
+
+| file | the header said | the code did |
+|---|---|---|
+| `client.ts` | `QueryMeta.blockNumber` is the indexing head, and callers want `requestedBlock ?? meta.blockNumber` | it is the block the data came from, always — the pinning change is recorded forty lines above |
+| `compose.ts` | the model is given **two tools** and must call one — a plan or a clarification | one tool, forced; the clarification tool was removed and line 79 says so |
+| `narrate.ts` | **"No validation here"**, and it returns sections and paragraphs | it validates before rendering, and it returns one table string |
+
+⚠️ **Every one of them was more dangerous than the code it described.** `client.ts`'s was the worst:
+Phase 4 settlement reads that exact field to decide which block a disputed figure came from, and the
+comment told a future reader to derive it a different way. Nothing had acted on it — checked — so
+the comment was the whole bug rather than a symptom of one.
+
+**Why it happened, and it is not carelessness.** Every one of these changes was made under a tight
+scope: *"remove the forms"*, *"turn off clarification"*, *"fix the schema"*. The named files were
+edited, the change was proven with a run, and the header — which is not where the change lives —
+went untouched. The correcting comment was added **at the site of the change**, which is exactly
+where a careful person puts it, and that is what left two contradictory comments in one file.
+
+**What changes.** ⚠️ **The header is part of the diff.** When a change removes a concept — a form, a
+tool, a field, a return shape — updating the file header happens in the same commit, not later and
+not opportunistically. Concretely: if a change makes any sentence in the header false, the header is
+in scope even when the brief named other files.
+
+Two supporting habits worth keeping, both of which this session used and both of which worked:
+
+- **Write the correction where the reader will hit it first**, then check whether anything upstream
+  in the same file now disagrees. A grep for the removed concept's name across the file catches it
+  in seconds.
+- **Say which way the correction went.** Each of the three rewrites records what the comment used to
+  claim, so someone holding an old copy — or an old summary of one — can tell which is current. A
+  comment that quietly becomes right leaves no way to date it.
+
+## 2026-09-07 — An external explanation that had been true once cost us the real cause
+
+**What we expected.** A report came back with a garbled paragraph — the whole assessment was
+`><br t xml:space=` — and the working explanation was the Anthropic spend limit. That was not a
+guess out of nowhere: **it had been the correct answer days earlier**, when two proof runs failed on
+`400 invalid_request_error: Your credit balance is too low` and the stripped report format sat
+unverified because of it. The explanation was cheap, external, and had a track record.
+
+**What happened.** Measured instead: five narrations of one fixed draft — same plan, same 140 facts,
+so the model call was the only variable.
+
+| run | ms | stop_reason | table | assessment |
+|---|---:|---|---:|---|
+| 1 | 197,296 | max_tokens | 2,430 chars | missing |
+| 2 | 221,046 | max_tokens | 2,642 chars | missing |
+| 3 | 221,021 | max_tokens | 2,642 chars | missing |
+| 4 | 27,353 | tool_use | 2,241 chars | `"placeholder"` |
+| 5 | 65,400 | tool_use | 2,642 chars | missing |
+
+**Zero usable reports.** Not an intermittent glitch — the directive was broken. Two candidate causes
+were ruled out by measurement rather than argument: adaptive thinking contributed nothing
+(`thinking_tokens: 0` on a controlled call), and the derived-ratio request was not enough on its own
+(a synthetic 134-fact version of the same question completed in 39s). Three runs produced an
+identical 2,642-character table and then failed, which locates the degeneration inside the summary
+string rather than the table.
+
+⚠️ **And the cap was where it surfaced, not why it happened.** The widest legitimate output this call
+can be asked for is roughly 3,500 tokens; 16,000 was never too small. The budget was being consumed
+by a generation that had come off the rails, which is why raising it buys a longer pathology rather
+than a fix.
+
+**What changes — the test to apply before accepting an external explanation.** ⚠️ **Does it predict
+the SHAPE of the failure, not just its existence?** A spend limit produces an API error and no
+output. What we had was a complete 2,600-character table, a well-formed tool call, and a broken
+paragraph — output that a billing failure cannot produce. That inconsistency was visible in the very
+first observation, before any measurement, and it is what should have moved the search into the code.
+
+**Why this one was hard to catch, and it is worth naming.** A previously-correct external
+explanation is the most dangerous kind. A fresh guess gets scrutiny; one that was right last week
+gets a pass, because it already paid off once. The heuristic that fails here is *"this looked like
+that"* — and the guard against it is not scepticism about external causes in general, but insisting
+that any explanation account for the specific shape of what was observed.
+
+**Cost:** by the project's own account, two days not spent looking at the code.
+
+**Two habits this session used that worked, both cheap:**
+
+- **Fix the draft and re-run the model call alone.** Holding plan and facts constant turned "it
+  sometimes garbles" into "zero of five", which is a different problem and gets a different response.
+- **Rule causes out with controlled calls, not reasoning.** Two plausible explanations died in one
+  API call each. Both would have survived an argument.
