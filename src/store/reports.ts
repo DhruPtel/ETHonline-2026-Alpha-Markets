@@ -50,7 +50,7 @@ export interface ListedReport {
 
 interface ReportRow {
   hash: string; analyst: string; directive: string;
-  canonical_json: string; rendered_md: string;
+  canonical_json: string;
   block: string; observed_at: Date; created_at: Date;
 }
 
@@ -66,25 +66,22 @@ interface ReportRow {
  * construction: there is nothing to overwrite. `DO UPDATE` would be the wrong choice — it would let
  * one hash hold two versions, which is exactly what the identity is supposed to make impossible.
  *
- * ⚠️ **`renderedMd` is optional and defaults to `''`, and that is a flag rather than a design.**
- * `rendered_md` is `NOT NULL` in the schema, but rendering lives in `narrate.ts`'s `render()` and
- * importing it here would make the store depend on the agent — the dependency direction just
- * straightened on 2026-09-08. So a caller that has the markdown passes it and a caller that does not
- * stores an empty string, which honestly means "nothing rendered" rather than a fabricated heading
- * that would look like a rendering. **The column may simply be wrong:** `render()` is a pure function
- * of a stored `Report`, so this is a cache of something derivable, and a cache can diverge from its
- * source. Raised rather than altered — changing the schema is not this unit's to do.
+ * ⚠️ **A `Report` and nothing else.** There was briefly a `renderedMd` parameter, because
+ * `rendered_md` was `NOT NULL` in 001_init; the column was dropped in 002 and the parameter with it.
+ * Markdown is a *view* of a report, not part of one: `render()` is a pure function of what is stored
+ * here, so caching its output could only diverge from its source, and filling the column honestly
+ * would have meant the store importing from the agent. Unit 6 renders on read.
  */
-export async function save(report: Report, renderedMd = ''): Promise<{ hash: string; inserted: boolean }> {
+export async function save(report: Report): Promise<{ hash: string; inserted: boolean }> {
   // ⚠️ Computed here, never taken from a caller. Both come from the same pure function of the same
   // object, so the key and the bytes cannot disagree.
   const json = canonical(report);
   const hash = reportHash(report);
 
   const rows = await db()<{ hash: string }[]>`
-    INSERT INTO reports (hash, analyst, directive, canonical_json, rendered_md, block, observed_at)
+    INSERT INTO reports (hash, analyst, directive, canonical_json, block, observed_at)
     VALUES (${hash}, ${report.analyst}, ${report.subject.directive},
-            ${json}, ${renderedMd}, ${report.block}, ${report.observedAt})
+            ${json}, ${report.block}, ${report.observedAt})
     ON CONFLICT (hash) DO NOTHING
     RETURNING hash`;
   return { hash, inserted: rows.length === 1 };
@@ -104,7 +101,7 @@ export async function save(report: Report, renderedMd = ''): Promise<{ hash: str
  */
 export async function load(hash: string): Promise<Report | null> {
   const [row] = await db()<ReportRow[]>`
-    SELECT hash, analyst, directive, canonical_json, rendered_md, block, observed_at, created_at
+    SELECT hash, analyst, directive, canonical_json, block, observed_at, created_at
     FROM reports WHERE hash = ${hash}`;
   if (!row) return null;
 

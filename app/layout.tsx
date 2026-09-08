@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import './globals.css';
 
 // ⚠️ Node runtime, declared rather than inherited. Nothing in this app can run on the edge runtime:
 // the Hedera SDK re-exports, ethers and the ATS contracts package all arrive in later units and all

@@ -19,7 +19,7 @@
 // is Unit 12 and has requirements this probe does not — a health route, a feePayer assertion, an
 // ATS resolver check. Do not lift this into a module.
 
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server.js';
 import { withX402, x402ResourceServer } from '@x402/next';
 import { HTTPFacilitatorClient } from '@x402/core/http';
 import type { AssetAmount } from '@x402/core/types';

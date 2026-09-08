@@ -198,15 +198,7 @@ function show(f: Fact): string {
  * prints the table and the analyst's read and nothing else — a reader wants the data and a view on
  * it, not a tour of the checking apparatus. A UI with room can show the rest.
  */
-export function render(report: Report, _hash?: string): string {
-  // ⚠️ **`_hash` is RESERVED, not stale — do not remove it because nothing reads it** (same status
-  // as the unwired external-reference tier in `reconcile.ts`). It carried the footer that the
-  // stripped format removed, and Phase 3 gives it a real job: the ATS token commits the report hash
-  // in its creation event, so a rendering that shows a reader which hash this text belongs to is
-  // exactly what a tokenised report wants. The three call sites already pass it. Kept so that when
-  // the format gets its pass after Phase 4 the value is in hand rather than needing re-threading.
-  void _hash;
-
+export function render(report: Report, hash?: string): string {
   const fill = (text: string) =>
     (text ?? '').replace(/\{fact:([^}]+)\}/g, (_m, id: string) => {
       const f = report.facts[id.trim()];
@@ -224,7 +216,26 @@ export function render(report: Report, _hash?: string): string {
   const answered = new Set(Object.values(report.facts).map((f) => f.slug)).size;
   const source = `Live data from The Graph · ${answered} deployment${answered === 1 ? '' : 's'} · block ${report.block}`;
 
+  // ⚠️ **`hash` was `_hash` and reserved; Unit 6 is the job it was reserved for.** The ATS token
+  // commits these 32 bytes in its creation event and an Arc market settles against them, so a
+  // rendering that does not name the hash is text a reader cannot tie to the token that claims to
+  // cover it — the token would commit to something nobody reading can check.
+  //
+  // ⚠️ **It goes in the markdown rather than only in the web page's chrome, because the markdown
+  // TRAVELS.** This string is what a buyer receives over x402 in Unit 14, and by then there is no
+  // page around it to say which report it was.
+  //
+  // ⚠️ **All 64 characters, never a prefix.** A prefix is enough to recognise a hash and not enough
+  // to verify one, and verifying is the entire reason it is here.
+  //
+  // Optional because the parameter always was: `demo/narrate.ts` renders a report that was never
+  // stored and so has no key yet. An absent hash omits the line rather than printing a placeholder,
+  // which would read like a value. Nothing hashes or compares this output — the hash is over the
+  // OBJECT — so adding a line changes no identity.
+  const identity = hash ? ['', '', `Report hash ${hash}`] : [];
+
   // ⚠️ The heading is the directive, not a form name. With no template there is no category to
   // announce, and what identifies a report is the question it answers.
-  return [`# ${report.subject.directive}`, '', '', table, '', source, '', '', fill(report.assessment.summary), ''].join('\n');
+  return [`# ${report.subject.directive}`, '', '', table, '', source, '', '',
+    fill(report.assessment.summary), ...identity, ''].join('\n');
 }

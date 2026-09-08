@@ -50,7 +50,7 @@ console.log(`  hash  ${hash}`);
 
 // ── 1 · round trip ───────────────────────────────────────────────────────────────────────────────
 console.log(`\n── 1 · save, load, and re-derive`);
-const first = await save(report, '');
+const first = await save(report);
 must('saved', first.inserted || true, `inserted=${first.inserted}`);
 const loaded = await load(hash);
 must('load returned a report', loaded !== null);
@@ -66,7 +66,7 @@ if (loaded) {
 
 // ── 3 · idempotent re-save ───────────────────────────────────────────────────────────────────────
 console.log(`\n── 3 · re-save the identical report`);
-const second = await save(report, '');
+const second = await save(report);
 must('no-op rather than error', second.inserted === false, `inserted=${second.inserted}`);
 must('same hash returned', second.hash === hash);
 

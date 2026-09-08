@@ -1124,3 +1124,62 @@ already the right answer for the wrong reason.** That is the outcome most likely
 standing, because nothing downstream ever fails to flag it.
 
 *Correction recorded in `DECISIONS.md` under the SM-07 infrastructure decision, with the citations.*
+
+## 2026-09-08 — Two configuration options that are accepted and ignored, and the CJS default import that tells you where
+
+**What we expected.** Unit 6 needed `app/` to import `src/`, and the fix looked like a config line.
+`experimental.extensionAlias` is in Next's config schema, so it exists; stating the NodeNext
+convention once looked smaller and more local than switching build systems.
+
+**What happened.** The schema entry proves the option is *accepted*, not that the bundler *honours*
+it. `extensionAlias` is read in exactly two places — `build/webpack-config.js:591` and its ESM twin —
+and **no Turbopack file references it at all**. `lib/turbopack-warning.js:76` lists it among the
+options unsupported under Turbopack. Then Turbopack prints
+`- Experiments (use with caution): · extensionAlias` and ignores it, which reads like confirmation
+that it took. The build failed with four `Module not found` errors on `src/`'s `.js` specifiers,
+exactly as it had before the line was added.
+
+⚠️ **The verification method that was right in Unit 1a was wrong here, and the difference is the
+lesson.** `typescript.tsconfigPath` was verified by finding it in `config-schema.js`, and that was
+sufficient **because the schema entry and the consumer were the same code path**. Where an option
+fans out to more than one consumer — two bundlers — the schema says nothing about which of them
+reads it. **The question is not "is it in the schema" but "who reads it".**
+
+**The second half has the same shape.** The route taken instead — `moduleResolution: nodenext` in
+`tsconfig.app.json` — is honoured by TypeScript and **not** by Turbopack. Turbopack resolved `src/`'s
+`.js` specifiers and compiled clean, so the setting looks like it worked; what it actually did was
+change the model TypeScript checks against while the bundler kept its own. The two agree until they
+do not.
+
+⚠️ **Where they diverge is specific and worth memorising: a default import of a CommonJS module.**
+`next` ships no `exports` map and no `"type"`, so it is CJS, and `next/link.js` is literally
+`module.exports = require('./dist/client/link')`. Under Node ESM semantics, which nodenext models,
+`import Link from 'next/link.js'` binds `module.exports` itself — the namespace object, with the
+component hanging off `.default`. TypeScript said `'Link' cannot be used as a JSX component`;
+Turbopack's bundler interop would have handed over the component, and the disagreement would have
+lived only in the types. **Named imports are unaffected** — `next/navigation.js` and `next/server.js`
+both pass — which is why this surfaces as one broken import rather than a broken app.
+
+**What changes.**
+
+- **A schema entry is acceptance, not honour. Grep for the consumer.**
+  `grep -rn "config.experimental.X" node_modules/next/dist/build/` answers in seconds what reading
+  the schema cannot answer at all.
+- ⚠️ **An option that is accepted and ignored is worse than one that is rejected**, because the
+  caution banner reads as confirmation. This is the **third** present-looking value in this project
+  that never took effect: `HEDERA_SELLER_ID` set empty in Vercel shipping a live 402 with
+  `payTo: ""` (`??` falls back on `undefined`, never on `""`); the two gateway pruning error strings
+  we were prepared to match on that turned out not to exist (2026-09-06); and this. The family
+  resemblance is that **nothing fails at the point of the mistake** — the value is present, the
+  config is valid, the banner is reassuring, and the failure arrives somewhere that looks unrelated.
+- **When two toolchains read one project, name which one owns each question.** Turbopack owns module
+  *resolution*; TypeScript owns module *semantics*; `tsconfig.app.json` is where those two are
+  spelled with the same word. **A default import of a CJS package is the tripwire** — the next unit
+  that reaches for one should expect this rather than rediscover it.
+- **The fix that made them agree was a deletion.** `next/link` buys prefetch and soft navigation that
+  a two-page server-rendered memo site does not use; a plain `<a href>` removed the only default-CJS
+  import in `app/`. Converting more imports would have hidden the disagreement rather than resolved
+  it.
+
+*Affects PHASE-3 Unit 6. `tsconfig.app.json` is now nodenext; `next.config.ts` carries no
+experimental options.*

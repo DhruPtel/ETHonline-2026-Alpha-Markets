@@ -1,0 +1,26 @@
+-- 002 — drop reports.rendered_md. Idempotent: DROP COLUMN IF EXISTS.
+--
+-- Run with:  npx tsx --env-file=.env scripts/ops/migrate.ts
+-- ⚠️ Through DATABASE_URL_DIRECT. The pooled endpoint is PgBouncer and cannot carry DDL reliably.
+--
+-- ⚠️ 001_init.sql is NOT edited to remove the column. A migration that has run against a live
+-- database is history: rewriting it would mean a fresh database and an existing one no longer agree,
+-- with nothing recording which is which. 001 creates the column and 002 removes it, and the pair is
+-- the honest record of what happened.
+--
+-- ── Why the column goes ───────────────────────────────────────────────────────────────────────────
+--
+-- `rendered_md` was a cache of a pure function. `narrate.ts`'s `render()` takes a stored `Report` and
+-- returns markdown, so the column could only ever diverge from its source — and a format change
+-- would silently leave old rows rendering the old way, with nothing on the row marking which era it
+-- belonged to. The report itself is the thing that is stored and hashed; a view of it is not.
+--
+-- It also forced a dependency the wrong way. Filling it honestly meant `src/store/` importing
+-- `render()` from `src/agent/`, reversing the direction straightened on 2026-09-08 when `MODEL`
+-- moved to `config/`. The alternative was accepting markdown from whichever caller happened to write
+-- the row, which makes the column's contents a property of the call site rather than of the report.
+--
+-- ⚠️ Nothing is lost. `canonical_json` holds the report, `load` returns it, and `render()` is a
+-- function call away for anyone who wants markdown. Unit 6 renders on read.
+
+ALTER TABLE reports DROP COLUMN IF EXISTS rendered_md;

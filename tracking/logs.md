@@ -2861,3 +2861,164 @@ honestly means "nothing rendered" rather than a fabricated heading that would lo
 **The deeper question is whether the column should exist at all:** `render()` is a pure function of a
 stored `Report`, so this is a cache of something derivable, and a cache can diverge from its source.
 Not altered — changing the schema is not this unit's to do.
+
+## 2026-09-08 — reports.rendered_md dropped: a cache of a pure function, and a dependency pointing backwards
+
+`src/store/migrations/002_drop_rendered_md.sql` (new) and `src/store/reports.ts` — `save` now takes a
+`Report` and nothing else. Two call sites in the proof script updated.
+
+**The column was a cache of `render()`, which is a pure function of the stored report.** It could only
+ever diverge from its source, and a format change would have left old rows rendering the old way with
+nothing on the row marking which era it belonged to. It also forced the store to either import from
+the agent — reversing the direction straightened when `MODEL` moved to `config/` — or accept markdown
+from whichever caller happened to write the row, which makes the column's contents a property of the
+call site rather than of the report.
+
+⚠️ **`001_init.sql` was not edited.** A migration that has run against a live database is history:
+rewriting it would mean a fresh database and an existing one no longer agree, with nothing recording
+which is which. 001 creates the column, 002 removes it, and the pair is the honest record. The reason
+for the drop is written into 002 rather than into a commit message, because the next person to wonder
+why a two-day-old column disappeared will be reading the migration.
+
+**Idempotence is visible rather than asserted.** Run 2 prints
+`notice column "rendered_md" of relation "reports" does not exist, skipping` and still exits PASS,
+which is the `DROP COLUMN IF EXISTS` doing its job. Ordering is right on a fresh database too: 001
+creates the column and 002 drops it, in filename order.
+
+**The live schema, as the database reports it:**
+
+```
+── reports
+   hash            text                        NOT NULL
+   analyst         text                        NOT NULL
+   directive       text                        NOT NULL
+   canonical_json  text                        NOT NULL
+   block           bigint                      NOT NULL
+   observed_at     timestamp with time zone    NOT NULL
+   created_at      timestamp with time zone    NOT NULL
+
+   rendered_md present? false   ✅ dropped
+```
+
+**Unit 5's proof still passes end to end on a fresh real report** — 140 facts, 71,830 canonical bytes,
+26-place decimal tail: byte-identical canonical, hash matches the key, `block` a number rather than a
+driver string, re-save a no-op, `list()` returns it (2 rows now), and the one-character tamper still
+throws with both hashes named. `tsc -p tsconfig.json --noEmit` exits 0.
+
+**Nothing is lost.** `canonical_json` holds the report, `load` returns it, and `render()` is a
+function call away for anyone who wants markdown. Unit 6 renders on read.
+
+## 2026-09-08 — Phase 3 progress record: units 0–5 done, and four things a cold session must know
+
+Wrote the handover into **`tracking/phases/PHASE-3.md`** rather than a new file. Unit states went into
+its existing Status table (0–5 now ✅ with what actually landed, 6 marked next), and a new section —
+*Where this actually stands — 2026-09-08, end of session* — sits directly under it. That is the file
+someone opens to start Phase 3 work, so operational state belongs beside the plan rather than at the
+end of a chronological log; `logs.md` keeps the per-unit narrative it already has, and this entry is
+the pointer. No seventh tracking file.
+
+⚠️ **The section says explicitly that where it disagrees with the brief above it, it is right and the
+brief is what was planned.** Three units landed differently and are recorded as such: `execute` takes
+an `analystId` rather than an address, `MODEL` moved to its own `config/model.ts`, and `rendered_md`
+was dropped in `002` after `001` had already created it. Two of those were follow-on commits with no
+unit number, and they are labelled `2b` and `5b` rather than folded into the units they followed.
+
+**Every cheaply checkable claim was verified before writing, not after.** All sixteen files named
+exist with the line counts given; `tsc -p tsconfig.json --noEmit` exits 0; the migrations directory
+holds exactly `001_init.sql` and `002_drop_rendered_md.sql`; `MODEL` is declared once, in
+`src/config/model.ts`, with six importers; the root tsconfig still reads `NodeNext`/`NodeNext`;
+`GET /` returns 200 and `GET /api/probe` returns 402 from the aliased URL with
+`network: hedera:testnet` and `feePayer: 0.0.7162784`; and `list()` returns the two real reports Unit
+5 stored.
+
+⚠️ **A fourth open item turned up while verifying, and it blocks Unit 6.** `vercel env ls` shows
+**neither `DATABASE_URL` nor `DATABASE_URL_DIRECT` is set in Vercel.** Unit 6 is the reading surface,
+it reads from the store, and it will therefore work locally and render nothing in production. Recorded
+alongside the three already known: `ARC_WALLET` set and unread, Production env values never verified
+against local (`HEDERA_SELLER_ID` still resolves empty — the deployed challenge carries `payTo: ""`),
+and the probe route staying until Unit 12 replaces it. A fifth, unrelated to this session:
+`scripts/demo/skills.ts` reads a skill file that moved to `skills/unused/` in Phase 2 and would throw.
+
+## 2026-09-08 — Phase 3 Unit 6: the reading surface, and the first time `app/` and `src/` met
+
+`app/page.tsx` (the list), `app/report/[hash]/page.tsx` (one report), `app/markdown.tsx` (markdown →
+React), `app/globals.css`, `app/layout.tsx` (one import), and `src/agent/narrate.ts` to give `_hash`
+its job. Two files outside that set changed with approval — `tsconfig.app.json` and
+`app/api/probe/route.ts` — for a reason that took three stops to get right.
+
+**The unit stopped three times and every stop was load-bearing.** `app/` had never imported `src/`
+before; Unit 1's probe answered M1 and M2 without ever touching it. Every file in `src/` writes
+`.js`-suffixed imports because the root tsconfig is NodeNext, and **Turbopack does no `.js` → `.ts`
+extension aliasing**, so it resolved `app/page.tsx` and died one hop later inside
+`src/store/reports.ts` on its own `import { pooled } from './db.js'`. No app-side import style fixes
+that, because the failure is not at the boundary.
+
+⚠️ **`experimental.extensionAlias` is in Next's config schema and Turbopack ignores it.** It is read
+only by `build/webpack-config.js`; `lib/turbopack-warning.js` lists it as unsupported; and Turbopack
+prints `- Experiments (use with caution): · extensionAlias` before ignoring it, which reads like
+confirmation. Written up in `lessons.md` with the other two present-looking values that never took
+effect — the empty `payTo` and the gateway error strings that did not exist.
+
+**What worked was `moduleResolution: nodenext` in `tsconfig.app.json`, which keeps Turbopack.** That
+mattered more than it looks: Turbopack *bundles* server deps rather than tracing `node_modules`, and
+that mechanism is the whole reason Unit 1's probe measured 10.0 MB instead of 110 MB. Switching to
+webpack would have invalidated that measurement three units before tokenization lands.
+
+⚠️ **The cost of nodenext is that TypeScript then models Node ESM while Turbopack keeps bundler
+interop, and they disagree at a default import of a CJS module.** `next` ships no `exports` map, so
+`next/link.js` is `module.exports = require(...)` and a default import binds the namespace rather
+than the component. **Fixed by deleting `next/link` for a plain `<a href>`** — a two-page
+server-rendered memo site uses neither prefetch nor soft navigation, and the deletion makes the type
+model and the runtime model describe the same thing instead of papering over the gap. Named imports
+are unaffected, so `next/navigation.js` and `next/server.js` were one-line specifier changes.
+
+**No markdown library, and the reason is the generator.** `render()` emits exactly four constructs —
+one `#` heading, one GFM pipe table, plain paragraphs, and `**bold**` in cells. `markdown.tsx` is
+~45 lines of parser for that known input. A library would have been a dependency bought for
+generality this input cannot contain, and — the real point — most markdown libraries return an HTML
+string that needs `dangerouslySetInnerHTML` to mount, which is precisely where escaping stops being
+ours.
+
+⚠️ **Escaping: React's default covers it, and that is a consequence of producing elements rather than
+a string.** Every untrusted value reaches the DOM as a React child, so `<`, `>`, `&` are escaped
+before they are text nodes. Verified rather than assumed: `dangerouslySetInnerHTML` appears nowhere
+in `app/` or `src/` except in `markdown.tsx`'s own comment explaining its absence, and the served
+page renders the directive's apostrophe as `what&#x27;s inside it`. **Length is the half React does
+not cover** — an indexer can supply an arbitrarily long `Token.symbol`, so cells are bounded at 140
+characters where the untrusted value actually is. `narrate.ts` already bounds the whole table at
+40,000.
+
+**`_hash` got its job and it goes in the markdown, not just the page chrome.** The ATS token commits
+these 32 bytes, so a rendering that does not name them is text nobody can tie to the token. It is in
+`render()`'s output because **the markdown travels** — it is what a buyer receives over x402 in Unit
+14, where the page is not there to say which report it was. All 64 characters, never a prefix: a
+prefix recognises a hash and cannot verify one. The identity panel above the memo duplicates it
+deliberately; the two have different jobs.
+
+**Proofs, local.** `tsc -p tsconfig.json --noEmit` exits 0 and `next build` exits 0 under Turbopack.
+Route table: `ƒ /`, `○ /_not-found`, `ƒ /api/probe`, `ƒ /report/[hash]` — both new routes dynamic,
+which is `force-dynamic` doing its job so a published report appears without a redeploy. Served from
+`next start`: `/` lists both real Neon reports with full hashes, and the report page renders its
+table (`Protocol total (67 markets)` as `<strong>`, `$24.63B`, `~40%`), its paragraph, and its hash.
+
+⚠️ **`/api/probe` traces at 10,473,708 B — byte-identical to Unit 1's recorded 10,473,708 B.** Same
+method (every unique file in `route.js.nft.json` plus the entry). The nodenext change moved it not at
+all. The new routes are cheap: `/` at 1,787,309 B and `/report/[hash]` at 1,847,372 B. The report
+page does **not** drag in the Anthropic SDK — `narrate.ts` uses it only in type positions, so it is
+erased.
+
+**Hash on the page equals the primary key, checked mechanically rather than by eye.** For both stored
+reports: scrape the identity panel and the markdown footer out of the served HTML, `SELECT hash FROM
+reports` for the key, and re-derive the hash from the loaded report. 2/2 with all four equal.
+
+⚠️ **A report that fails its hash check presents as HTTP 500 with no document.** Tested by making the
+page throw `load()`'s own error in a production build: status 500, and the body contains **zero**
+report content — no table, no figures, no paragraph, no hash. The full message and both hashes go to
+the server log with a digest; the client sees Next's generic error screen, because Next redacts
+server error messages in production by design. `/` still returns 200, so one bad row does not take
+the site down. An unknown hash is a clean 404. **This tested the propagation path, not the tamper** —
+that `load()` throws on an altered row is Unit 5's proof, and reproducing it here would have meant
+writing to the live database.
+
+**Not done: the deployed half.** Everything above is local. The public URL still serves the Unit 1
+skeleton, because this work is uncommitted and deploys come from the repo.

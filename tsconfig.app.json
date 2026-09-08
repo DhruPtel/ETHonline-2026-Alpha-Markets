@@ -3,9 +3,20 @@
   //
   // The root `tsconfig.json` is `"module": "NodeNext"` / `"moduleResolution": "NodeNext"`, and every
   // import across `src/` and `scripts/` is written with an explicit `.js` extension because nodenext
-  // requires it — `import { runLoop } from '../src/agent/loop.js'`. Next's defaults are `esnext` +
-  // `bundler`, which do not. Letting Next rewrite the root config would silently stop ~33 scripts
-  // and the whole report pipeline from resolving under tsx.
+  // requires it — `import { runLoop } from '../src/agent/loop.js'`. Letting Next rewrite the root
+  // config would silently stop ~33 scripts and the whole report pipeline from resolving under tsx.
+  //
+  // ⚠️ **This file is `nodenext` too, as of Unit 6, and that is not cosmetic.** Next's defaults are
+  // `esnext` + `bundler`; under those, **Turbopack cannot resolve `src/`'s `.js` specifiers** — it
+  // does no `.js` → `.ts` extension aliasing, so `app/` importing the store died inside
+  // `src/store/reports.ts` on its own `import { pooled } from './db.js'`. `experimental.extensionAlias`
+  // does not fix it: that option is read only by webpack, and Turbopack accepts it and ignores it.
+  //
+  // ⚠️ **The cost, so the next person recognises it.** nodenext makes TypeScript model Node ESM while
+  // Turbopack keeps bundler interop, and the two disagree at **a default import of a CommonJS
+  // module**. `next` ships no `exports` map, so `import Link from 'next/link.js'` binds
+  // `module.exports` rather than the component. Named imports are fine — `next/navigation.js` and
+  // `next/server.js` both pass. That is why `app/` uses a plain `<a href>` and not `next/link`.
   //
   // `next.config.ts` points Next here with `typescript.tsconfigPath`, so Next reads and rewrites
   // THIS file and never touches the root. Verified: `next build` typechecks the app against these
@@ -17,8 +28,8 @@
       "dom.iterable",
       "esnext"
     ],
-    "module": "esnext",
-    "moduleResolution": "bundler",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "jsx": "react-jsx",
     "allowJs": true,
     "strict": true,
@@ -34,8 +45,11 @@
       }
     ]
   },
-  // ⚠️ `src` and `scripts` are excluded deliberately. They are the root tsconfig's job, and pulling
-  // them in here would typecheck nodenext-style `.js` imports under bundler resolution.
+  // ⚠️ `src` and `scripts` are excluded as ENTRY POINTS, which is not the same as unchecked. They are
+  // the root tsconfig's job, and listing them here would drag all ~33 scripts into every `next build`.
+  // The `src/` files `app/` actually imports are still typechecked, transitively — `exclude` filters
+  // `include`, it does not stop an imported file from entering the program. Since Unit 6 that is the
+  // store and `agent/narrate.ts`, and they check clean because this file is now nodenext like theirs.
   "include": [
     "next-env.d.ts",
     "next.config.ts",

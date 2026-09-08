@@ -29,13 +29,13 @@ Plus **analyst identity**, which is not a fourth thing but a precondition for th
 
 | Unit | File | Kind | Status |
 |---|---|---|---|
-| **0** | **the accounts and services** | **SETUP** | ⬜ |
-| 1 | the deployment probe | PROBE | ⬜ |
-| 2 | `config/analysts.ts` | SCAFFOLD | ⬜ |
-| 3 | `agent/` — the split named | SCAFFOLD | ⬜ |
-| 4 | `store/db.ts` + `store/migrations/001_init.sql` | SCAFFOLD | ⬜ |
-| 5 | `store/reports.ts` | LOGIC ★ | ⬜ |
-| 6 | `app/` — the reading surface | SCAFFOLD | ⬜ |
+| **0** | **the accounts and services** | **SETUP** | ✅ Vercel + Neon provisioned; `postgres` declared |
+| 1 | the deployment probe | PROBE | ✅ Next 16 scaffold + `app/api/probe`; **10.0 MB of 250 MB** |
+| 2 | `config/analysts.ts` | SCAFFOLD | ✅ one row, checked live against Circle + Mirror Node |
+| 3 | `agent/` — the split named | SCAFFOLD | ✅ README rewritten; `MODEL` → `config/model.ts` |
+| 4 | `store/db.ts` + `store/migrations/001_init.sql` | SCAFFOLD | ✅ four tables live; `scripts/ops/migrate.ts` is the runner |
+| 5 | `store/reports.ts` | LOGIC ★ | ✅ round trip proved on a **real** 140-fact report |
+| 6 | `app/` — the reading surface | SCAFFOLD | ⬜ **next** |
 | 7 | `tokenize/isin.ts` | LOGIC | ⬜ |
 | 8 | `tokenize/ats.ts` | LOGIC ★★ | ⬜ |
 | **9** | **PLAY GAP — look at the asset** | **PLAY** | ⬜ |
@@ -57,6 +57,124 @@ thing designed to be dropped without a requirement moving.
 The Own tier is **cut** (decision 3 below), which is why Unit 13 lost its star: with no inventory
 reservation, no recipient binding and no two-buyers-one-unit race, quoting is bookkeeping rather than
 judgment.
+
+---
+
+## Where this actually stands — 2026-09-08, end of session
+
+⚠️ **Read this before touching anything.** Written so a session starting cold can trust it without
+checking. Where a unit landed differently from the brief above, this section is right and the brief
+above is what was planned.
+
+### Deployed
+
+| | |
+|---|---|
+| production | `https://et-honline-2026-alpha-markets-o1dz9goh5-alpha-markets.vercel.app` |
+| aliased | **`https://et-honline-2026-alpha-markets.vercel.app`** ← use this |
+| `GET /` | 200, renders the scaffold page |
+| `GET /api/probe` | **402** with a `payment-required` header; challenge carries `network: hedera:testnet`, `extra.feePayer: 0.0.7162784` |
+
+Vercel project `et-honline-2026-alpha-markets`, repo-linked (`.vercel/repo.json`). `vercel.json`
+declares `{"framework": "nextjs"}` — the project preset was "Other" and deploys failed with *No Output
+Directory named "public"* until it did.
+
+### What landed, per unit — what actually happened, not what was planned
+
+- **0 · accounts and services.** Vercel and Neon provisioned. `postgres@3.4.9` declared (it had
+  arrived transitively during Unit 1's probe); confirmed a leaf — zero dependencies, zero peers.
+- **1 · deployment probe.** Next 16.3.4 App Router scaffold (`app/layout.tsx`, `app/page.tsx`,
+  `next.config.ts`, `tsconfig.app.json`) plus `app/api/probe/route.ts`. **M1 answered: 10.0 MB traced
+  against a 250 MB limit, 4.0%.** Turbopack *bundles* server deps rather than tracing `node_modules`,
+  which is why 110 MB of ATS+ethers becomes a 7.93 MB chunk; no native `.node`/`.wasm` traced.
+  **M2 answered: `withX402` works on Next 16 unmodified** — none of the Next 15 friction in
+  `docs/research/x402-next-2.25.md` reproduced. ⚠️ `@x402/next` pulled `@x402/extensions`, which
+  depends on **`viem`** — now installed transitively, listed in the plan under Phase 4 and previously
+  reported "not installed".
+- **2 · `config/analysts.ts`.** One row, `alpha-1`. ⚠️ **Its `arcAddress` is checked against the live
+  Circle API, not a constant** — `scripts/ops/verify-analyst.ts` asserts it equals
+  `circle.getWallet({id})`, asserts `accountType === 'EOA'`, and checks `hederaEvmAddress` against
+  Mirror Node. This closes the half of §5.18 SM-08 could not run. The EVM address was **read** from
+  Mirror Node, not derived.
+- **2b · `execute` takes an analyst id** *(not in the brief; a follow-on commit)*. `ExecuteState.analyst:
+  string` (an address) became **`ExecuteState.analystId: string`**. `Report.analyst` still holds an
+  address and is still inside the hash — only the caller's supply route changed. Proved by generating a
+  real report before the change and re-running it at the same pinned block after: hash byte-identical.
+  Three demo scripts updated; `demo/canonical.ts` deliberately keeps its literal because it is a hash
+  fixture, not a caller.
+- **3 · the `agent/` split named.** `src/agent/README.md` rewritten to state the decision — the report
+  pipeline is the product, `loop.ts`/`tools.ts` are the demo surface behind `scripts/ask.ts` — rather
+  than record an open question. No file moved. ⚠️ **`MODEL` moved to `src/config/model.ts`**, which also
+  removed a dependency edge pointing backwards (`config/analysts.ts` had imported it from
+  `agent/loop.ts` while `agent/execute.ts` imports `config/analysts.ts`).
+- **4 · `store/db.ts` + `001_init.sql`.** Four tables live on Neon: `reports`, `report_tokens`,
+  `quotes`, `purchases`. `scripts/ops/migrate.ts` is the runner — reads every `.sql` in filename order,
+  no version table, every statement `IF NOT EXISTS` so re-running is a no-op. ⚠️ The unit **stopped on
+  its first attempt**: `DATABASE_URL` and `DATABASE_URL_DIRECT` were byte-identical and both pointed at
+  the pooled host. Fixed, and `migrate.ts` now refuses to run if the direct URL contains `-pooler`.
+- **5 · `store/reports.ts`.** `save`, `load`, `list`, `close`. Round trip proved on a **real** report —
+  140 facts, ~71 KB canonical, 26-place decimal tails — not a fixture. `load` parses `canonical_json`
+  and never reassembles from columns, which is why the BIGINT-as-string trap does not exist on that
+  path. Two checks on load: recomputed hash vs primary key, and stored-bytes-are-canonical. Both were
+  made to fire.
+- **5b · `rendered_md` dropped** *(not in the brief; a follow-on commit)*. `002_drop_rendered_md.sql`.
+  It was a cache of `render()`, a pure function of the stored report, and filling it honestly would
+  have made the store import from the agent. `save` now takes a `Report` and nothing else.
+  ⚠️ **`001_init.sql` was not edited** — a migration that has run against a live database is history.
+
+### Traps — the things that will cost a session if not known
+
+1. ⚠️ **Do not edit the root `tsconfig.json`.** It is `module: NodeNext` / `moduleResolution: NodeNext`
+   with `include: ["scripts/**/*", "src/**/*"]`, and every import in `src/` and `scripts/` carries an
+   explicit `.js` extension because nodenext requires it. Next's defaults are `esnext` + `bundler`,
+   which do not. **Next has its own config**: `next.config.ts` sets
+   `typescript: { tsconfigPath: 'tsconfig.app.json' }`, so Next reads and rewrites *that* file. It
+   already did — it set `jsx: react-jsx` and added `.next/dev/types` there, and the root file is
+   untouched. `npm run typecheck` (`tsc -p tsconfig.json --noEmit`) is the regression guard.
+2. ⚠️ **Two Neon URLs, not interchangeable.** `DATABASE_URL` is pooled (host contains `-pooler`) for
+   route handlers; `DATABASE_URL_DIRECT` is direct (no `-pooler`) for migrations only. The pooled
+   endpoint is PgBouncer in transaction mode and cannot carry DDL — it fails on prepared statements and
+   session settings, which reads like a bug in the `.sql` file rather than a wrong connection.
+3. ⚠️ **An empty env var is a missing env var.** `process.env.X ?? fallback` returns `""` because `??`
+   falls back on `undefined` and never on `""`. This shipped a live 402 with an empty `payTo`. Check
+   emptiness explicitly; `src/store/db.ts`'s `required()` and `scripts/ops/verify-analyst.ts`'s `env()`
+   are the pattern.
+4. ⚠️ **`MODEL` lives in `src/config/model.ts`**, not `src/agent/loop.ts`. Six importers.
+
+### Open
+
+1. ⚠️ **`ARC_WALLET` is set in `.env` and nothing reads it.** A 42-char `0x…` address; grepped across
+   `src/`, `scripts/`, `app/` — zero references. Deliberately not added to `.env.example`, because that
+   file's rule is that a variable arrives with the unit that needs it. Someone should decide what it
+   was for; if it is a hand-noted copy of the Circle wallet address it duplicates `analysts.ts`'s
+   `arcAddress`, which is the one that gets verified live.
+2. ⚠️ **Vercel's Production env values have never been verified against local.** `vercel env ls` shows
+   names, not values. `HEDERA_SELLER_ID` is defined in Production and resolves to an **empty string** at
+   runtime — the deployed probe's challenge still carries `payTo: ""` as of this writing. Every other
+   Production value is unverified.
+3. ⚠️ **`DATABASE_URL` and `DATABASE_URL_DIRECT` are NOT set in Vercel.** Confirmed by `vercel env ls`.
+   **This blocks Unit 6's deployed reading surface** — it will work locally and render nothing in
+   production. Add them before or during Unit 6.
+4. ⚠️ **`app/api/probe/route.ts` is throwaway and still there.** It has answered both M1 and M2,
+   including from Vercel, so its job is done. It stays until Unit 12 replaces it with the real
+   `payments/server.ts` + health route — deleting it now would remove the only thing exercising the
+   x402 path end to end. `rm app/api/probe/route.ts` is the whole removal.
+5. **`scripts/demo/skills.ts` is broken and unrelated to this session's work.** It reads
+   `src/agent/skills/balance-overview.md`, which moved to `skills/unused/` when the forms were dropped
+   in Phase 2. It would throw ENOENT. Not in `package.json`, so nothing surfaces it.
+6. **Two real reports are stored** in Neon from Unit 5's proof runs (blocks 25930670 and 25930744).
+   They are genuine and Unit 6 can render them.
+
+### Unit 6 — the reading surface
+
+`app/` gains a list of published reports and a page that renders one: `app/page.tsx` reading
+`list()`, and `app/report/[hash]/page.tsx` reading `load()` and rendering the markdown. It depends on
+Unit 5, which is done and has rows in the database to show. Two things it must handle that nothing
+upstream does: ⚠️ **`Market.name` and `Token.symbol` are indexer-supplied and reach HTML** — escaping
+is Unit 6's job at the render boundary, deliberately not the store's, because escaping on write would
+break the hash. And **`render()` lives in `src/agent/narrate.ts`**, so rendering on read means the app
+importing from the agent; whether that is acceptable or wants a move is a decision Unit 6 should take
+rather than inherit.
 
 ---
 
