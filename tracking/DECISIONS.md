@@ -304,3 +304,53 @@ it is not a fixed number, and any value large enough to be safe is large enough 
 **Affects:** §5.14 *(amended in this commit — "compare with tolerances" removed)* · R27 *(retired for
 Ethereum)* · `graph/corroborate.ts` and `engine/checks/crosscheck.ts` (Phase 1) · the deployment
 adapter, which now carries a per-market corroboration flag
+
+---
+
+## Tier 2 compares with a tolerance and tier 1 does not, and the tolerance is 5%
+
+**Date:** 2026-09-07
+**Decision:** `engine/reconcile.ts` accepts an external reference as agreeing when the two net
+figures are within **5%** (`REFERENCE_TOLERANCE = '0.05'`, an exact decimal comparison). Chain
+corroboration in tier 1 continues to assert **equality, with no tolerance at all.**
+
+**Why the two differ, which is the part that was never written down.** The existing decision record
+*"Corroboration compares exactly, at the block the value was written"* says a tolerance is the
+problem, not the fix — and that is still true **of tier 1**, because tier 1 compares *the same
+quantity to itself*: the subgraph's `inputTokenBalance` against the contract's `totalSupplyAssets`,
+read at the block the subgraph wrote the value. Two readings of one number that disagree by any
+amount disagree, and any tolerance there is wide enough to hide the mapping errors the check exists
+to catch.
+
+Tier 2 is not that comparison. It puts **our net figure against a different organisation's net
+figure, computed by a different methodology, from different source data, at a different moment.**
+DefiLlama and a Messari subgraph do not agree on which markets count, when a price is taken, or how
+a wrapped asset is attributed. Two such figures landing within a few percent is corroboration; the
+same two agreeing to the cent would be evidence they share a source, not evidence either is right.
+Demanding equality here would produce a `discrepancy` on every deployment and the tier would be
+worthless. **The tolerance is not a concession in tier 2 — it is what makes the comparison mean
+something.**
+
+**Why 5%, honestly.** ⚠️ **It was picked as a round number and has not been validated.** What
+support exists is retrospective, not derived: the three deployments that have ever tied out against
+DefiLlama landed **0.9–2.5% apart** (logged 2026-09-07), so 5% sits at roughly double the widest
+agreement we have actually observed. That is a reason to think it is not obviously too tight. It is
+**not** a reason to think it is right, and nothing has tested where it starts admitting real errors —
+5% of Aave v3's net is roughly $700M, which is larger than most deployments on the table.
+
+**What we give up by not knowing:** a gap between 5% and whatever the true noise floor is, in which
+a genuine discrepancy would be reported as agreement. Narrowing it without measurement would trade
+that for false discrepancies, which is not obviously better.
+
+**Alternative rejected:** deriving the tolerance per deployment from observed historical spread. It
+is the right answer and it needs a history we do not have — three tie-outs is not a distribution.
+Recorded so that when the external-reference adapter is built, calibrating this is part of the work
+rather than a discovery.
+
+⚠️ **The same 5% appears independently in `scripts/ops/triage-protocols.ts` as `GAP_OK = 0.05`**, on
+the same comparison against the same source, and the two are not a shared constant. They should
+move together; today nothing makes them.
+
+**Affects:** `engine/reconcile.ts` tier 2 · `scripts/ops/triage-protocols.ts` · the external-reference
+adapter (unbuilt) · the existing decision *"Corroboration compares exactly"*, which this does not
+contradict but does bound

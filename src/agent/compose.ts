@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import Anthropic from '@anthropic-ai/sdk';
 import type { Capabilities, Clarification, PlannedCheck, ReportPlan } from '../types/report.js';
 import { PROTOCOLS } from '../config/protocols.js';
-import { DOCUMENT_IDS } from '../graph/queries/index.js';
+import { DOCUMENT_IDS, DOCUMENT_BRIEF } from '../graph/queries/index.js';
 import { figureRef } from '../engine/invariants.js';
 import { MODEL } from './loop.js';
 
@@ -59,7 +59,7 @@ const PROPOSE: Anthropic.Tool = {
         items: {
           type: 'object',
           properties: {
-            documentId: { type: 'string', enum: [...DOCUMENT_IDS] },
+            documentId: { type: 'string', enum: [...DOCUMENT_IDS], description: 'Which document to run. See the catalogue in the system prompt for what each returns.' },
             slugs: { type: 'array', items: { type: 'string' } },
             variables: { type: 'object' },
           },
@@ -67,25 +67,24 @@ const PROPOSE: Anthropic.Tool = {
         },
       },
       checks: { type: 'array', items: { type: 'string', enum: [...CHECKS] } },
-      rationale: { type: 'string', description: 'Why this scope answers the directive.' },
+      rationale: { type: 'string', description: 'Why this scope answers the directive, and — when the directive was ambiguous — which reading you took and why that one. "Health" read as utilization, say, rather than a question back.' },
     },
-    required: ['subject', 'headlineField', 'checks', 'rationale'],
+    // ⚠️ `reads` is required. Omitting it used to fall through to a balance-sheet default, so a
+    // planner that never considered documents produced a protocol-level plan by construction and
+    // nothing recorded that no choice had been made.
+    required: ['subject', 'headlineField', 'reads', 'checks', 'rationale'],
   },
 };
 
-const CLARIFY: Anthropic.Tool = {
-  name: 'need_clarification',
-  description: 'Use when the directive cannot be turned into a report without guessing what was meant.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      missing: { type: 'array', items: { type: 'string', enum: ['subject', 'deployment', 'question', 'scope'] } },
-      reason: { type: 'string', description: 'What specifically cannot be determined.' },
-      suggestions: { type: 'array', items: { type: 'string' }, description: 'Concrete directives that would work.' },
-    },
-    required: ['missing', 'reason', 'suggestions'],
-  },
-};
+// ⚠️ **There is no `need_clarification` tool, deliberately (2026-09-07).** It existed and it worked
+// — "what protocol has the best financial health?" got a well-reasoned refusal, which is the wrong
+// answer. Health is not a quantity anyone holds and the proxies for it disagree, all true, and an
+// analyst asked that question still picks a reading, says which, and answers. Refusing is a control
+// worth adding back once we know what the agent does when it tries; it is not the ground floor.
+//
+// ⚠️ The `ok: false` arm below survives for ONE thing, and it is not a refusal to interpret: a plan
+// naming a deployment that is not configured or not answering. That is a broken plan, not a vague
+// directive.
 
 export type ComposeResult =
   | { readonly ok: true; readonly plan: ReportPlan }
@@ -111,24 +110,23 @@ ${conventions()}
 Available deployments:
 ${live.map(brief).join('\n')}
 
-Available documents: ${DOCUMENT_IDS.join(', ')}.
+Available documents — every report is built from one or more of these, and \`reads\` must name the ones that produce it:
+${DOCUMENT_IDS.map((id) => `- **${id}** — ${DOCUMENT_BRIEF[id]}`).join('\n')}
 
 ⚠️ **There is no report template.** Decide what would actually answer the directive — one deployment's figure, a metric across every live deployment, two deployments side by side, the markets inside one — and name the deployments and documents that produce it. The report is whatever comes back, in a table. Do NOT narrow a wide question to a trustworthy subset; scope follows the directive, not the data quality.
 
-⚠️ The **markets** document walks every market of every deployment named, which costs a great deal. Request it only when the directive is about markets within a deployment; **balance-sheet** answers everything at the protocol level.
+⚠️ **You always produce a plan. You never ask.** A vague directive is not a reason to go back — it is a reading to choose. "Best financial health" is not a quantity this platform holds, and that is not a refusal: pick the proxy that answers it most usefully, plan against that, and put the reading and why you chose it in \`rationale\` so the report can state it. An analyst asked an imprecise question picks a reasonable interpretation, says what they picked, and answers.
 
-⚠️ Apply the default readings above rather than asking. "Deposits" means the current balance; "size" means gross deposits; "top N" with no N means ten. Call need_clarification ONLY for the three cases the conventions name — data this platform does not have, an entity resolving to several deployments of differing quality, or no subject at all. Scope is never one of them.`;
+⚠️ Apply the default readings above. "Deposits" means the current balance; "size" means gross deposits; "top N" with no N means ten. Scope is never in doubt either — "which protocol has the most X" means all of them.`;
 
   const response = await client.messages.create({
-    model: MODEL, max_tokens: 2000, system, tools: [PROPOSE, CLARIFY],
-    tool_choice: { type: 'any' },   // ⚠️ one of the two, never prose
+    model: MODEL, max_tokens: 2000, system, tools: [PROPOSE],
+    tool_choice: { type: 'tool', name: 'propose_plan' },   // ⚠️ a plan, never prose and never a question
     messages: [{ role: 'user', content: directive }],
   });
 
   const call = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
   if (!call) throw new Error(`planner returned no tool call (stop_reason ${response.stop_reason})`);
-
-  if (call.name === 'need_clarification') return { ok: false, clarification: call.input as Clarification };
 
   const i = call.input as {
     subject: string; deployments?: string[];
@@ -136,10 +134,14 @@ Available documents: ${DOCUMENT_IDS.join(', ')}.
     reads?: { documentId: string; slugs: string[]; variables?: Record<string, string | number | boolean | null> }[];
     checks: PlannedCheck[]; rationale: string;
   };
-  // ⚠️ Naming no deployment means every live one, not an error. The data layer already reads all 25
-  // at a common block, and a report that silently covers four is answering a narrower question than
-  // the one asked. Scope is not a reason to go back and ask.
-  const deployments = i.deployments?.length ? i.deployments : live.map((c) => c.slug);
+  // ⚠️ **Scope follows the reads when it is not stated.** Naming no deployment still means every
+  // live one — a report that silently covers four is answering a narrower question than the one
+  // asked — but a plan whose `reads` name `makerdao-ethereum` has already said what it is about, and
+  // expanding that to all 25 makes the plan contradict itself. Measured 2026-09-07: it planned
+  // `markets` on makerdao correctly, left `deployments` empty, and the run was declined because one
+  // of the other 24 was too stale to share a block.
+  const fromReads = [...new Set((i.reads ?? []).flatMap((r) => r.slugs ?? []))];
+  const deployments = i.deployments?.length ? i.deployments : fromReads.length ? fromReads : live.map((c) => c.slug);
   // ⚠️ Validate against config rather than trusting the schema. An enum constrains the shape of a
   // slug, not whether that deployment exists or answers.
   const unknown = deployments.filter((s) => !PROTOCOLS.some((p) => p.slug === s && p.status === 'live'));
