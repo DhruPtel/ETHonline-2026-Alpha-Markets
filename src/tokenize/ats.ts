@@ -14,7 +14,7 @@
 import { ethers } from 'ethers';
 import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
 import type { Report } from '../types/report.js';
-import { ANALYSTS, type AnalystConfig } from '../config/analysts.js';
+import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
 import { load } from '../store/reports.js';
 import { pooled } from '../store/db.js';
 import { isinFor } from './isin.js';
@@ -101,13 +101,8 @@ export async function prepare(reportHash: string): Promise<TokenPlan> {
   const report = await load(reportHash);
   if (!report) throw new Error(`no report ${reportHash} in the store. Nothing to tokenize.`);
 
-  const analyst = ANALYSTS.find((a) => a.arcAddress.toLowerCase() === report.analyst.toLowerCase());
-  if (!analyst) {
-    throw new Error(
-      `report ${reportHash} is attributed to ${report.analyst}, which is not a registered analyst. ` +
-      'The issuer and the recipient come from the analyst row; there is no fallback.',
-    );
-  }
+  // Hoisted to `config/analysts.ts` in Unit 12 — Units 13 and 14 need the same resolution.
+  const analyst = analystByArcAddress(report.analyst);
 
   const isin = isinFor(reportHash);
 

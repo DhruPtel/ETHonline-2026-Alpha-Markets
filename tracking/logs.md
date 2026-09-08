@@ -3698,3 +3698,80 @@ the index, local and production. The whole-document difference is **exactly +180
 fully accounted for: 18 asset references × 10 characters, production serving
 `/_next/static/immutable/chunks/…` where local serves `/_next/static/chunks/…`. Same cause as Unit 6,
 cosmetic, no action.
+
+## 2026-09-08 — Phase 3 Unit 12: the x402 resource server, built once and properly
+
+`src/payments/server.ts` (119 lines), `app/api/health/route.ts` (93), plus the analyst lookup hoisted
+into `config/analysts.ts` and `ats.ts` switched to it. Units 13, 14 and 15 now have something to sit
+behind. The probe route is untouched and still answering — Unit 14 replaces it.
+
+**Three things the probe did that do not survive being a dependency, all fixed.**
+
+⚠️ **1 · R12's atomic switch is now unrepresentable-if-wrong rather than merely discouraged.** The
+probe had the facilitator host as a module constant while SM-05 took the network from
+`HEDERA_NETWORK`, so `HEDERA_NETWORK=mainnet` would have pointed a **mainnet network string at the
+testnet facilitator**. Host, feePayer and asset are now one record keyed by network name, so
+selecting a network selects its facilitator and its asset because they are the same object. **Only
+measured networks appear** — `mainnet` is deliberately absent rather than guessed, because its
+facilitator advertises a feePayer nobody here has read, and a wrong constant is worse than a missing
+one. Setting it now fails loudly and names the cutover.
+
+⚠️ **2 · Lazily constructed and memoized, never at module scope.** `initialize()` calls `process.exit`
+on a permanent config mismatch; at module scope on Vercel that is a cold-start crash loop on every
+gated route that reads like a platform outage. Same shape as `store/reports.ts`'s
+`let client = null; const db = () => (client ??= pooled())`. **`initialize()` is not called here** —
+`withX402` syncs with the facilitator on first use, and calling it eagerly would move the
+`process.exit` risk back into construction.
+
+⚠️ **3 · No fallbacks.** The probe's `process.env.HEDERA_SELLER_ID ?? '0.0.10387690'` is exactly why
+Production has been ambiguous since Unit 1. This file has none, and empty is treated as missing.
+
+**Proof — health, live.** `/api/health` → **200**, facilitator `api.testnet.blocky402.com` advertising
+`hedera:testnet` across 3 kinds with `feePayerAdvertised 0.0.7162784` matching what we expect. **This
+closes R12's outstanding startup assertion**, at health-check time rather than in the request path.
+
+**Proof — the failure path, which is the real one.** With `HEDERA_NETWORK=mainnet`:
+
+```
+  /api/health           503   "HEDERA_NETWORK resolves to "hedera:mainnet", which is not configured…
+                               Moving to mainnet is R12's atomic cutover … Adding a row here is that
+                               decision, not a fix."
+  GET /                 200   ← index still lists reports
+  GET /report/24041ca2… 200
+  GET /api/probe        402
+```
+
+**The rest of the app keeps serving while health is red**, which is the whole reason the assertion
+lives here.
+
+### ⚠️ HEDERA_SELLER_ID in Production — settled
+
+**It is set, non-empty, and its value is `0.0.10387690`.** Established by deduction rather than a
+direct read, because **every variable in this Vercel project is typed `Secret`, so `vercel env pull`
+returns `[SENSITIVE]` placeholders** and `vercel env ls` shows names only. The chain:
+
+1. `vercel env ls production` — `HEDERA_SELLER_ID` is **present** in Production and Preview.
+2. The deployed probe computes `process.env.HEDERA_SELLER_ID ?? '0.0.10387690'` and currently serves
+   `payTo: '0.0.10387690'`.
+3. An empty string would have produced `payTo: ""`, because `??` falls back on `undefined` and never
+   on `""` — that is the trap, and it is what we saw at the Unit 6 check.
+4. Present and not empty means the expression returned **the variable's own value**, so that value is
+   `0.0.10387690`.
+
+⚠️ **It coincidentally equals the hardcoded fallback, which is precisely why it looked ambiguous for
+eleven units.** Once this health route deploys it reads the variable at runtime with no fallback in
+the path and prints the answer directly — the deduction becomes a measurement.
+
+**Also reported by health, gating nothing:** the ATS resolver `0.0.9212226`, `deleted: false`,
+expiring `2026-09-10T10:51:29Z` — ⚠️ **1.6 days out.** SM-07 recorded this and `lessons.md` 2026-09-07
+established the expiry is inert because Hedera has never enabled contract rent. Unit 10's transfer
+still depends on that contract, so it is now on a page rather than in a decision record.
+
+**The hoist.** `analystByArcAddress()` moved from `ats.ts:104` into `config/analysts.ts` before it was
+copied — the loop sweep flagged it as a duplication about to happen, and Units 13 and 14 both need it
+to find a report's `payTo`. ⚠️ Named for what it actually keys on: the brief called it the
+"analyst-by-Hedera-account lookup", but `Report.analyst` holds the **Arc** address, which is the
+lookup key; `hederaAccountId` is what comes off the row afterwards. `ats.ts` lost 8 lines and gained 3.
+
+`tsc -p tsconfig.json --noEmit` exits 0; `next build` exits 0 with `/api/health` in the route table.
+**Deployed half not run** — uncommitted, and deploys come from the repo.

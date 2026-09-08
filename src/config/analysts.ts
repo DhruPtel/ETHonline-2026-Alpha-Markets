@@ -79,3 +79,35 @@ export function analyst(id: string): AnalystConfig {
   }
   return found;
 }
+
+/**
+ * Resolve the analyst that WROTE a report, from the address the report carries.
+ *
+ * ⚠️ **`Report.analyst` holds the `arcAddress`**, so that is the key — not the Hedera account, even
+ * though what most callers want off the row is `hederaAccountId`. The report is hashed with the Arc
+ * address inside it because that is the identity an on-chain claim is staked from; the Hedera
+ * account is the same identity in the other world (§5.18, and the note on `hederaEvmAddress` above).
+ *
+ * ⚠️ **Hoisted out of `tokenize/ats.ts` on 2026-09-08, before it was copied.** The loop sweep flagged
+ * it as a duplication about to happen: Unit 8 had it inlined, and Units 13 and 14 both need the same
+ * resolution to find a report's `payTo`. Three copies of a `.find()` is three places to forget the
+ * case-insensitive compare.
+ *
+ * ⚠️ **Case-insensitive, deliberately.** An EVM address is hex and its casing is EIP-55 checksum
+ * information, not identity. `analysts.ts` stores lowercase, a report carries whatever `execute`
+ * wrote, and a strict compare would fail on a correctly-checksummed address.
+ *
+ * Throws rather than returning `null`, for the same reason `analyst()` does: every caller is on a
+ * path that ends in a token, a payment challenge or an on-chain claim, and none of them can proceed
+ * without an author.
+ */
+export function analystByArcAddress(arcAddress: string): AnalystConfig {
+  const found = ANALYSTS.find((a) => a.arcAddress.toLowerCase() === arcAddress.toLowerCase());
+  if (!found) {
+    throw new Error(
+      `no registered analyst has arcAddress ${arcAddress}. A report attributed to an unregistered ` +
+      'address has no issuer and no payTo: both come from the analyst row, and there is no fallback.',
+    );
+  }
+  return found;
+}
