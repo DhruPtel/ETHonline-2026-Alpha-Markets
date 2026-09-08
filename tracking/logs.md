@@ -3122,3 +3122,74 @@ duplicate into a failed insert. ⚠️ **But note the ordering cost:** Unit 8 de
 records the row, so the constraint would fire *after* the gas was spent. Catching it before spending
 means Unit 8 checking for an existing ISIN before it deploys, with the constraint as the backstop
 rather than the mechanism. Both are Unit 8's to decide; the schema is untouched here.
+
+## 2026-09-08 — Phase 3 Unit 8: a real report is an asset on Hedera, and the hash survived the round trip
+
+`src/tokenize/ats.ts`, `src/tokenize/hedera.ts`, `scripts/ops/tokenize.ts`, and
+`src/store/migrations/003_report_tokens_isin_unique.sql`. **Token live at
+`0xE7aaEFB168F3E87975Fee1B0c932aE42776D8c6c`**, Sourcify `exact_match`, `balanceOf == 1`. Cost
+**7.71290100 HBAR ($0.6232)** against SM-07's 7.71195075 for the same three steps — **+0.00095025**,
+entirely 907 extra gas on `deployEquity`. No reverts, one deploy, nothing retried.
+
+**The seam, named before writing rather than discovered halfway down.** `ats.ts` would have been
+~380 lines, so the chain plumbing moved to `src/tokenize/hedera.ts` — Mirror Node reads, revert
+decoding, `landOrStop`, balance polling, the exchange rate. The cut is **"how you talk to Hedera
+safely" vs "what an ATS report token is"**, and it is the right cut because Unit 10's transfer needs
+every line of the first and none of the equity struct. `ats.ts` is still 170 lines of non-comment
+code against a ~120 ceiling; roughly 45 of those are the struct, which is data rather than logic and
+is the block SM-07 paid a reverted deploy to get right. Splitting the struct away from the function
+that submits it would put a measured value further from its reason, which is the opposite of what
+the ceiling is for. Flagging it rather than pretending it fits.
+
+⚠️ **`prepare()` and `tokenize()` are two functions because that is a safety property, not a style.**
+Everything that can stop the run — already tokenized, key does not match the analyst row, factory
+deleted, wrong chain, thin balance — happens before the first transaction. A run that dies between
+deploy and issue leaves an asset with no token in it, so the checks are front-loaded rather than
+interleaved. The script is **dry by default**; `--confirm` is a separate decision made after reading
+the plan.
+
+**Proved that the guard works, and it cost nothing to prove:** re-running the same report now prints
+`STOP already tokenized … Refusing to deploy a second asset` and exits 1 without sending anything.
+That check is the thing standing between a fat-fingered rerun and 7 HBAR.
+
+⚠️ **The commitment is real this time.** SM-07 issued under `FAKE_REPORT_HASH`. This issued under
+`alpha:24041ca2…dd3e5`, read back out of the `EquityDeployed` log and asserted **byte-identical** to
+the primary key in Neon. `additionalSecurityData` is validated and emitted, never written to proxy
+storage, so the log is the only place that proof exists — which is why `tokenize()` throws if the
+emitted string differs rather than trusting that it was sent correctly.
+
+⚠️ **The issuer comes from the analyst row, and the key is checked against it.** `Report.analyst`
+holds the *Arc* address (`0x1b7035bb…`), so the row is found by matching that, and
+`hederaEvmAddress` (`0x32838fe9…`) comes off the same row. The private key still comes from
+`HEDERA_SELLER_KEY` — a key cannot live in a committed config file — but `prepare()` refuses unless
+that key derives the row's address. **A second analyst needs a per-analyst key scheme; until then
+this check is what makes one shared variable safe, because a mismatch stops instead of issuing from
+the wrong account.** Worth deciding before a second analyst exists, not after.
+
+**Two promotions and one deliberate change.** `revertReasonFromMirror` and `landOrStop` came over
+whole — the Hashio relay reports a failure as a status-0 receipt with no revert data, so
+`error.data` is undefined and the selector exists only at `/api/v1/contracts/results/{hash}`. ⚠️ The
+change: `landOrStop` **throws instead of `process.exit(1)`**. SM-07 is a script and exiting is right
+there; this is a library, and a `process.exit` inside `tokenize()` would take a server down
+mid-request when Unit 14 calls it. The discipline is untouched — real reason, say what already
+landed, never retry — only who prints it moved.
+
+⚠️ **A new instance of the ethers two-identity problem, in a new place.** SM-07 documented it for
+wallets (`asRunner`); it reappeared for receipts, where typechain returns a CJS
+`ContractTransactionReceipt` that will not assign to our ESM `ethers.TransactionReceipt`. Solved by
+declaring `TxCost` — the three fields actually read — rather than adding a second cast. One installed
+copy of ethers, two type identities, and it will keep surfacing wherever a typechain value crosses
+into our code.
+
+**Migration 003 adds `UNIQUE` on `report_tokens.isin`**, as Unit 7 raised. ⚠️ Written into the file:
+it is a **backstop, not the mechanism**. `prepare()` is what prevents the spend; the constraint only
+catches two runs racing, where both preflights pass before either inserts — and even then it fires
+after the gas is gone, orphaning an asset. That is still better than two rows disagreeing about which
+proxy holds a report's token.
+
+**Cost drift is attributable.** `grantRole` and `issue` matched SM-07 to the tinybar; the whole
++0.00095025 HBAR is `deployEquity` at 6,714,755 gas against 6,713,850 — 907 gas, which is the ISIN
+and info strings being different lengths from SM-07's. Nothing structural moved.
+
+`tsc -p tsconfig.json --noEmit` exits 0. No transfer — that is Unit 10, and `transfer_tx` is null in
+the row precisely because it is a separate lifecycle step.
