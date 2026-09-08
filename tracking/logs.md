@@ -3889,3 +3889,90 @@ the case `pooled()` stays exported for.
 says "Same shape as `store/reports.ts`'s `let client = null; const db = () => (client ??= pooled())`".
 That code now lives in `db.ts`, not `reports.ts`. The pattern it describes is still exactly right;
 only the address is wrong. Flagged rather than edited, because `server.ts` is not one of the four.
+
+## 2026-09-08 — Phase 3 Unit 14: the gate. An unpaid request now gets a real 402 naming a real payee
+
+`src/payments/gate.ts` (170 lines) and `app/api/reports/[hash]/route.ts` (34). **The route table now
+carries `ƒ /api/reports/[hash]`.** Everything provable without a buyer is proved; the paid path waits
+on Unit 15.
+
+**The seam, named before writing.** `gate.ts` owns *selling a report* — payTo, price, the two
+settlement hooks and their `purchases` writes, the handler. The route file owns *being a Next route* —
+the 404 and the delegation. The cut is that Unit 15's buyer and Unit 17's recover both have to reason
+about what `gate.ts` writes, and neither should have to read a route file. ⚠️ 170 lines against a ~110
+estimate, and the overage is the hook comments, which are where the §5.8 reasoning lives.
+
+**Plain `withX402`, `authorization` flow, as the plan specifies** — the header records why, so nobody
+re-opens it.
+
+### ⚠️ A bug I shipped and caught by decoding a live challenge
+
+`extensions: { ...declarePaymentIdentifierExtension(true) }` **spreads** the declaration, putting
+`info` and `schema` at the top level of `extensions`. The correct form keys it by name:
+`{ [PAYMENT_IDENTIFIER]: declarePaymentIdentifierExtension(true) }`.
+
+The types accept both — `extensions?: Record<string, unknown>`. The first version produced
+`extensions: { info, schema }`, where `appendPaymentIdentifierToExtensions` cannot find the
+declaration, so a client would have sent **no payment id**, and `onBeforeSettle` would have aborted
+every payment as `unrecordable_payment`. **That would have surfaced in Unit 15 as a buyer that cannot
+pay, three files away from the cause.** Caught only by base64-decoding the served challenge and
+looking at the keys — reading the types would not have found it.
+
+### Proofs
+
+```
+  unpaid GET /api/reports/<hash>   402, body {}
+  extensions keys                  ['payment-identifier']   required: true
+  network=hedera:testnet  amount=100000  asset=0.0.0
+  payTo=0.0.10387690  feePayer=0.0.7162784  maxTimeoutSeconds=120
+  unknown hash → 404               garbage hash → 404
+```
+
+⚠️ **payTo comes from the analyst row, and this is the test that proves it rather than asserting it.**
+The value happens to equal `HEDERA_SELLER_ID`, so a matching value proves nothing. Ran the server with
+**`HEDERA_SELLER_ID=0.0.99999999`** — a deliberately wrong value:
+
+```
+  gate challenge payTo : 0.0.10387690   ← the analyst row, env ignored
+  probe challenge payTo: 0.0.99999999   ← the control: the probe DOES read env, and followed it
+```
+
+**This is the field that was empty for eleven units**, and it is now structurally incapable of coming
+from a shared variable.
+
+**No report content in the 402.** Probed the whole response — headers *and* body — with 16 strings
+taken from that report's own rendered body (`$24.63B`, `$9.96B`, `~40%`, `Protocol total`,
+`Live data from The Graph`, the assessment's opening clause): **0 present.** The body is `{}`.
+
+**The challenge carries the quote, not the constant** — `100000 / 0.0.0` from the challenge against
+`quoteAmount(quote(hash))`, same quote row.
+
+### Design notes worth carrying to Units 15 and 17
+
+⚠️ **`onBeforeSettle`, not `onAfterVerify`, and the difference matters.** Both run before settle, and
+`onAfterVerify` would have handed over an authoritative `payer`. But it fires for requests that then
+fail in the handler and never settle — which would write rows with a `native_tx_id` and a null
+`settled_at`, and the schema says that combination *is* the ambiguous case `recover.ts` resolves.
+Writing them for requests that were never charged would poison exactly the signal Unit 17 depends on.
+
+⚠️ **So `payer` is derived from the signed bytes at insert time** — under `exact` the buyer signs one
+negative leg and the facilitator adds the fee afterwards, so the negative entry is the payer —
+**and `onAfterSettle` overwrites it with the facilitator's answer.**
+
+⚠️ **If the row cannot be written, settle is ABORTED.** An unrecorded charge is worse than an
+uncharged reader: money would move with nothing tying it to a report.
+
+⚠️ **Hooks attach exactly once.** `onBeforeSettle` *appends* to a list and `paymentsServer()` is
+memoized, so wrapping per request would have registered them again and written the purchase row once
+per prior request. The gated handler is memoized, which pins both.
+
+⚠️ **A cost worth knowing:** resolving `payTo` calls `load()`, so **an unpaid request parses the full
+report to find its analyst** — a 70 KB blob and two hash checks on the path a crawler hits. The 404
+check uses `quote()` and touches no body, so this is the only body read on the unpaid path. A cheap
+`analystFor(hash)` on `store/reports.ts` would remove it; out of scope here.
+
+`delivered_at` stays null: delivery is only true once the response reaches the buyer, which a server
+cannot observe, and that gap is what §5.9's retry exists for.
+
+`tsc` exits 0, `next build` exits 0. **The paid path is unproven until Unit 15** — an unpaid 402 is
+half a gate, and the probe route stays until the whole thing is proved end to end.
