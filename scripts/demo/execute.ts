@@ -7,7 +7,7 @@ const ANALYST = '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7';
 const plan = (directive: string, slugs: string[], headSlug: string, headField: string): ReportPlan => ({
   subject: { directive, deployments: slugs, headline: figureRef(headSlug, headField) },
   reads: [{ documentId: 'balance-sheet', slugs, variables: {} }, { documentId: 'markets', slugs, variables: {} }],
-  checks: ['internal-consistency', 'chain-corroboration', 'market-population'],
+  checks: ['chain-corroboration'],
   rationale: 'test plan',
 });
 const st = (p: ReportPlan): ExecuteState => ({ plan: p, analyst: ANALYST });
@@ -22,7 +22,7 @@ else {
   console.log(`  analyst      ${d.analyst}`);
   console.log(`  headline     ${d.subject.headline}`);
   for (const [id, f] of Object.entries(d.facts)) console.log(`  ${id.padEnd(48)}${usd(f.value).padStart(12)}   ${f.corroboration}${f.withheld ? `  (${f.withheld.code})` : ''}`);
-  console.log(`  verdict      ${d.verdict.call}  · coverage ${d.verdict.coverage.marketsRead} markets, ${d.verdict.coverage.marketsCorroborated} corroborated, ${d.verdict.coverage.completeness}`);
+  console.log(`  verdict      ${d.verdict.call ?? 'none (metric across deployments)'}  · coverage ${d.verdict.coverage.marketsRead} markets, ${d.verdict.coverage.marketsCorroborated} corroborated, ${d.verdict.coverage.completeness}`);
   console.log(`  checks       ${d.checks.length}   provenance ${d.provenance.length}   exclusions ${d.exclusions.length}`);
   for (const c of d.checks.filter((x) => x.outcome !== 'passed')) console.log(`    ${x2(c.outcome)} ${c.rationale.slice(0, 110)}`);
   console.log(`  dataHash     ${one.dataHash.slice(0, 16)}…`);

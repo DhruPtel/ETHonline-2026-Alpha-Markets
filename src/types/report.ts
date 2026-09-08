@@ -74,9 +74,22 @@ export interface Subject {
 
 export type FactUnit = 'USD' | 'ratio' | 'count' | 'block';
 
-/** Why a figure carries no value. A withheld figure is always visible and always explained. */
+/**
+ * Why a figure carries no value. A withheld figure is always visible and always explained.
+ *
+ * ⚠️ `not_reported` was added 2026-09-07 because the other four were all lies for the commonest
+ * case. A deployment that simply returns null for a field it does serve is not a revenue problem,
+ * not a data error, not an incomplete population, and not a field missing from the schema — and it
+ * was being labelled `revenue_unavailable` with a rationale about revenue on figures that had
+ * nothing to do with revenue.
+ */
 export interface Withheld {
-  readonly code: 'revenue_unavailable' | 'data_error' | 'incomplete_population' | 'not_in_schema';
+  readonly code:
+    | 'revenue_unavailable'   // gated by config: the accumulator is poisoned, not tracked, or unmeasured
+    | 'data_error'            // a DATA_ERROR finding touches this figure, so it is withheld rather than shown
+    | 'incomplete_population' // the figure depends on a population that was not read to exhaustion
+    | 'not_in_schema'         // the deployment's schema version does not carry this field at all
+    | 'not_reported';         // the field exists and the deployment returned no value for it
   readonly rationale: string;
 }
 
@@ -163,7 +176,25 @@ export interface Coverage {
 }
 
 export interface Verdict {
-  readonly call: VerdictCall;
+  /**
+   * ⚠️ **`null` on a report about a METRIC ACROSS DEPLOYMENTS** *(schema change 2026-09-07 — see
+   * DECISIONS.md; anyone targeting `alpha-markets/report/v1` must handle it)*.
+   *
+   * A verdict answers "can this figure be stood behind". A report whose headline is one
+   * deployment's figure has such a figure and gets a call. A ranking does not: there is no single
+   * thing to stand behind, and every way of manufacturing one lies in some direction — the worst
+   * across the set stamps `discrepancy` on a table where twenty-two of twenty-three rows tie out,
+   * and the best hides the row that does not.
+   *
+   * It used to be filled from whichever deployment happened to be first in the plan, which was both
+   * arbitrary and a hash bug: the same data in a different plan order produced a different report
+   * hash. `null` is a stable fact about the report rather than an arbitrary fact about its ordering.
+   *
+   * ⚠️ Nothing is lost. `coverage` below is aggregated across the whole set, and every
+   * deployment's own reconciliation is still in `checks` as its three tier claims — a reader
+   * wanting the verdict for row 2 reads row 2's claims, which is the honest place for it.
+   */
+  readonly call: VerdictCall | null;
   /** ⚠️ Coverage, not a confidence label. A judgment word does not belong on a computed finding. */
   readonly coverage: Coverage;
 }

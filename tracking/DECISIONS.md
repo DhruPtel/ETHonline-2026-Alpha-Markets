@@ -354,3 +354,58 @@ move together; today nothing makes them.
 **Affects:** `engine/reconcile.ts` tier 2 · `scripts/ops/triage-protocols.ts` · the external-reference
 adapter (unbuilt) · the existing decision *"Corroboration compares exactly"*, which this does not
 contradict but does bound
+
+---
+
+## `Verdict.call` is nullable, and null is the answer for a metric across deployments
+
+**Date:** 2026-09-07
+**Decision:** `Verdict.call` becomes `VerdictCall | null` in `alpha-markets/report/v1`. A report whose
+`subject.headline` names one deployment's figure gets a call as before. A report whose headline is a
+metric across a set gets **`null`**. `Coverage` is unchanged and is now **aggregated across every
+deployment** on those reports, and each deployment's own reconciliation stays in `checks` as its
+three tier claims.
+
+⚠️ **This is a change to the published schema, not an internal one.** Alpha Markets is meant to be
+something another team's analyst can produce reports for, and anyone targeting `v1` must now handle
+a null call. It is recorded here for that reason. The version string is unchanged: the field was
+always present and every value it could previously hold it can still hold, so an existing consumer
+that reads `call` as a string and does not expect null is the only thing that breaks — which is
+exactly what this note exists to warn.
+
+**Why null rather than a computed answer.** A verdict answers *"can this figure be stood behind"*.
+A ranking has no such figure. Every way of manufacturing one lies in some direction: **the worst
+across the set** stamps `discrepancy` on a table where twenty-two of twenty-three rows tie out
+cleanly — and rankings deliberately include weak deployments with caveats, so it makes the honest
+thing look broken. **The best across the set** hides the row that does not hold. **An aggregate rule**
+("`ties_out` only if every checkable deployment agreed") is defensible and was the alternative
+seriously considered, but it still answers a question nobody asked: a reader of a ranking wants the
+verdict for *row 2*, not for the table, and row 2's verdict is in `checks` where it belongs.
+
+**What it fixes, and this is the part that forced the change.** The field used to be filled from
+whichever deployment came first in the plan — `slugs[0]` — because the headline-matching branch could
+never match a `metric.` sentinel. That is arbitrary, and worse, **it put plan ordering inside the
+report hash**: the same data, planned in a different order, produced a different report identity.
+`null` is a stable fact about the report. Iteration order is now sorted for the same reason, since
+`checks` and `provenance` are arrays and array order is hashed.
+
+**What we give up:** a single-glance trust signal on multi-deployment reports. A reader now has to
+look at per-deployment claims to see which rows are corroborated. That is more work and it is
+honest work; the previous single glance was showing them one deployment's verdict labelled as the
+report's.
+
+**Alternative rejected:** making the whole `Verdict` object nullable. It would have deleted
+`Coverage` from precisely the reports where coverage matters most — a twenty-three deployment
+ranking — and coverage is not a judgement, it is a measurement that survives having no verdict.
+
+**Consumers checked before the change:** `narrate.ts` `context()` (now names the null case in words
+so the model does not read "null"), `demo/execute.ts` (guarded), `demo/canonical.ts` fixtures (still
+valid), and `render()` — which never read the verdict at all, so the printed report is unaffected.
+
+⚠️ **One ordering dependency remains and is not fixed here:** `subject.deployments` is passed through
+from the plan in the planner's order, and it is inside the hash. Sorting it would make the report
+identity fully independent of plan ordering; it is left alone because rewriting a plan's declared
+subject is a different decision from choosing an iteration order.
+
+**Affects:** `types/report.ts` (`Verdict.call`) · `agent/execute.ts` (verdict assembly, sorted
+iteration) · `agent/narrate.ts` (prompt wording) · the `v1` contract as published to other analysts
