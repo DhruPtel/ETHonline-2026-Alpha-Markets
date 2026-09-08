@@ -3775,3 +3775,62 @@ lookup key; `hederaAccountId` is what comes off the row afterwards. `ats.ts` los
 
 `tsc -p tsconfig.json --noEmit` exits 0; `next build` exits 0 with `/api/health` in the route table.
 **Deployed half not run** — uncommitted, and deploys come from the repo.
+
+## 2026-09-08 — Phase 3 Unit 13: quotes freeze what is being sold, and liveness comes from the clock
+
+`src/payments/quotes.ts` (143 lines) and `scripts/demo/quotes.ts` as the proof. **The quotes table
+expressed everything this needed** — no schema change, no column added. All assertions pass and the
+table is left holding 0 rows.
+
+**This unit decides no price.** `config/pricing.ts` holds it; what happens here is recording that a
+specific report was offered at a specific price at a specific moment, so a settlement can be matched
+back to what it was for.
+
+### Three decisions the brief asked to be stated
+
+⚠️ **1 · TTL is 90 seconds, under Hedera's ~120-second window, with 30 seconds of headroom.**
+Measured, not asserted: the proof reads `expiresAt - createdAt` off the row and checks it against the
+window. The headroom is for the buyer — it receives the 402, signs and submits, and *its* transaction
+then gets its own validity window on top of this. A quote that outlived the window would surface as a
+settlement error, which is the hardest kind to diagnose because nothing about it says "stale quote".
+
+⚠️ **2 · The same report quoted twice REUSES the row. Same id, same price, no second row.** Proved:
+`5a39c08a… / 5a39c08a…`, and `exactly one live quote for this report`. The reason is that every
+report is publicly linked from the index and **every unpaid request produces a 402** — a row per
+unpaid request would let anything that crawls the site grow this table without bound. Reuse also
+gives a buyer that retries the same quote id to match a settlement against, which is what §5.9's
+payment-identifier path will want. ⚠️ **Reuse is filtered on the price as well as on liveness**, so a
+price change stops reusing immediately rather than serving the old figure for up to 90 seconds.
+
+⚠️ **3 · Expiry is a fact about time, never a stored flag.** `state` has an `'expired'` value in the
+CHECK constraint and **nothing writes it, deliberately** — nothing sweeps this table, so a stored
+`'expired'` would only ever be as fresh as the last sweep that did not run. `state` records
+*settlement*; Unit 14 moves a row to `'settled'`. A row that is `'open'` and past its expiry is not a
+contradiction, it means the offer lapsed unpaid. The proof makes this visible rather than describing
+it: two rows, **both `state="open"`, `isLive` true and false** — the difference is entirely the clock.
+A later quote correctly declines to reuse the expired row.
+
+**Other things proved.** An unknown report hash returns `null` **without a foreign-key violation** —
+checked explicitly rather than left to the constraint, because a constraint error surfacing out of the
+payment path is a 500 where a 404 belongs. The price round-trips as a **string** (`BIGINT` → driver
+string → `AssetAmount.amount`), with no coercion at either end.
+
+⚠️ **`quoteAmount(q, asset)` builds from the QUOTE's frozen price, never from the constant** —
+otherwise the row would be decoration. The asset arrives as a parameter for the same reason it does
+in `pricing.ts`: importing `@x402/hedera` for one string pulled 2.24 MB into two pages on 2026-09-08.
+Unit 14 has it loaded already.
+
+⚠️ **No `payTo` in this file.** The table has no such column and it is not this unit's to know — it
+belongs on the challenge, which Unit 14 resolves per request through `DynamicPayTo` and
+`analystByArcAddress()`.
+
+⚠️ **This is now the THIRD memoized connection pool** — `store/reports.ts`, `store/tokens.ts` and now
+this. Each keeps its own client and none exports it, so every module that touches the database opens
+another. Three copies is the point where a shared accessor in `db.ts` stops being a nicety. Flagged,
+not done: `db.ts` is out of scope for this unit.
+
+**The proof script cleans up in a `finally`**, on the success and failure paths both — `demo/store.ts`
+puts its restore *outside* its `finally`, which is the hazard the loop sweep found, and this is the
+one place it was cheap not to repeat it.
+
+`tsc -p tsconfig.json --noEmit` exits 0.
