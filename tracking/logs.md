@@ -3635,3 +3635,66 @@ applies most when the header is what turned out to be wrong.
 probes, and the preview still shows the boundary and the ISIN. `tsc -p tsconfig.json --noEmit` exits
 0; `next build` exits 0 with the route table unchanged. **Deployed half not run** — uncommitted, and
 deploys come from the repo.
+
+## 2026-09-08 — Unit 6b verified in production: the paywall holds on the deployed site
+
+Read-only check against the aliased URL after the 6b deploy (`b0987da`, working tree clean and
+matching). **All six checks pass.** One real change from the last production check, and one
+false-positive worth recording so nobody re-runs the same bad probe.
+
+### The paywall, probed with each report's own body
+
+⚠️ **Rather than generic probes, this loaded every report from Neon, rendered it with `render()`, and
+extracted that report's own figures, table row labels and assessment opening** — then looked for those
+strings in its deployed HTML. Generic probes can only fail to find things that were never there.
+
+| report | | probes from its own body | present |
+|---|---|---|---|
+| `24041ca2…` | TOKENIZED `XXCQBDTBC9X2` | 24 | **0** |
+| `c2649f05…` | TOKENIZED `XX5FVRD1TMD1` | 17 | **0** |
+| `ea756902…` | no token | 12 | **0** |
+| `f2285b4e…` | no token | 24 | **0** |
+
+Probes included `$24.63B`, `$10.00B`, `~87%`, `$581.2M`, `Live data from The Graph`, `<table`,
+`table-wrap` and each assessment's opening clause. **Tokenization changes nothing about what is
+rendered** — the tokenized and untokenized pages are equally clean, which was worth checking
+separately rather than assuming.
+
+⚠️ **One probe reported a hit and it was a false positive — recorded so it is not re-investigated.**
+The row-label probe `"Market"` matched on `f2285b4e…`. It appears exactly twice in that page: in
+`<title>Alpha Markets</title>` and in the public `Markets read` coverage count. The actual table
+header, `Market (asset)`, appears **zero** times. A six-character substring collided with the site's
+own name. The lesson is small but real: a probe shorter than the thing it is testing for will find
+itself.
+
+### The rest
+
+- **Index** — 4 reports, **2 tokenized** rendering `<strong>Tokenized · XXCQBDTBC9X2</strong>` and
+  `XX5FVRD1TMD1` against plain `<span>Not tokenized</span>`, all four links present, `0.001 HBAR` on
+  every row plus the masthead.
+- **Preview, tokenized** — analyst, block `25930744`, `Observed at 2026-09-08 06:05 UTC`, full hash,
+  `140` figures, `67` markets read, `3` corroborated, population `complete`, checks run, plus ISIN,
+  proxy `0xE7aaEFB1…` and the HashScan link.
+- **Preview, untokenized** — `Not tokenized. The report is published…`, **zero** ISIN or HashScan
+  elements, paywall boundary and price still present.
+- **404s** — unknown 64-hex hash and a malformed `not-a-hash` both 404.
+- **`/api/probe`** — still **402**, `hedera:testnet`, `feePayer 0.0.7162784`, unchanged by this deploy.
+
+### ⚠️ One real change: `payTo` is no longer empty
+
+The deployed challenge now carries **`payTo: '0.0.10387690'`**. At the Unit 6 production check it
+carried `payTo: ""` — the empty-env-var trap, open item 7 in the sweep. It is fixed *as observed*.
+
+⚠️ **But from outside, "fixed" and "unset" look identical here.** `app/api/probe/route.ts` reads
+`process.env.HEDERA_SELLER_ID ?? '0.0.10387690'` — a hardcoded fallback. An env var that is now set
+correctly and one that is now *absent* both produce this output; only an empty-string value produces
+the old one. **Unit 12's `payments/server.ts` will have no such fallback**, so the actual Production
+value should be confirmed before Unit 14 is demoed rather than inferred from this probe.
+
+### Local vs deployed
+
+**The rendered `<main>` is byte-identical on both pages** — 1,912 bytes on the report page, 2,383 on
+the index, local and production. The whole-document difference is **exactly +180 B on both**, and it is
+fully accounted for: 18 asset references × 10 characters, production serving
+`/_next/static/immutable/chunks/…` where local serves `/_next/static/chunks/…`. Same cause as Unit 6,
+cosmetic, no action.
