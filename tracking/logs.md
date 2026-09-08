@@ -2725,3 +2725,49 @@ hashing identically — held.
 **The README also gained `validate.ts`,** which it had never mentioned because Unit 11 landed after it
 was written. Since the file was being rewritten anyway, an absent unit was a false sentence by
 omission.
+
+## 2026-09-08 — Phase 3: the store connects, and four tables exist
+
+`src/store/db.ts`, `src/store/migrations/001_init.sql`, and `scripts/ops/migrate.ts` as the runner.
+No store logic — `save`, `load` and `list` are Unit 5, which is the unit that proves a `Report`
+survives the round trip. This one is the connection and the schema.
+
+⚠️ **The unit stopped on its first attempt and the stop was the right call.** `DATABASE_URL` and
+`DATABASE_URL_DIRECT` were byte-identical and both pointed at the `-pooler` host, so the "direct"
+connection was a second copy of the pooled one. Running DDL through PgBouncer does not fail cleanly —
+it fails on session state and reads like a fault in the `.sql` file — and a passing proof would have
+exercised the pooled path twice while claiming to have exercised both. Env corrected, re-verified
+(`identical hosts? False`), then built. `migrate.ts` now asserts the absence of `-pooler` before
+running anything, because a copied connection string is how this happens and it already happened once.
+
+**Column types, chosen rather than defaulted.** `TEXT` for canonical JSON, never `jsonb` — jsonb
+reorders keys, normalises numbers and drops duplicates, and the report hash is SHA-256 over the
+canonical bytes, so a round trip would silently change the identity of every stored report. The
+round-trip proof shows it holding: `{"b":2,"a":1}` came back in written order rather than sorted.
+`BIGINT` for `price_tinybars` — atomic units, exact integer, money never touches a float, and
+BIGINT's ceiling is ~92 billion HBAR. `TIMESTAMPTZ` everywhere, never naive `TIMESTAMP`:
+`observed_at` is a real instant from `eth_getBlockByNumber` and `expires_at` sits inside Hedera's
+~120s validity window, where a one-hour zone error is not a rounding difference. `TEXT` for hashes
+and addresses with `CHECK` regexes rather than `CHAR(n)`, which pads on read.
+
+**Two schema decisions that came from earlier findings rather than from the brief.**
+`report_tokens.report_hash` is the PRIMARY KEY, so one report can have only one token — `maxSupply: 1`
+stops a second *issue* against one proxy but nothing on-chain stops a second *proxy*, which SM-07
+named as a gap. And `purchases.payment_id` is the PRIMARY KEY, which is the idempotency mechanism
+§5.9 needs; `native_tx_id` is `NOT NULL` because §5.8 requires it written before settle is called, so
+a row with a native id and a null `settled_at` is exactly the ambiguous case `recover.ts` resolves.
+
+**The runner is 45 lines and deliberately not a framework** — no version table, no down migrations, no
+checksums. Every statement is `IF NOT EXISTS`, so re-running is the same as running once, which is
+what a version table would otherwise buy. Idempotence proved by running it three times.
+
+⚠️ **Two things Unit 5 needs to know.** `BIGINT` comes back from `postgres` as a **JavaScript string**,
+not a number — deliberate on the driver's part, since a bigint exceeds `Number.MAX_SAFE_INTEGER`. So
+`block` round-trips as `"25930486"` and `Report.block` is typed `number`; Unit 5 has a coercion to
+write, and doing it wrong is a silent type mismatch inside a hashed object. And idempotent DDL is
+noisy by design: the default notice handler dumped whole notice objects that read like errors on the
+one run proving nothing broke, so `direct()` now prints them as one line each — the information kept,
+the object dump gone.
+
+`postgres@3.4.9` was already declared from the Unit 1 probe and is confirmed a leaf: `dependencies {}`,
+`peerDependencies {}`, and `npm ls postgres --all` shows nothing beneath it.
