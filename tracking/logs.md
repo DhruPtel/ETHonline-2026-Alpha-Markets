@@ -3022,3 +3022,43 @@ writing to the live database.
 
 **Not done: the deployed half.** Everything above is local. The public URL still serves the Unit 1
 skeleton, because this work is uncommitted and deploys come from the repo.
+
+## 2026-09-08 — Unit 6 verified in production: Neon is reachable from Vercel, and the only difference is an asset path
+
+Read-only check against the aliased URL after the Unit 6 deploy. **All five checks pass.** The
+specific unknown — whether `DATABASE_URL` works from a serverless invocation, having only ever been
+exercised from this machine — is answered: it does.
+
+| check | result |
+|---|---|
+| `GET /` | **200**, lists both real Neon reports with full hashes; the Unit 1 skeleton is gone |
+| `GET /report/{hash}` | **200**, table, source line, assessment paragraph, hash — end to end |
+| hash === primary key | **2/2**, checked mechanically |
+| unknown hash | **404** (and a malformed, non-hex hash is also 404) |
+| `GET /api/probe` | **402**, `network: hedera:testnet`, `extra.feePayer: 0.0.7162784` |
+
+**The mechanical hash check, same shape as the local one.** For each key in `SELECT hash FROM
+reports`: fetch the deployed page, scrape the identity panel and `render()`'s footer out of the
+served HTML, and re-derive the hash from the stored canonical bytes via `load()`. All four values
+equal on both reports. The live report page a stranger can open is
+`https://et-honline-2026-alpha-markets.vercel.app/report/24041ca282d260d3ad843d197086f595d6a2fab46d4e5aadf3e1c1517bfdd3e5`.
+
+⚠️ **Exactly one difference between local and deployed, and it explains itself.** The rendered
+`<main>` is **byte-identical** on both pages — 3,402 bytes for the report, 1,123 for the index. The
+whole-document difference is 180 bytes, and it is entirely the asset path: production serves
+`/_next/static/immutable/chunks/…` where local serves `/_next/static/chunks/…`. Ten characters ×
+eighteen references = 180 bytes. All seven referenced assets return 200, and the stylesheet is
+present and correct — 3,499 source bytes minified to 2,332, with `table-wrap`, `identity`, `mono`,
+`prefers-color-scheme` and `overflow-wrap` all in it. Nothing is unstyled and nothing 404s.
+
+**`force-dynamic` confirmed in production, which is the property that matters operationally.** Three
+consecutive requests to `/` each returned `x-vercel-cache: MISS`, `age: 0` and
+`cache-control: private, no-cache, no-store`. A newly published report will appear without a
+redeploy. Warm response times: `/` ~0.34s, a report ~0.40s, `/api/probe` 1.3s cold then ~0.31s.
+
+⚠️ **`payTo` is still an empty string in the deployed 402 challenge.** Unchanged by this deploy and
+already open item 2 in the Phase 3 record — `HEDERA_SELLER_ID` is defined in Vercel Production and
+resolves empty at runtime. Restating it because Unit 12 replaces this route with the real
+`payments/server.ts` and this is the exact failure the empty-env-var trap describes: the value is
+present, the challenge is well-formed, and the field is blank. **It is not a regression from Unit 6**
+— the reading surface does not touch it — but it is a live 402 advertising nobody to pay.
