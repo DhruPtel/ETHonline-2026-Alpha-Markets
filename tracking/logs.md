@@ -2451,3 +2451,93 @@ time (it prints `- Environments: .env`), and that file holds `HEDERA_SELLER_KEY`
 `NEXT_PUBLIC_`, which would inline it into a client bundle. And the heavy dependencies the next unit
 measures are **already installed** from Phase 0 — `@x402/hedera`, `ethers`, the ATS contracts package
 — so the baseline is not a clean one; what changes is whether `app/` imports them.
+
+## 2026-09-08 — Phase 3 Unit 2: the probe route. M1 answered with room to spare, M2 works on Next 16
+
+`app/api/probe/route.ts`, one throwaway file, plus two dependencies. It fits, and the number is
+**10.0 MB against a 250 MB limit — 4.0%, with 240 MB of headroom.**
+
+**M1, measured three ways so the delta is visible rather than inferred.** The figure is the sum of
+every unique file in `@vercel/nft`'s trace — `.next/server/app/api/probe/route.js.nft.json` — plus the
+entry file, which is what Vercel uploads for that function.
+
+| variant | traced size | % of 250 MB |
+|---|---|---|
+| all five heavy imports | **10,473,708 B = 10.0 MB** | 4.0% |
+| four non-x402 heavies commented out | 4,145,698 B = 4.0 MB | 1.6% |
+| `/` page, no heavy deps at all | 1,746,076 B = 1.7 MB | 0.7% |
+
+So the ATS contracts package + ethers + postgres + `@anthropic-ai/sdk` cost **6.0 MB**, and the
+x402/Hedera stack costs **2.3 MB** over the bare page.
+
+⚠️ **The reason it fits is the mechanism, and it is worth naming.** Turbopack **bundles** server
+dependencies into a chunk rather than tracing raw `node_modules` — the 110 MB the research note
+measured for the ATS contracts package plus ethers becomes 7.93 MB of
+`chunks/[root-of-the-server]__1bcmqn_._.js`. Nothing was silently dropped: the chunk carries 110
+occurrences of `ethers`, 181 of `ResolverProxy`, 58 of `keccak` and 8 of `TransferTransaction`, and
+each of the five is referenced at runtime in the response body precisely so tree-shaking cannot make
+the measurement a lie. **No native `.node` or `.wasm` binaries are traced**, which is the thing that
+would have resisted bundling and changed the answer.
+
+**M2 — `withX402` works on Next 16, unmodified.** A real 402 from a production `next start`, with the
+challenge in the `payment-required` header: `network: hedera:testnet`, `extra.feePayer: 0.0.7162784`,
+`scheme: exact`, `asset: 0.0.0`, `amount: 100000` tinybars, `x402Version: 2`. None of the Next 15
+friction from `docs/research/x402-next-2.25.md` appeared — no `--legacy-peer-deps`, no peer conflict.
+The resource server is built **inside** the handler in a try/catch, never at module scope, which is
+the one thing `scripts/smoke/05-x402-purchase.ts` does wrong at its line 241.
+
+⚠️ **Two dependencies landed, and one brought a surprise.** `postgres@3.4.9` has **zero**
+dependencies. `@x402/next@2.25.0` pulled `@x402/extensions@2.25.0`, which depends on **`viem`** —
+plus `@signinwithethereum/siwe`, `jose`, `ajv`, `@noble/curves`, `@scure/base`, `tweetnacl` and `zod`.
+32 packages for two direct installs. **`viem` is now installed as a transitive dependency**, having
+been listed in the plan under Phase 4's `market/` and reported as "not installed" three days ago. It
+is not imported by anything and did not appear in the traced bundle, but the tree is no longer what
+the plan's dependency table says it is.
+
+⚠️ **Not done: the deployed URL.** Vercel auth still does not exist on this machine — no `.vercel/`,
+no CLI, no token — so the 402 above is from a local production build rather than from Vercel. That is
+`next build` + `next start`, never `next dev`, so it is not the failure class SM-09 guards against;
+but it is not the deployment proof either, and the route stays until it has run once on Vercel.
+
+**Build warning worth recording:** `Patching Protobuf Long.js instance...` appears twice during page
+data collection, from `@hiero-ledger/sdk`'s protobuf layer. Harmless here, and the kind of thing that
+is cheaper to have seen now than under five more dependencies.
+
+## 2026-09-08 — Phase 3: vercel.json, the deploy lands, and the probe answers from Vercel
+
+`vercel.json`, one key, `{"framework": "nextjs"}`. Nothing else — no `buildCommand`, no
+`outputDirectory`, no `installCommand`, because Next's defaults are right and an override is a second
+place for this to go wrong. `.gitignore` needed no change: the CLI had already added `.vercel` and
+`.env*` during linking.
+
+**The deploy fixed what it was meant to fix.** The "No Output Directory named `public`" error is gone
+— the project preset was "Other" because it was created before the repo had a framework in it, and
+declaring the framework in the repo puts that setting in version control rather than in dashboard
+state nobody can read later. Build completed in 1m, route table identical to local (`○ /`,
+`○ /_not-found`, `ƒ /api/probe`), aliased to
+**https://et-honline-2026-alpha-markets.vercel.app**. `GET /` returns 200 and renders the scaffold.
+
+**M2 now has its serverless answer.** `GET /api/probe` on the deployed URL returns **402** with a
+`payment-required` header whose decoded challenge carries `network: hedera:testnet`,
+`extra.feePayer: 0.0.7162784`, `scheme: exact`, `asset: 0.0.0`, `amount: 100000`, `x402Version: 2`
+— the same challenge the local production server produced, now out of a Vercel function. `withX402`
+works on Next 16 in the environment that matters.
+
+⚠️ **And the deployment surfaced a bug the local run had masked: `payTo` came back as an empty
+string.** The probe reads `process.env.HEDERA_SELLER_ID ?? '0.0.10387690'`. Locally both branches
+produce the same 12-character `0.0.x` value, so the two were indistinguishable; on Vercel the header
+carries `"payTo": ""`. `HEDERA_SELLER_ID` **is** listed in Production (`vercel env ls`), so it is
+defined-and-empty rather than absent — and `??` only falls back on `null`/`undefined`, never on `""`.
+**A challenge with an empty `payTo` cannot be paid**, so this would have been a live failure the first
+time a buyer agent tried, presenting as a facilitator error rather than as a config one.
+
+Two things to take from it rather than one. The immediate fix is the Production value of
+`HEDERA_SELLER_ID`, which needs checking against what `.env` holds locally. The durable one is that
+**`??` is the wrong operator for environment variables** — `||`, or an explicit empty check, is what
+distinguishes "unset" from "set to nothing", and a `payTo` is exactly the field where that distinction
+moves money. Recorded rather than fixed: the probe is throwaway and its route was out of scope for
+this unit, but Unit 12's `payments/server.ts` should treat an empty required env var as a startup
+failure rather than letting it reach a challenge.
+
+The probe route stays until this is resolved; it has now answered from Vercel, which was the condition
+for deleting it, but deleting it would also delete the only thing currently exercising that env path.
