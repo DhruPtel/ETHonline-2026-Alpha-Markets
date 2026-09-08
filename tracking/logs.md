@@ -2630,3 +2630,50 @@ real address. `model` is imported from `loop.ts`'s `MODEL` rather than restated,
 drift. And the proof script's `env()` treats an empty string as missing — yesterday's deployed probe
 produced a challenge with an empty `payTo` precisely because `??` falls back on `undefined` and not
 on `""`.
+
+## 2026-09-08 — Phase 3: execute takes an analyst id, and the hash does not move
+
+`ExecuteState.analyst: string` became `ExecuteState.analystId: string`, `execute` resolves it through
+`config/analysts.ts`, and three of the four demo scripts pass `'alpha-1'` instead of a literal
+address. The literal now appears in exactly two places: the config row that owns it, and
+`demo/canonical.ts`'s fixture.
+
+**The rename was the point, not a side effect.** `analyst: "alpha-1"` in a field that used to hold
+`0x1b70…` is the same-name-different-meaning that Morpho's schema taught this project to distrust —
+it would have compiled everywhere and been wrong everywhere. `analystId` forces every call site to be
+looked at. The resolution happens **before any query**: an unknown id throws in 0ms rather than after
+a hundred gateway requests, and the lookup's own message already explains why an unregistered analyst
+cannot be attributed.
+
+⚠️ **The hash was proved not to move, end to end, rather than argued.** A real report was generated
+through `execute` **before** any edit — aave-v2 balance sheet, block 25930486, `dataHash
+f1e2b62f1203…`. After the change the same plan was re-run at the **same pinned block** through the
+new `analystId` path:
+
+```
+  before  f1e2b62f120356246bd736ed0472ea2ff1254179b0a7f4d683542adf565192ee
+  after   f1e2b62f120356246bd736ed0472ea2ff1254179b0a7f4d683542adf565192ee
+  ✅ HASH DID NOT MOVE
+```
+
+That is a live comparison, not a constructed equivalence — same block, same data, byte-identical hash.
+`Report.analyst` still holds an address and is still inside the hash; only where the caller got it
+from changed.
+
+⚠️ **`demo/canonical.ts` keeps its literal, deliberately.** It never calls `execute` — it builds
+`Report` objects directly and hashes them against values recorded on 2026-09-05. A fixture that
+resolves through config is a fixture that changes when config changes, which defeats it. Its
+`differs('analyst changed', …)` case also needs a second, deliberately wrong address, which config
+cannot supply. Its recorded hashes still reproduce: `49cfaa6c…3db9b7` and `b3688035…bfe3ec`.
+
+`demo/validate.ts` needed both forms — an id for its `execute` call and the row's own `arcAddress` for
+a hand-built validator fixture — so it reads `analyst(ANALYST_ID).arcAddress` rather than restating
+the literal. The fixture there has no recorded hash, so resolving it is safe; that is the distinction
+from `canonical.ts`.
+
+Everything else passes: `tsc -p tsconfig.json --noEmit` exits 0, `demo/execute.ts` runs end to end
+with the config address in the report, and its own determinism check still reports
+`run 1 / run 2 ✅ identical` at a shared block.
+
+The DECISIONS entry recording why the analyst row carries Hedera fields landed in the same commit's
+worth of work, because this is the change that makes the config load-bearing.

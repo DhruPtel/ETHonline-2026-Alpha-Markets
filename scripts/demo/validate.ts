@@ -4,10 +4,14 @@ import { compose } from '../../src/agent/compose.js';
 import { execute } from '../../src/agent/execute.js';
 import { narrate } from '../../src/agent/narrate.js';
 import { validate, type Violation } from '../../src/agent/validate.js';
+import { analyst } from '../../src/config/analysts.js';
 import type { Fact, Report } from '../../src/types/report.js';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const ANALYST = '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7';
+// ⚠️ An id for the pipeline call, and the row's own address for the hand-built fixture below —
+// so the literal address appears nowhere in this file and the two cannot drift.
+const ANALYST_ID = 'alpha-1';
+const ANALYST_ADDRESS = analyst(ANALYST_ID).arcAddress;
 
 const fact = (id: string, label: string, value: string): Fact => ({
   id, label, value, unit: 'USD', slug: id.split('.')[0]!, block: 25927842,
@@ -16,7 +20,7 @@ const fact = (id: string, label: string, value: string): Fact => ({
 
 /** A minimal but structurally real report, so the three fabrications are the only variable. */
 const fixture = (text: string, factRefs: string[], basis: string[]): Report => ({
-  schema: 'alpha-markets/report/v1', form: null, analyst: ANALYST,
+  schema: 'alpha-markets/report/v1', form: null, analyst: ANALYST_ADDRESS,
   subject: { directive: 'test', deployments: ['aave-v3-ethereum'], headline: 'aave-v3-ethereum.totalDepositBalanceUSD' },
   block: 25927842, observedAt: '2026-09-08T00:00:00.000Z',
   facts: { 'aave-v3-ethereum.totalDepositBalanceUSD': fact('aave-v3-ethereum.totalDepositBalanceUSD', 'aave-v3-ethereum — Total deposits', '24820000000') },
@@ -56,7 +60,7 @@ for (const [name, directive] of [
 ] as const) {
   const c = await compose(directive, client);
   if (!c.ok) { console.log(`\n⛔ ${name}: planner refused`); continue; }
-  const ex = await execute({ plan: c.plan, analyst: ANALYST });
+  const ex = await execute({ plan: c.plan, analystId: ANALYST_ID });
   if (ex.status !== 'completed') { console.log(`\n⛔ ${name}: execute ${ex.status}`); continue; }
   const report = await narrate(ex.draft, client);
   const vs = validate(report);

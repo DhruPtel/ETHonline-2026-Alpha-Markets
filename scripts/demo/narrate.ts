@@ -8,7 +8,9 @@ import { reportHash } from '../../src/domain/canonical.js';
 import { figureRef } from '../../src/engine/invariants.js';
 import type { Report, ReportPlan } from '../../src/types/report.js';
 
-const ANALYST = '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7';
+// ⚠️ An id, resolved through config/analysts.ts — not a literal address. The four copies of that
+// literal were four places a typo would have hashed cleanly and attributed a report to nobody.
+const ANALYST_ID = 'alpha-1';
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // Either a named mode, or a directive in plain English.
 const MODES = ['memo', 'stability', 'withheld', 'morpho'] as const;
@@ -37,7 +39,7 @@ const stages: Stage[] = [];
 let composeMs = 0;
 
 async function run(plan: ReportPlan, block?: number): Promise<Done | NotDone> {
-  const state: ExecuteState = { plan, analyst: ANALYST, ...(block ? { block } : {}) };
+  const state: ExecuteState = { plan, analystId: ANALYST_ID, ...(block ? { block } : {}) };
   const ex = await execute(state);
   if (ex.status !== 'completed') return { ok: false, status: ex.status };
   const tNarrate = Date.now();

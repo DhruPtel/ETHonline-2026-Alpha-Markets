@@ -643,3 +643,23 @@ is real, from a faucet that has already refused us twice, in the week Phase 4 ha
 conditional)* · §3 H1.7 *(forfeited on testnet)* · SM-05's USDC row in `smoke-results.md`
 *(closed as decided)* · `docs/research/x402-next-2.25.md` §5 *(marked superseded)* ·
 `payments/buyer.ts` and `payments/quotes.ts` (Phase 3)
+
+---
+
+## Each analyst has its own Hedera account (2026-09-08)
+
+**Decision:** `analysts.ts` carries `hederaAccountId` and `hederaEvmAddress` per
+row rather than in a shared platform config. An analyst tokenizes its own report
+and sells it behind its own x402 gate, so the `payTo` and the ATS issuer are the
+analyst's, not the platform's.
+
+**Consequence:** every unit that issues a token or builds a payment challenge
+reads these from the analyst row on the report being sold, never from an env var.
+Reading them from env would mean a second analyst's sales pay the first.
+
+**Cost:** a second analyst needs its own funded Hedera account with HBAR for gas —
+provisioning rather than code. One analyst ships in this build; the row shape is
+what makes a second one additive.
+
+**Affects:** `config/analysts.ts` · `agent/execute.ts` · `tokenize/ats.ts`
+(Unit 8) · `payments/quotes.ts` (Unit 13) · PLAN §11 cut #6

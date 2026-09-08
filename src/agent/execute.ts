@@ -12,6 +12,7 @@
 import type { CheckResult, Exclusion, Fact, Report, ReportPlan, Severity } from '../types/report.js';
 import type { JsonScalar, Provenance } from '../types/wire.js';
 import { PROTOCOLS } from '../config/protocols.js';
+import { analyst } from '../config/analysts.js';
 import { commonBlock } from '../graph/blockwindow.js';
 import { querySubgraph } from '../graph/client.js';
 import { paginate } from '../graph/paginate.js';
@@ -33,7 +34,18 @@ export interface Budget { readonly maxQueries: number; readonly maxMarketPages: 
 export const DEFAULT_BUDGET: Budget = { maxQueries: 100, maxMarketPages: 10, maxWallClockMs: 240_000 };
 // ⚠️ No token budget: this step makes no model calls. The planner and the narrator have those.
 
-export interface ExecuteState { readonly plan: ReportPlan; readonly analyst: string; readonly block?: number }
+/**
+ * ⚠️ **`analystId`, not an address — renamed 2026-09-08 and the rename is the point.** This field
+ * used to be `analyst: string` and held a raw `0x…`, copied as a literal into four demo scripts. A
+ * typo in any of them would hash perfectly cleanly and produce a report attributed to an address
+ * that can never claim it on Arc.
+ *
+ * It now holds a `config/analysts.ts` id — `'alpha-1'` — which `execute` resolves to that row's
+ * `arcAddress`. The name changed along with the type deliberately: `analyst: "alpha-1"` in a field
+ * that used to hold an address is the same-name-different-meaning that Morpho's schema taught this
+ * project to distrust, and every call site has to be looked at rather than silently still compiling.
+ */
+export interface ExecuteState { readonly plan: ReportPlan; readonly analystId: string; readonly block?: number }
 
 /**
  * Wall-clock inside `execute`, so a slow run can be attributed rather than guessed at.
@@ -116,7 +128,11 @@ async function blockTime(block: number): Promise<string> {
 
 export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDGET): Promise<ExecuteResult> {
   const started = Date.now();
-  const { plan, analyst } = state;
+  const { plan, analystId } = state;
+  // ⚠️ Resolved BEFORE any query. An unknown id is a broken run whichever way it ends, and finding
+  // that out after a hundred gateway requests costs the budget and tells you nothing extra. The
+  // lookup throws rather than returning null, and its message says why.
+  const analystAddress = analyst(analystId).arcAddress;
   const el = () => Date.now() - started;
   let queries = 0;
   const t = { blockMs: 0, fetchMs: 0, corroborateMs: 0, corroborateCalls: 0, engineMs: 0 };
@@ -334,7 +350,9 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
   }
 
   const draft: DraftReport = {
-    schema: 'alpha-markets/report/v1', form: null, analyst, subject: plan.subject, block, observedAt,
+    // ⚠️ `Report.analyst` is unchanged: still an address, still inside the hash. Only where the
+    // caller got it from moved — from a literal it typed to a row it named.
+    schema: 'alpha-markets/report/v1', form: null, analyst: analystAddress, subject: plan.subject, block, observedAt,
     facts, checks, exclusions,
     verdict: {
       // A metric headline has no single figure to stand behind, so no call — see `Verdict.call`.

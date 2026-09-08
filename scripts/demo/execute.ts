@@ -3,14 +3,15 @@ import { execute, type ExecuteState } from '../../src/agent/execute.js';
 import { figureRef } from '../../src/engine/invariants.js';
 import type { ReportPlan } from '../../src/types/report.js';
 
-const ANALYST = '0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7';
+// ⚠️ An id, resolved through config/analysts.ts — not a literal address.
+const ANALYST_ID = 'alpha-1';
 const plan = (directive: string, slugs: string[], headSlug: string, headField: string): ReportPlan => ({
   subject: { directive, deployments: slugs, headline: figureRef(headSlug, headField) },
   reads: [{ documentId: 'balance-sheet', slugs, variables: {} }, { documentId: 'markets', slugs, variables: {} }],
   checks: ['chain-corroboration'],
   rationale: 'test plan',
 });
-const st = (p: ReportPlan): ExecuteState => ({ plan: p, analyst: ANALYST });
+const st = (p: ReportPlan): ExecuteState => ({ plan: p, analystId: ANALYST_ID });
 const usd = (v: string | null) => (v === null ? 'withheld' : `$${(Number(v) / 1e9).toFixed(3)}B`);
 
 console.log('\n1 · balance overview for Aave v3\n');
