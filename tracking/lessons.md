@@ -1031,3 +1031,49 @@ before Phase 3, to buy legibility that a paragraph buys for nothing.
 one commit — every file was right when it landed. It becomes visible the first time someone tries to
 write one sentence describing the folder. **Being unable to summarise a directory is a design signal,
 not a writing problem.**
+
+## 2026-09-08 — The rule bound the file being changed, and the stale docs were all outside it
+
+**Amends the 2026-09-07 entry above**, *"Half the file headers described designs that had been
+removed"*, which ended with **the header is part of the diff.**
+
+**What we expected.** That rule to have been enough. It was applied and it held: writing
+`docs/phase-2-summary.md` meant reading all six core logic files, and no file header was found wrong.
+
+**What happened.** The same failure had simply moved outward. Four documents *outside* the code
+carried claims that had been true when written and were not true any more, all of them about the same
+event — Unit 11 landing:
+
+| document | said | true state |
+|---|---|---|
+| `tracking/phases/PHASE-2-status.md` | "Units 1–10 complete. Unit 11 is the only one left", plus a blocking Anthropic credit failure and a report format "nobody has seen" | built; credit cleared days ago; the format had been read all week |
+| `tracking/phases/phase-2-tasks.md` | Unit 11 ⬜ **not started** | ✅ done |
+| `docs/ARCHITECTURE.md` | "The validator that enforces it on the prose is the one unbuilt unit" | built, wired, and warning by design |
+| `README.md` | "✅ works — 10 of 11 units. The digit validator is the one still open" | 11 of 11 |
+
+⚠️ **The last two are the documents a judge opens first**, and both of them told a reader that the
+guarantee this project rests on — no model ever types a digit — was enforced by a file that did not
+exist.
+
+**Why the header rule did not catch it.** It binds *the file being changed*. Unit 11's own run was
+disciplined by that rule and by CLAUDE.md's tracking section: `validate.ts`, its demo, `DECISIONS.md`
+and `logs.md` were all written together. What went stale is the class of document that describes **the
+state of the project** rather than the state of a file — and no brief that says "build Unit 11" has
+any obvious reason to open `README.md`.
+
+**What changes.** The rule generalises, and the generalisation is a short checklist rather than a
+principle:
+
+> ⚠️ A change that moves a unit from unbuilt to built, or changes what a component does, is not
+> finished until every document that makes a **status claim** says so. There are four:
+> `README.md`, `docs/ARCHITECTURE.md`, `tracking/phases/PHASE-N-status.md`, and the phase task board.
+
+**And the fix is almost never deletion, which is the more useful half.** "The validator is the one
+unbuilt unit" did not become silence; it became *"it runs on every report and warns rather than
+blocks, deliberately"* — which is more information than the original sentence carried, not less. The
+stale claim marked the exact spot where something interesting had happened. Cutting the sentence
+would have thrown that away and left the architecture doc quieter and worse.
+
+**The shape worth naming.** Documentation rots in proportion to how far it sits from the code that
+changed, which is exactly inverse to how early a stranger reads it. The files nobody's brief names
+are the files a judge opens first.

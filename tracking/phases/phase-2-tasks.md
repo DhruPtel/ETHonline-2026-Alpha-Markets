@@ -25,17 +25,17 @@ figure that wasn't in the data.
 | 8 | `agent/compose.ts` | LOGIC ★ | ✅ done |
 | 9 | `agent/execute.ts` | LOGIC | ✅ done |
 | 10 | `agent/narrate.ts` | LOGIC | ✅ done |
-| 11 | `agent/validate.ts` | LOGIC ★ | ⬜ **not started — the only unit left** |
+| 11 | `agent/validate.ts` | LOGIC ★ | ✅ done — landed 2026-09-08, wired as a **warning** |
 | — | ranking form (`skills/ranking.md`, + `compose`/`execute`/`narrate` changes) | — | ✅ done — **added mid-phase, not in the original eleven** |
 
-**10 of 11 done.** Unit 11 is the narration validator: the guard that rejects any digit in report
-prose that is not inside a `{fact:ID}` placeholder. Everything it guards already exists — the
-placeholder mechanic has been in `narrate.ts` since Unit 10 and `factRefs` are derived from the text
-rather than supplied by the model, so the validator has one job and nothing to negotiate with.
+**11 of 11 done.** Unit 11 is the narration validator: it rejects any digit in report prose that is
+not inside a `{fact:ID}` placeholder, with an allowlist derived from the report's own facts, slugs
+and block. ⚠️ **It warns; it does not block** — see DECISIONS.md, 2026-09-08, and the two missing
+fact ids that enforcement waits on.
 
-⚠️ **The report format was stripped back on 2026-09-07 and the change is untested.** A report is now
-a table and up to 500 words; the skills went from 288 lines to 131. Nobody has seen what the model
-produces under it — both proof runs failed on API credit, not on code.
+**The report format was stripped twice and the forms were removed.** A report is a table and one
+paragraph; `Report.form` is always `null` and both form skills are parked in `skills/unused/`. The
+format has been read repeatedly since — see `docs/phase-2-summary.md` for what the phase found.
 
 **Development set:** the five deployments triage cleared — aave-v2, aave-v3, compound-v2, compound-v3,
 spark-lend. Morpho stays configured as the deployment that makes the trust layer necessary.

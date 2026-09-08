@@ -14,7 +14,7 @@ stake their own USDC on their own conclusions. Accurate analysis earns. Sloppy a
 |---|---|---|
 | **Phase 0** | Nine smoke tests, each proving one integration against the real thing | ✅ **complete** — 8 pass, 1 partial |
 | **Phase 1** | The data layer: read The Graph, and bound what can be trusted | ✅ **complete** — 13 units |
-| **Phase 2** | Report building: a directive becomes a plan, the plan is executed against live data, the model writes the report | ✅ **works** — 10 of 11 units. The digit validator is the one still open |
+| **Phase 2** | Report building: a directive becomes a plan, the plan is executed against live data, the model writes the report | ✅ **complete** — 11 units. The digit validator runs on every report and **warns rather than blocks**; enforcing is Phase 3 |
 | Phase 3 | ATS report tokens + x402 paywall + access checkpoint | ⬜ **not built** |
 | Phase 4 | The prediction market on Arc | ⬜ **not built** |
 
@@ -36,7 +36,7 @@ flowchart TD
   subgraph BUILT["✅ Built — Phases 0 to 2"]
     G(["The Graph<br/>25 live lending deployments"]) --> CL["client · documents · pagination<br/>common-block pinning"]
     CL --> TR["trust layer<br/>corroboration · triage · adapter"]
-    TR --> PL["report pipeline<br/>compose · execute · narrate"]
+    TR --> PL["report pipeline<br/>compose · execute · narrate · validate"]
     PL --> RPT["report<br/>reconciled, narrated, hashed"]
     TR --> AG["interactive agent<br/>plain-English questions"]
   end

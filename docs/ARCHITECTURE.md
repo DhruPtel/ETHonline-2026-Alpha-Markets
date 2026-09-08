@@ -37,7 +37,13 @@ adjusted figure is one nobody can trace.
 
 **No model ever types a digit.** The narrator is handed a fact table and can only reference it as
 `{fact:ID}`; code substitutes the values. That is why an invented figure is unrepresentable rather
-than unlikely. (The validator that enforces it on the prose is the one unbuilt unit.)
+than unlikely. `agent/validate.ts` checks the prose *before* substitution — a legitimate figure is
+still a placeholder at that point, so any money or percentage left in the text is fabricated by
+construction. ⚠️ **It runs on every report and warns rather than blocks**, deliberately: today's
+dominant violation is a utilization column the model computed from figures this pipeline really did
+fetch, and a guard that fails every report teaches everyone to route around it. Enforcement is a
+Phase 3 item — see `tracking/DECISIONS.md`, *"The digit guard warns in Phase 2 and enforces in
+Phase 3"*, for the two missing fact ids it waits on.
 
 **The report is an object; the hash is over the object.** Markdown, a file, HTML — all renderings,
 all must hash identically. `domain/canonical.ts` produces the 32 bytes that get committed on Hedera

@@ -2260,3 +2260,77 @@ told it five or twenty-three.
 of percentages are model-typed, not `{fact:ID}` substitutions. Third instance this week. The pattern
 is now unmistakable: give the narrator a true number it cannot cite and it will type it, because the
 alternative is saying something false. Unit 11 will reject all three reports as written.
+
+## 2026-09-08 — Unit 11: the digit guard, and the two false positives that were mine
+
+`src/agent/validate.ts` — the last unit of Phase 2, and the one that turns "the model never types a
+number" from a convention it follows into something it cannot do. Pure: a `Report` in, a list of
+violations out, and **it never repairs**. Kept out of `narrate.ts`'s presence gate for the reason
+that file's own header gives — that gate asks whether a table and a summary arrived, this asks
+whether what arrived is honest, and merging them would let a bug in one hide in the other.
+
+**The policy, decided before writing.** The observation that shaped it: the validated text is
+PRE-substitution, so a legitimate figure appears as `{fact:aave-v3-ethereum.totalDepositBalanceUSD}`
+and never as `$24.82B`. Any money or percentage in that string is fabricated by construction. So the
+rule is three steps — strip placeholders, allow tokens **the report's own data supplied**, reject
+every digit left.
+
+⚠️ **The allowlist is derived from the report rather than hardcoded**, and that is the whole trick.
+It is built at validation time from every `Fact.slug`, every `Fact.label`, `subject.deployments` and
+the report's own block. It cannot rot when a protocol is added, it cannot be gamed because the model
+cannot add facts, and it gives a property worth having: a block number passes only if it is the block
+this report was read at. Allowlisting by context needed guessable regexes; allowlisting by magnitude
+fails on the merits, because `5` is not fine when it means five billion dollars.
+
+**Three fabrications caught and a control passed on the first run:** a bare `$900 billion`, a
+`factRef` resolving to nothing, and an `assessment.basis` naming a fact that does not exist.
+
+⚠️ **Both real reports failed, which was predicted — and two of the three failure kinds were my
+tokeniser rather than the model.** Worth separating, because they look identical in the output:
+
+- **`v2's` rejected while `v2` was allowed.** The possessive survived normalisation. A guard that
+  fires on English grammar teaches everyone to ignore it.
+- **Five MakerDAO collateral types rejected by name** — `RWA015-A`, `RWA002-A` and friends. The
+  allowlist split labels on separators to get `v3` out of `aave-v3-ethereum`, and that same split ate
+  the hyphen inside `RWA015-A`, so the market's own name never entered the allowlist. Fixed by
+  splitting twice: whitespace-only keeps hyphenated identifiers whole, the separator split then
+  breaks them down. Both are needed and neither loosens the rule.
+
+**What survived is the real finding.** After both fixes, a protocol-level report fails on three
+computed utilization percentages, and the market breakdown fails on `63` — twice, once in the table
+and once in the prose.
+
+The percentages are a **correct rejection**: there is no utilization fact, so the model computed
+them, and that is precisely the fabrication this unit exists to stop. The `63` is **true and
+uncitable** — the market population, which the engine knows and reports in a check rationale but has
+no fact id for. That is not the policy being too strict; it is the policy naming the exact place a
+fact is missing. The fix is to promote the count to a `unit: 'count'` fact so the model can cite it,
+which is an `execute.ts` change and now has evidence behind it rather than being a suggestion.
+
+**So Phase 2's eleven units are built, and no report generated today would pass the guard.** Both
+statements are true and the second is the more useful one: the validator's first act was to prove
+that reports we have been reading all week contain figures nobody can trace.
+
+## 2026-09-08 — `docs/phase-2-summary.md`, and four documents that still said Unit 11 was open
+
+Wrote `docs/phase-2-summary.md` to match the shape of the Phase 1 summary: what the phase set out to
+do, the eleven units and what each one found, the findings that changed the design, one real run end
+to end, and what is deferred. The run chosen to illustrate the pipeline is the MakerDAO markets
+directive — the first plan that ever named the `markets` document, which was declined on its first
+attempt because an empty subject scope expanded to all 25 deployments, then completed in 2 queries
+and 778 ms and produced twenty-three rows out of sixty-three with the model explaining why. It also
+typed `63` twice, which is the report Unit 11 rejects, so the same run carries both halves honestly.
+
+Two mermaid diagrams, neither duplicating `ARCHITECTURE.md`: the path a figure takes from the gateway
+to rendered prose and where the guard sits on it, and the two things that hang off the planner's
+declared headline — whether `verdict.call` is a value or null, and whether a `DATA_ERROR` blocks the
+figure or the report.
+
+⚠️ **Four documents still said Unit 11 was unbuilt** — `PHASE-2-status.md`, the task board,
+`ARCHITECTURE.md` and `README.md` — and the last two are what a judge reads first. All four
+corrected, and phrased as what the validator actually does rather than by deleting the claim: it runs
+on every report and warns rather than blocks, which is recorded in `DECISIONS.md` and is more
+information than the stale sentence carried. `PHASE-2-status.md` also still described a cleared
+Anthropic credit block and a report format "nobody has seen", both of which had been overtaken.
+Written up in `lessons.md` as the generalisation of the header rule from 2026-09-07: that rule bound
+the file being changed, and every document that went stale here was outside it.

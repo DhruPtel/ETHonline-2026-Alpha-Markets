@@ -409,3 +409,64 @@ subject is a different decision from choosing an iteration order.
 
 **Affects:** `types/report.ts` (`Verdict.call`) · `agent/execute.ts` (verdict assembly, sorted
 iteration) · `agent/narrate.ts` (prompt wording) · the `v1` contract as published to other analysts
+
+---
+
+## The digit guard warns in Phase 2 and enforces in Phase 3
+
+**Date:** 2026-09-08
+**Decision:** `agent/validate.ts` is wired into the report path as a **warning**. The report renders
+in full, then the violations print underneath it. Nothing is blocked, nothing is withheld, and no
+violation changes what a reader sees. Enforcement — refusing to publish a report that fails — waits
+for Phase 3.
+
+**Why not enforce now.** Every report generated today fails, and the dominant failure is one we do
+not consider broken: the model computing a utilization column from two figures **this pipeline
+actually fetched**. That is arithmetic on Graph data, not invention. A hard refusal would reject
+every report for something that is, on the current reading, fine — and a guard that fails everything
+teaches everyone to route around it.
+
+**Why enforce later, and what changes.** In Phase 3 a report becomes something someone pays for and
+stakes on. At that point "traceable to a query at a specific block" stops being a design preference
+and becomes the thing being sold: a buyer who cannot verify a figure has bought a claim, not a
+measurement. The same violation that is acceptable in a printed memo is not acceptable in a
+tokenised artifact whose hash is committed on-chain.
+
+⚠️ **This is deliberate, not unfinished.** The unit is built, tested against five cases, and running
+on every report. What is deferred is the consequence, not the check.
+
+**What we give up in the meantime:** a report can carry a figure a reader cannot trace, and the only
+signal is a warning printed below it that nobody is obliged to read. Accepted, on the grounds that
+the warning makes the problem visible and measurable while it is cheap to fix.
+
+### The two gaps the guard exposed, both the same shape
+
+⚠️ **Both are the engine failing to expose something the model needs, so the model supplies it
+itself.** That is the pattern worth naming: a model given a true quantity it cannot cite will type
+it, because the alternative is saying something false.
+
+**1 · The market population count has no fact id.** `execute` knows a deployment has 63 markets and
+reports it in a `market-population` check rationale, but there is no `{fact:…}` for it. So a report
+that honestly says "23 of 63 markets shown" types `63`. `FactUnit` already includes `'count'` and
+`show()` renders that unit verbatim, so this is a small `execute.ts` change — emit the count as a
+fact alongside the market facts.
+
+**2 · Utilization is not computed anywhere.** No engine figure expresses borrows ÷ deposits, so the
+model divides. `ops.ratio` exists and is exact, `FactUnit` includes `'ratio'`, and `show()` already
+renders a ratio as a percentage — the machinery is present and unused. Computing it in the engine
+would make the column citable AND make it correct to more than two significant figures, which the
+model's arithmetic is not.
+
+Closing either narrows the warning to real fabrications. Closing both is the precondition for
+enforcing, and doing them in that order is why enforcement is a Phase 3 item rather than a switch we
+could flip today.
+
+**A third, smaller, and undecided:** a ranking's `| Rank |` column produces one violation per row —
+`1` through `10` — because a rank is a digit the model typed and no fact supplies it. It is not a
+claim about the world, it is an ordinal for a row the reader can see. Whether ranks should be exempt,
+become facts, or be dropped from tables is open; today they are simply noise in the warning, and the
+demo caps the printed list at ten so they do not bury the percentages.
+
+**Affects:** `agent/validate.ts` (unchanged by this decision) · `scripts/demo/narrate.ts` (the
+warning) · `execute.ts` (both gaps above) · Phase 3's definition of done, which should include
+enforcing this

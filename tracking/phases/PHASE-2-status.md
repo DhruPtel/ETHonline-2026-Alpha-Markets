@@ -1,4 +1,4 @@
-# Phase 2 — status, 2026-09-07
+# Phase 2 — status, 2026-09-08
 
 **Authoritative unit list:** `tracking/phases/phase-2-tasks.md` (eleven units). ⚠️ `PHASE-2.md` is
 the earlier plan and has a *different* fourteen-unit numbering; every brief has followed the
@@ -7,49 +7,50 @@ Treat the board as live and `PHASE-2.md` as the reasoning behind it.
 
 ## Where it stands
 
-**Units 1–10 complete. Unit 11 — `agent/validate.ts` — is the only one left.**
+**All eleven units are built.** Unit 11 — `agent/validate.ts`, the digit guard — landed 2026-09-08
+and is wired into the report path as a warning. `docs/phase-2-summary.md` is the written account of
+the phase.
 
-The pipeline runs end to end: a directive becomes a plan, the plan resolves a common block and
-fetches from The Graph, the engine checks the figures, and the model writes a report against a fixed
-format. Compose correctly refuses what it cannot answer and defaults what it can. Execute blocks a
-report whose headline figure is unreportable and publishes one whose failure is elsewhere. Narration
-never types a number.
+The pipeline runs end to end: a directive becomes a plan that names its own documents, the plan
+resolves a common block and fetches from The Graph, the engine checks the figures, the model writes a
+table and a paragraph without typing a digit, and the guard says which digits it typed anyway.
+Execute blocks a report whose headline figure is unreportable and publishes one whose failure is
+elsewhere.
 
-**A ranking form was added mid-phase** and is not in the original eleven — `skills/ranking.md` plus
-changes to `compose`, `execute`, `narrate` and `types/report.ts`. It ranks all live deployments,
-drops ones too stale to share a block, and separates figures that are not on the same scale from ones
-that are merely small.
+**The report format was stripped twice and the forms were removed.** `Report.form` is always `null`;
+a report is now whatever the plan queried, in a table, plus one paragraph. `skills/ranking.md` and
+`skills/balance-overview.md` are parked in `skills/unused/`. The engine still computes checks,
+verdict, coverage, provenance and exclusions, and all of it stays in the object and inside the hash —
+this was a rendering decision.
 
-## Blocked
+## Resolved since the last status
 
-⚠️ **The Anthropic API account is out of credit.** Both proof runs for the stripped-back format failed
-at the model call:
-
-```
-400 invalid_request_error: Your credit balance is too low to access the Anthropic API.
-```
-
-A bare one-token request fails identically, so it is not our code. `compose` and `execute` both
-completed in the first run — the data layer fetched from The Graph and the engine ran — and only
-narration failed. **Nothing about the pipeline is known to be broken.**
-
-## Untested
-
-⚠️ **The report format was stripped back on 2026-09-07 and nobody has seen the result.** A report is
-now a table and up to 500 words: no verdict line, no provenance, no checks summary, no footer. The
-skills went from 288 lines to 131. Everything the engine computes still lands in the `Report` object
-and inside the hash — this was a rendering decision, not a change to what is computed.
-
-The open question the change exists to answer: **does the agent have anything worth reading to say
-when it is not being told what to worry about?** That needs one run of each form to judge.
+- ⚠️ **The Anthropic credit block is gone.** Both stripped-format proof runs failed on it on
+  2026-09-07; runs have completed since and the format has been read repeatedly. Note the tail: the
+  same explanation was then applied to a *different* failure days later — a garbled paragraph that a
+  billing error cannot produce — and cost two days. Written up in `lessons.md`.
+- **The stripped format is no longer untested.** Reports have been generated and read all week, and
+  the question it existed to answer is answered: the model does have something worth reading to say
+  when it is not being told what to worry about. The MakerDAO markets run chose twenty-three rows out
+  of sixty-three and explained why.
+- **The planner can name a document.** `DOCUMENT_BRIEF` in `graph/queries/index.ts`, and `reads` is
+  required on the plan.
+- **`Verdict.call` is nullable** for a metric across deployments — it used to be `slugs[0]`, and it
+  is inside the hash.
+- **`needs_clarification` removed.** The defaults live in `conventions.md`, loaded by both compose
+  and narrate.
 
 ## Open items
 
 | item | state |
 |---|---|
-| **`execute.ts` produces no per-market facts** | Still true — `FIGURES` is protocol-level only. ⚠️ But the consequence has changed: the stripped skills no longer ask for a market table, so nothing is unsatisfiable now. It is a capability we lack rather than a promise we break |
-| **morpho-blue ranks #2 by deposits despite an `unusable` verdict** | Undecided. The old skill said the headline names only what we can stand behind and the rule did not fire; the new skill does not carry that rule at all. Needs a decision: is inclusion-with-a-caveat right for a size ranking, or should an `unusable` deployment sit outside the table? |
+| **The digit guard warns, it does not enforce** | Deliberate — see DECISIONS.md, 2026-09-08. Enforcement is a Phase 3 item and is blocked on two missing fact ids: the **market population count** and **utilization**. Rank columns are a third, smaller, undecided case |
+| **`execute.ts` produces market-level facts now** | ✅ Closed. `MARKET_FIGURES` is deposits and borrows per market. ⚠️ But there is **no cap** — Morpho's 1,759 markets would be 3,518 facts in the narrator's prompt. Untested |
+| **The external-reference tier cannot run on any report** | `reconcile` takes it as an observation and nothing produces one; DefiLlama is fetched in the demo only. The check says so in its own rationale |
+| **morpho-blue ranks #2 by deposits despite an `unusable` verdict** | Still undecided, and the rule that raised it was parked with the ranking skill. Is inclusion-with-a-caveat right for a size ranking, or should an `unusable` deployment sit outside the table? |
 | **`Report.analyst` is a caller parameter** | `config/analysts.ts` does not exist. Fine for a proof, not for a product — that address is what a leaderboard and an on-chain claim both key on |
-| **The Morpho-denominator case is untested** | Root cause found: `HEADLINE_FIELDS` in `compose.ts` holds only balance-sheet fields and no derived ratio, so utilization cannot be expressed as a metric. "Most leveraged" always plans as `totalBorrowBalanceUSD`, which is comparable, so the case the ranking skill is written for never arises |
-| **The eight-market rule was cut** | Measured (top 8 covers 85–98% of every deployment's book) and then removed with the rest of the skill. Bring it back if a report ever needs a market table |
-| **A pinned-block evidence hash differed once** | Unreproduced across ~50 attempts since. Recorded in `lessons.md`; needs a real answer before settlement depends on it |
+| **No derived-ratio headline** | `HEADLINE_FIELDS` in `compose.ts` holds only balance-sheet fields, so "most leveraged" always plans as `totalBorrowBalanceUSD`. The Morpho-denominator case the ranking skill was written for has never arisen |
+| **Nothing bounds cumulative figures** | morpho-blue's `cumulativeDepositUSD` reads 3.78e+23 and reaches a report unexamined. Found by the model, not by a check |
+| **The Σ-markets-vs-total check has never fired** | Kept, recorded as unproven rather than counted as working |
+| **A pinned-block evidence hash differed once** | Unreproduced across ~50 attempts. Open against Phase 4, not Phase 2 |
+| **⚠️ `src/agent/` holds two systems that never call each other** | The report pipeline and the `ask.ts` tool-use loop. **Phase 3 forces the answer**, because a server has to expose one of them |
