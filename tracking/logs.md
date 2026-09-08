@@ -3976,3 +3976,95 @@ cannot observe, and that gap is what §5.9's retry exists for.
 
 `tsc` exits 0, `next build` exits 0. **The paid path is unproven until Unit 15** — an unpaid 402 is
 half a gate, and the probe route stays until the whole thing is proved end to end.
+
+## 2026-09-08 — Phase 3 Unit 15: an agent paid for a report, and the gate served it
+
+`src/payments/buyer.ts` (216 lines) and `scripts/ops/buy.ts` (144). **One real paid request, end to
+end, against the deployed gate.** H1.3 is closed and Unit 14's paid path is no longer unproven.
+
+```
+HashScan  https://hashscan.io/testnet/transaction/0.0.7162784@1788908586.639187830
+```
+
+**The handshake, in full, across a real network:**
+
+```
+  gate quoted   100000 tinybars (0.001 HBAR) · asset 0.0.0 · payTo 0.0.10387690 ← the analyst
+                feePayer 0.0.7162784 · hedera:testnet · 120s
+  signed        native tx 0.0.7162784@1788908586.639187830  ← recorded BEFORE the request went out
+                payment id pay_7b11da500ad9410b8e575f65e28e5c85
+  paid          settled, payer 0.0.10387696, 0.001 HBAR to 0.0.10387690
+```
+
+**The buyer received the report the preview page does not serve** — 2,442 characters of markdown whose
+hash matches the one requested, including the market table:
+
+```
+| Market (asset) | Deposits (current, gross) | Borrows (current) | Utilization |
+| **Protocol total (67 markets)** | $24.63B | $9.96B | ~40% |
+| WETH | $5.34B | $4.40B | ~82% |
+```
+
+⚠️ **`$24.63B` is the exact figure Unit 6b's paywall proof confirmed was absent from the public HTML.**
+The same string, behind the same gate, now delivered because something paid for it. That pair is the
+whole product in two lines.
+
+**Money moved, read from the transaction record and not a balance diff** — SM-05 reported unchanged
+balances across a settlement that demonstrably succeeded, because the read happened at consensus
+finality rather than Mirror Node ingestion:
+
+```
+  on-chain result  SUCCESS
+  network fee      0.00252987 paid by 0.0.7162784   ← the facilitator, as designed
+    0.0.802        +252987      0.0.10387690   +100000   ← the analyst
+    0.0.7162784    -252987      0.0.10387696   -100000   ← the buyer
+```
+
+**The `purchases` row, and the ordering that matters:**
+
+```
+  payment_id    pay_7b11da500ad9410b8e575f65e28e5c85
+  report_hash   24041ca2…dd3e5      payer   0.0.10387696
+  native_tx_id  0.0.7162784@1788908586.639187830
+  created_at    16:03:13            settled_at   16:03:15        delivered_at  null
+```
+
+⚠️ **`settled_at` is 2.0 seconds after `created_at`, which is the §5.8 ordering visible in data
+rather than asserted in a comment.** The native id was written before settle was called and equals the
+transaction that eventually settled — so a settle that had failed would have left a row naming exactly
+what to ask Mirror Node about. `payer` is the facilitator's answer, having been derived from the
+signed bytes first.
+
+**Two refusals, costing nothing, each naming its own control:**
+
+```
+  ✅ price above the per-payment cap   refused by "per-payment-cap"
+  ✅ an asset never allowlisted        refused by "asset-not-allowlisted" (0.0.429274, holds 0.0.0)
+```
+
+⚠️ **`spendControls: false` appears nowhere.** `@x402/core` ships these on and fail-closed, and HBAR
+is not a default asset on `hedera:testnet`, so it is opted in **explicitly with its own atomic cap** —
+which keeps the control working rather than disabling it. The error message suggests `false`, and
+taking that suggestion turns an autonomous buyer into something that pays whatever it is asked.
+
+⚠️ **The cumulative daily cap is ours, because the library's control is per-payment only.** A
+per-payment cap bounds one mistake and does nothing about a thousand. The ledger recorded
+`100000 tinybars` spent today with both the pre-send and post-settle entries. It lives in a file under
+the OS temp directory — **right for a CLI agent and wrong for a fleet**, and said in the file rather
+than implied, because "we had a daily cap" should not be load-bearing without knowing where it lived.
+
+**One check worth keeping: the payment identifier is verified into the payload before spending.** The
+gate declares it required and aborts an unrecordable payment, so a buyer whose id failed to survive
+`createPaymentPayload` would have paid for a settlement the seller then refused. Checked, not hoped.
+
+**The autonomy claim, stated narrowly:** the buyer decided unattended whether the quoted price was
+under its caps and whether the asset was one it holds. That is what "agent" means here. No model
+decided to shop.
+
+⚠️ **Mirror Node ingestion is polled before paying**, because the facilitator preflights against
+Mirror Node and a first payment after funding lands inside that window — SM-05 was bitten at both ends
+of one settlement.
+
+`tsc -p tsconfig.json --noEmit` exits 0. Nothing in `gate.ts`, `server.ts` or `quotes.ts` changed —
+the gate was right as built. **The probe route can now be deleted**, since the real route has been
+proved end to end; that is a separate change and has not been made here.
