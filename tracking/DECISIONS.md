@@ -220,14 +220,60 @@ nothing SM-07 needs to prove. The public factory is genuinely active — nonce 6
 asset first try once two field values were corrected. The resolver carries 8 configurations, all at
 version 1, verified live before use. What we give up is control of a dependency that could vanish
 inside our window, and the demo would go with it.
-**What protects us:** The token our deploy produced, `0.0.10395983`, carries **its own** expiration of
-`1796496695` — 2026-12-04, well past both. **An issued asset outlives the factory that issued it**, so
-an expiry event costs us the ability to mint new reports, not the ones already minted.
+⚠️ **Correction, 2026-09-08 — this paragraph used to read "What protects us."** It claimed: *"The
+token our deploy produced, `0.0.10395983`, carries its own expiration of `1796496695` — 2026-12-04,
+well past both. **An issued asset outlives the factory that issued it**, so an expiry event costs us
+the ability to mint new reports, not the ones already minted."* **That is false comfort and it is the
+sentence someone would rely on.** It is true of the factory and of nothing else.
+
+**What an expiry would actually cost, traced rather than assumed.** The internal actions of SM-07's
+own `transfer` — an ordinary ERC-20 move of an already-issued token — are:
+
+```
+depth 0  CALL          0.0.10395983   our token proxy        expires 2026-12-05 18:51:35Z
+depth 1  STATICCALL    0.0.9212226    the resolver           expires 2026-09-10 10:51:29Z
+depth 2  DELEGATECALL  0.0.9212222                           expires 2026-09-10 10:51:21Z
+depth 1  DELEGATECALL  0.0.9213141                           expires 2026-09-10 11:11:20Z
+depth 2  DELEGATECALL  0.0.9212262                           expires 2026-09-10 10:52:11Z
+depth 3  DELEGATECALL  0.0.9212248, 0.0.9212239              expires 2026-09-10 10:51:46/56Z
+```
+
+⚠️ **The proxy holds storage; every line of executable code lives in contracts that expire inside the
+same 80-second window.** So the factory's expiry would cost new mints, and the resolver's and the
+facets' would cost **every transfer of every already-issued token**. `deployEquity` makes 188
+staticcalls into the resolver; `issue`, `transfer` and `grantRole` make one each. There is no version
+of this where the December expiry on the proxy protects anything.
+
+**And it does not matter, for a reason worth citing so nobody re-derives it.** Hedera has **not
+enabled smart-contract rent on any network.** The EVM documentation states it outright — *"Hedera
+Council has not enabled rents on smart contracts yet"* — and that smart contract expiry and
+auto-renewal are currently disabled, so contracts are not charged renewal fees and do not expire.
+HIP-16 defines the mechanism that would apply if it were switched on (expire → grace period, during
+which the contract is inoperable except for a `ContractUpdate` extending its expiry → purge from
+state). It was first targeted at a **March 2023** release and has not been enabled since; Hedera says
+it intends to enable it "in the future," with no date and no named release. Turning it on is a
+Council decision.
+
+- `docs.hedera.com/evm/development/rent` — the current status and the grace period
+- `hips.hedera.com/hip/hip-16` — the mechanism
+- `hedera.com/blog/smart-contract-rent-is-coming-to-hedera` — the original March 2023 target
+
+**Measured again 2026-09-08, and nothing had moved.** Both expirations are byte-identical to the
+values recorded above. Both are exactly `created_timestamp + auto_renew_period`, so **neither has ever
+been renewed**; both carry `auto_renew_account: null` and a **zero HBAR balance**, so there is nothing
+a renewal could be charged to. It is a cliff, not a rolling window — and an inert one. The factory
+meanwhile went from nonce 68 to **88**, with **32 distinct sender accounts** in its last 100 calls and
+deploys on every one of the past ten days, so it is in heavy active use. ⚠️ **That is not protection:
+none of those users is renewing it, and none of them can without the admin key.**
+
 **Alternative rejected:** Deploying our own infrastructure now, pre-emptively. Twenty-nine minutes and
-~500 HBAR against a risk Hedera does not presently enforce, before we know the rest of the pipeline
-works. It stays the fallback, unchanged.
-**Revisit if:** either contract stops answering, or the demo date moves past 2026-09-10 and we would
-need to mint on the day. Then it is the 111-contract deploy, and it is ~29 minutes, not a surprise.
+~500 HBAR against a risk that requires a Hedera Council decision, with no date attached, to
+materialise inside our remaining window. It stays the fallback, unchanged.
+**Revisit if:** either contract stops answering, or Hedera announces a date for enabling contract
+rent. ⚠️ **Not** if the demo date passes 2026-09-10 — that was the old trigger and it rested on the
+mistaken belief that the dates bite. A one-line Mirror Node GET on `0.0.9212226` reporting `expiry`
+and `deleted` is folded into `/api/health` in Phase 3 Unit 12, so the assumption is visible rather
+than assumed.
 **Affects:** SM-07 · §8 SM-07 row (the "expiry of `0.0.9213391` recorded" clause is now satisfied) ·
 report tokenization (Phase 3)
 
@@ -470,3 +516,130 @@ demo caps the printed list at ten so they do not bury the percentages.
 **Affects:** `agent/validate.ts` (unchanged by this decision) · `scripts/demo/narrate.ts` (the
 warning) · `execute.ts` (both gaps above) · Phase 3's definition of done, which should include
 enforcing this
+
+---
+
+## Reports are a read-only purchase — the Own tier is cut
+
+**Date:** 2026-09-08
+**Decision:** The x402 gate sells **reads**. A buyer pays, receives the report body, and that is the
+whole transaction. **No ATS token is transferred to a buyer as part of a purchase.**
+
+⚠️ **Report tokens are still issued, one per report, and the transfer is still demonstrated** — as a
+standalone operation rather than as a consequence of payment.
+
+**Why.** H2.4 asks for issuance, configuration and **≥1 lifecycle operation** on video. It does not
+require the lifecycle operation to be *caused* by a payment, and reading it that way was our own
+addition. Demonstrating `transfer` directly satisfies the requirement outright.
+
+What the Own tier costs is the expensive half of the gate, and all of it is machinery rather than
+product: **inventory reservation** against a supply of one, **recipient binding** (§5.4's EIP-191
+session, because an x402 payer is a Hedera `0.0.x` and an ATS recipient is a testnet EVM address —
+different identifiers, and the second cannot be derived from the first), the **two-buyers-one-unit
+race** (R16), and a `409` branch. With Phase 4 unstarted and CORE, seventeen units was the argument
+against carrying it.
+
+**What we give up.** The product story is weaker: "buy a report" is a smaller idea than "own the
+report." R15 (payment ok, ATS transfer fails) stops being reachable, which is a simplification but
+also the loss of a genuinely interesting failure path. And §9's Phase 3 exit clause *"token-holder
+isn't charged on either read"* is no longer meaningful, because in Phase 3 no buyer holds a token.
+
+**Alternative rejected:** keeping Own and cutting a play gap or the recovery unit instead. Both are
+worse trades — the play gaps are where the failure modes get found before a demo, and the recovery
+unit is the only defence that exists against a Hedera settle that times out after broadcasting.
+**Revisit if:** Phase 4 lands early. The gate's branch table is written so Own is additive rather than
+a rewrite — a tier, a reservation and a recipient, on a checkpoint that already exists.
+**Affects:** §5.19 `gate.ts` branch table (the four Own rows are out of scope for Phase 3) · §5.4
+recipient binding *(now unreached in Phase 3 — see the next decision)* · §9 Phase 3 exit *(amended in
+this commit)* · R15, R16 *(not reachable in Phase 3)* · `PHASE-3.md` Units 13 and 14
+
+---
+
+## x402 stays agent-to-agent; humans identify, agents buy — which resolves §5.3 against §5.4
+
+**Date:** 2026-09-08
+**Decision:** **x402 purchases are agent-to-agent.** A human can prove which address they control —
+an EIP-191 signed challenge, so a purchase can be attributed and re-read — and that comes **at the end
+of Phase 3** as the **named cut point** if Phase 4 needs the time. ⚠️ **A human completing an x402
+payment in a browser is out of scope, deliberately and not for lack of time.**
+
+**Why that is sufficient rather than a gap.** H1.3 asks for *"a platform **or** agent"* consuming the
+service with ≥1 real paid request end to end. **The buyer agent completing a real paid request is what
+the requirement asks for.** A browser payment is a product nicety, and it would need a WalletConnect
+Hedera signer that does not exist — `@x402/paywall` ships `evmPaywall`, `svmPaywall` and `avmPaywall`
+and **no Hedera export at all.** That is not a unit, it is a project.
+
+**And it is the stronger demo for this build.** One analyst publishes a report; a second agent, with
+its own wallet and its own spend cap, pays for it and reads it. That is the agent-economy pitch
+demonstrated rather than described — and SM-05 already proved the handshake settles on Hedera through
+Blocky402, so the demo rests on something measured instead of something we would have to build.
+
+⚠️ **If humans need a way in later it does not have to be x402** — a sponsored read against a proven
+address, a different rail, a free tier. **That is a Phase 5 question**, and it should not be answered
+by quietly widening Unit 18.
+
+**Why this is a decision and not a schedule.** §5.3 and §5.4 contradict each other and have since they
+were written. §5.3 cut human buying outright — *"Pay for a report (x402): the buyer agent only"* —
+on the grounds that `@x402/paywall` has no Hedera UI and a browser flow needs a WalletConnect Hedera
+signer we would have to build. §5.4 then specifies an EIP-191 session so that a **human** can prove an
+EVM address for the Own tier. Both cannot be true. **The resolution is that §5.3 overstated it:
+human buying is deferred, not cut**, and §5.4's mechanism is what it is deferred *to*.
+
+⚠️ **`auth.ts` returns, and its job is narrower than §5.4 describes.** With the Own tier gone (previous
+decision) there is no recipient to bind and no inventory to reserve against a proven address. What is
+left is the honest remainder: **proving which address a human is**, so a purchase can be attributed
+and re-read. That is a smaller file than §5.4 implies.
+
+**What we give up by ordering it last.** Buying is agent-to-agent either way, so cutting Unit 18
+loses a person's ability to *identify* themselves — not their ability to buy, which they never had.
+The cut costs product surface and no requirement. That asymmetry is the reason it is last rather than
+first.
+**Alternative rejected:** building the human path alongside the agent path. It doubles the gate's
+identity handling before either is proven, and the agent path is the one a requirement depends on.
+**Affects:** §5.3 human-surface table *(amended: "Cut" → "deferred within Phase 3")* · §5.4 *(scope
+narrowed — recipient binding is gone with the Own tier; address proof remains)* · `PHASE-3.md` Unit 18
+
+---
+
+## Testnet in HBAR, mainnet in USDC, and the cutover is the end of Phase 4
+
+**Date:** 2026-09-08
+**Decision:** All development and every demo rehearsal runs on **Hedera testnet, priced in HBAR**.
+**Hedera flips to mainnet at the end of Phase 4**, priced in USDC, so the submission can show real
+settled transactions. ⚠️ **Arc stays on testnet throughout — Arc mainnet does not exist until
+2026-09-16**, three days after the deadline.
+
+**Why this is recorded rather than left as a to-do.** It already was a to-do, in three places — SM-05's
+row, PLAN §1, and `x402-next-2.25.md`'s "Verdict: USDC" — all reading as scheduled work for Phase 3.
+**None of it was going to happen, because the blocker was never setup, it was supply.** Circle's
+testnet faucet did not deliver USDC to our account, Discord went unanswered, and SM-08 later found the
+faucet's API endpoint rate-limiting independently of its web form. A dependency on a third party who
+is not answering, written down as a task, is how a demo finds out on the day.
+
+**Why mainnet at the end of Phase 4 rather than never.** H1.1 accepts testnet, so nothing is required
+here — this is for the submission's credibility, not its eligibility. Doing it last means the whole
+system is proven before the asset changes underneath it, and R12's atomicity is honoured once rather
+than negotiated repeatedly.
+
+⚠️ **Mainnet HBAR has no faucet.** It needs an exchange withdrawal, possibly behind KYC, on a clock
+nobody controls — the same unbounded dependency that took R12 in the first place. **Start it well
+before it is needed**, and treat the cutover as gated on funds arriving rather than on a date.
+
+**Why the swap is small, which is what makes deferring it safe.** SM-05 already proved the part that
+looked risky: the client's spend controls reject non-default assets by default, and **opting HBAR in
+explicitly with its own atomic per-payment cap worked** — so the non-default-asset path is exercised
+and the control is not being disabled to get there. What remains is **token id, price format
+(`AssetAmount` in atomic units → a `"$…"` money string), the buyer's `allowedAssets` entry, and the
+facilitator's advertised asset.** Per R12 those move together or not at all. SM-05's
+`TokenAssociateTransaction` path is kept and skipped rather than deleted for exactly this moment.
+
+**What we give up until then, and it is real:** USD-legible pricing — `"$0.50"` throws on HBAR because
+`defaultMoneyConversion` rejects asset `0.0.0`, so a testnet price is hand-computed tinybars — and
+**H1.7's "HTS in the settlement path" judged extra, which is forfeited rather than deferred** while
+the asset is native HBAR.
+**Alternative rejected:** chasing testnet USDC now. It buys a legible price on a network where nothing
+is real, from a faucet that has already refused us twice, in the week Phase 4 has to be built.
+**Affects:** §1 chain table *(amended in this commit)* · R12 *(cutover now scheduled rather than
+conditional)* · §3 H1.7 *(forfeited on testnet)* · SM-05's USDC row in `smoke-results.md`
+*(closed as decided)* · `docs/research/x402-next-2.25.md` §5 *(marked superseded)* ·
+`payments/buyer.ts` and `payments/quotes.ts` (Phase 3)

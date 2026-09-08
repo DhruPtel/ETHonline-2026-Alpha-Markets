@@ -12,7 +12,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-export const MODEL = 'claude-opus-5';
+export const MODEL = 'claude-sonnet-5';
 
 /** Why the loop returned. ⚠️ A loop that stops silently is indistinguishable from one that finished. */
 export type StopReason = 'answered' | 'budget' | 'error';

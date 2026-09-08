@@ -622,13 +622,24 @@ are REST ingestion lag behind consensus, and both now poll. This matters beyond 
 
 ### To do
 
-- **What:** Fund the buyer with testnet USDC and re-run priced in USDC.
-  **Why:** The product should price in USD — "$0.50" is legible to a buyer, "50,000,000 tinybars" is
-  not, and USD pricing is what the `"$…"` money path exists for. This is no longer a blocker for
-  SM-05, which has passed; it is the switch back to the intended asset. The association code is kept
-  and skipped precisely so this is a price change rather than a rewrite.
-  **When:** Phase 3, `payments/tiers.ts`
-  **Status:** open
+- **What:** ~~Fund the buyer with testnet USDC and re-run priced in USDC.~~ ⚠️ **DECIDED 2026-09-08 —
+  this is not scheduled work. Testnet development runs in HBAR; USDC arrives with the mainnet cutover
+  at the end of Phase 4.**
+  **Why the change:** it sat open for two days reading like something on a list, and three documents
+  carried it that way — this row, PLAN-v4 §1, and `x402-next-2.25.md`'s "Verdict: USDC". Nothing was
+  going to action it, because **the blocker was never setup, it was supply.** Circle's testnet faucet
+  did not deliver, Discord went unanswered, and SM-08 later found the faucet's API endpoint
+  rate-limiting independently of its web form. Carrying a dependency on a third party who is not
+  answering, as though it were a task, is how a demo discovers on the day that it never happened.
+  **What it costs:** USD-legible pricing on testnet — `"$0.50"` throws on HBAR, because
+  `defaultMoneyConversion` rejects asset `0.0.0` — and **H1.7's "HTS in the settlement path" judged
+  extra**, which is forfeited rather than deferred.
+  **What it does not cost:** spend controls. SM-05 opted HBAR into the allowlist with its own atomic
+  per-payment cap and the control kept working, so the non-default-asset path is **already proven**.
+  That is what makes the mainnet swap small — token id, price format, the buyer's `allowedAssets`
+  entry, and the facilitator's advertised asset. The association code stays skipped, not deleted.
+  **When:** end of Phase 4, with the mainnet cutover. Reasoning in `DECISIONS.md` 2026-09-08.
+  **Status:** ✅ decided
 
 - **What:** Carry the Mirror Node ingestion lag into the payment path, not just this script.
   **Why:** Any flow that provisions an account and immediately pays through the facilitator hits the
@@ -652,10 +663,12 @@ are REST ingestion lag behind consensus, and both now poll. This matters beyond 
   **When:** Phase 3
   **Status:** open
 
-- **What:** Correct `docs/research/x402-protocol-spec.md:258`, or mark it superseded.
+- **What:** ~~Correct `docs/research/x402-protocol-spec.md:258`, or mark it superseded.~~
   **Why:** It asserts the opposite of what we measured, on the point R12 depends on.
   **When:** Phase 0
-  **Status:** open
+  **Status:** ✅ **done 2026-09-08.** Corrected in place with the original text quoted, the live
+  `/supported` response from the testnet host, and the reason it mattered. ⚠️ It stayed open for two
+  days after being identified — the sentence R12 rests on, in the note someone would read first.
 
 ---
 

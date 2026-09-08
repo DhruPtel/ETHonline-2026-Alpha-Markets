@@ -6,9 +6,22 @@
 
 > **Requirements are law. The build conforms to them.**
 
-**Locked constraints:** prediction market is core and resolves from live Graph data · Read (x402) and
-Own (ATS) go through one access checkpoint · fixed prices, not metering · **Vercel Hobby** · team is
-builder + Claude + Codex · Base x402 buyer is optional · **author claims are on-chain**.
+**Locked constraints:** prediction market is core and resolves from live Graph data · **Read (x402)
+goes through one access checkpoint, designed so Own (ATS) is additive later** *(amended 2026-09-08)* ·
+fixed prices, not metering · **Vercel Hobby** · team is builder + Claude + Codex · Base x402 buyer is
+optional · **author claims are on-chain**.
+
+⚠️ **Amendment, 2026-09-08 — the checkpoint constraint.** It read: *"Read (x402) and Own (ATS) go
+through one access checkpoint."* **The Own tier is cut** — a report is a read-only purchase, so no
+token moves to a buyer and only Read passes through the checkpoint. What survives, and is the reason
+this is an amendment rather than a deletion, is the *shape*: §5.19's branch table is **kept whole**,
+with its four Own rows marked out of scope rather than removed, so re-adding Own is a tier, a
+reservation and a recipient on a checkpoint that already exists — not a second gate. Corrected here
+because a locked constraint at the top of the plan is what someone reads first and builds against.
+H2.4 is unaffected: it asks for issuance, configuration and a lifecycle operation, **not a lifecycle
+operation caused by a payment**, so tokens are still issued per report and `transfer` is still
+demonstrated standalone. Full reasoning in `tracking/DECISIONS.md`; unit-level consequences in
+`tracking/phases/PHASE-3.md`.
 
 ---
 
@@ -30,8 +43,8 @@ USDC**. Others stake alongside. Settlement re-reads The Graph and scores the com
 
 | Network | Runs | Why |
 |---|---|---|
-| **Hedera testnet** | x402 report payments **+** ATS report tokens | The track requires testnet for ATS and H1.1 accepts either for x402. **Amended 2026-09-05 — R12 taken**, see below |
-| **Arc testnet** | Claims, stakes, resolution, payouts | Arc mainnet launches Sept 16 — after our deadline |
+| **Hedera testnet** *(→ mainnet at the end of Phase 4)* | x402 report payments **+** ATS report tokens | The track requires testnet for ATS and H1.1 accepts either for x402. **Amended 2026-09-05 — R12 taken**; **amended again 2026-09-08 — priced in HBAR, with the mainnet/USDC cutover scheduled**, see below |
+| **Arc testnet** | Claims, stakes, resolution, payouts | Arc mainnet launches Sept 16 — after our deadline. ⚠️ **Arc stays testnet, full stop** — there is no cutover to schedule |
 | Ethereum mainnet | *(read only)* | The chain our subgraphs index |
 
 ⚠️ **Amendment, 2026-09-05 — x402 runs on testnet.** This table read "Hedera mainnet · x402 report
@@ -41,6 +54,19 @@ that is not something a Phase 0 gate can sit behind. H1.1 accepts testnet or mai
 given up against the requirement. Per R12 the switch is atomic: facilitator `api.testnet.blocky402.com`,
 network `hedera:testnet`, USDC `0.0.429274` and the seller/buyer pair move together or not at all.
 Mainnet remains a config revision if funding appears. Full reasoning in `tracking/DECISIONS.md`.
+
+⚠️ **Amendment, 2026-09-08 — testnet is priced in HBAR, and the mainnet cutover is the end of
+Phase 4.** The 2026-09-05 amendment above left "Mainnet remains a config revision if funding appears"
+and left USDC `0.0.429274` in the atomic-switch list, so three documents carried "switch to USDC" as
+scheduled Phase 3 work. **It was never going to happen: the blocker was supply, not setup.** Circle's
+testnet faucet did not deliver, and SM-08 later found its API endpoint rate-limiting independently of
+its web form. So: **all development and every rehearsal on testnet in native HBAR (`0.0.0`); Hedera
+flips to mainnet in USDC at the end of Phase 4** so the submission shows real settled value. H1.1
+accepts testnet either way — this is credibility, not eligibility. ⚠️ **Mainnet HBAR still has no
+faucet**, so the exchange withdrawal has a lead time nobody controls and **must be started well before
+it is needed**; the cutover is gated on funds arriving, not on a date. What we give up meanwhile:
+USD-legible pricing (`"$0.50"` throws on HBAR) and **H1.7's HTS extra, forfeited rather than
+deferred.** Full reasoning in `tracking/DECISIONS.md`.
 
 ⚠️ **Nothing calls across chains.** The only thing that crosses is a **32-byte report hash**: committed
 on Hedera in the ATS creation event (`additionalSecurityData.info = "alpha:<hash>"`) and in the Arc
@@ -251,8 +277,8 @@ A human would otherwise need **three wallets across two chains**. Decisions:
 
 | Action | Who | Path |
 |---|---|---|
-| **Pay for a report (x402)** | ⚠️ **The buyer agent only** | H1.3 says "a platform **or agent**." `@x402/paywall` has **no Hedera UI**; a browser flow needs a WalletConnect Hedera signer we'd have to build. **Cut.** |
-| **Own a report (ATS)** | Agent, or a human who has proven an EVM address | §5.4 |
+| **Pay for a report (x402)** | ⚠️ **The buyer agent only — confirmed 2026-09-08** | H1.3 says "a platform **or agent**", so the buyer agent completing a real paid request **is** what the requirement asks for. `@x402/paywall` has **no Hedera export**; a browser flow needs a WalletConnect Hedera signer we'd have to build, and that is a project rather than a unit. ⚠️ This row's original **"Cut"** contradicted §5.4 — the resolution is that x402 stays agent-to-agent while **human *identity*** (an EIP-191 proof, not a payment) is Phase 3's last unit and its named cut point. A human way in later need not be x402 at all: **Phase 5 question** |
+| **Own a report (ATS)** | ⚠️ **Nobody — the Own tier is cut** *(2026-09-08)* | §5.4. H2.4 needs a lifecycle operation on video, not a lifecycle operation *caused by a payment*, so `transfer` is demonstrated standalone. Reservation, recipient binding and R16's race go with it |
 | **Stake on Arc** | ✅ **Humans, in the browser** | MetaMask + `wallet_addEthereumChain` (chainId `0x4cef52`, native symbol USDC 18-dp). **This is the human on-chain action, and Arc prizes need value moving on Arc.** |
 
 **Definition of done narrows accordingly:** a stranger can browse, read previews, **stake**, and watch
@@ -688,17 +714,26 @@ alpha-markets/
 
 ### 5.19 `gate.ts` — the full branch table
 
-| State | Response |
-|---|---|
-| Valid EVM session + holds the token | **Serve** |
-| Just settled an x402 payment (payment-identifier matched) | **Serve once** |
-| Own requested, inventory available | Reserve → freeze quote with recipient → **402** |
-| Own requested, already owner | **Serve** |
-| Own requested, sold | **409** |
-| Ownership RPC unavailable | ⚠️ **503 — never charge** |
-| Otherwise | **Preview** |
+| State | Response | Phase 3? |
+|---|---|---|
+| Valid EVM session + holds the token | **Serve** | ⬜ **out — Own tier cut** |
+| Just settled an x402 payment (payment-identifier matched) | **Serve once** | ✅ |
+| Own requested, inventory available | Reserve → freeze quote with recipient → **402** | ⬜ **out** |
+| Own requested, already owner | **Serve** | ⬜ **out** |
+| Own requested, sold | **409** | ⬜ **out** |
+| Ownership RPC unavailable | ⚠️ **503 — never charge** | ⬜ **out** |
+| Read requested, unpaid | **402** | ✅ |
+| Otherwise | **Preview** | ✅ |
 
-⚠️ `balanceOf` is read from Hashio per request. **Never cached as a session flag.**
+⚠️ **Amended 2026-09-08 — the Own tier is cut, so four of these rows are out of scope in Phase 3.**
+The gate sells reads: pay, receive the body, done. What goes with the Own rows is the expensive half —
+inventory reservation against a supply of one, §5.4's recipient binding, R16's two-buyers-one-unit
+race, and the `409`. The table is left whole rather than trimmed because the tier is **additive** if
+Phase 4 lands early: a tier, a reservation and a recipient on a checkpoint that already exists.
+Reasoning in `tracking/DECISIONS.md`.
+
+⚠️ `balanceOf` is read from Hashio per request. **Never cached as a session flag.** *(Unreached in
+Phase 3 — it only appears on the Own rows.)*
 
 ### Dependencies
 
@@ -821,9 +856,24 @@ throughout and **its numbers are not publishable**; see `tracking/phases/PHASE-1
 **Exit:** several directives → well-formed, data-backed, multi-protocol reports with stable hashes.
 
 ### Phase 3 — ATS + x402 + the checkpoint
-`ats.ts`, `auth.ts`, `quotes.ts`, `gate.ts`, `recover.ts`, `buyer.ts`, `verify-ats.ts`.
-**Exit:** a report is issued and **≥1 ResolverProxy verified on HashScan**; the buyer agent completes
-one real x402 purchase; token-holder isn't charged on either read; a lost response recovers.
+
+⚠️ **Superseded 2026-09-08 by `tracking/phases/PHASE-3.md`, which is the canonical unit list.** This
+line was written before Phase 0 ran and is wrong in three ways worth naming: `verify-ats.ts` **was
+built in Phase 0** (Unit A, closing U11); the list **omits storage, the app and analyst identity**,
+without which none of the six remaining files can run — it assumed the "deploy empty app" Phase 0 gate
+above had happened, and it never did; and `quotes.ts`/`auth.ts` were sized for an Own tier that is now
+cut.
+
+It read: *"`ats.ts`, `auth.ts`, `quotes.ts`, `gate.ts`, `recover.ts`, `buyer.ts`, `verify-ats.ts`.
+**Exit:** a report is issued and ≥1 ResolverProxy verified on HashScan; the buyer agent completes one
+real x402 purchase; **token-holder isn't charged on either read**; a lost response recovers."*
+
+**Exit, amended:** a report is **persisted**, issued as an ATS asset carrying its own hash, and ≥1
+`ResolverProxy` verified on HashScan; the token transfer is demonstrated as a standalone lifecycle
+operation; **the app is deployed and public**; the buyer agent completes one real x402 purchase in
+HBAR; a buyer is never charged for a report it does not receive; a lost response recovers.
+⚠️ **"Token-holder isn't charged on either read" is struck** — with the Own tier cut, no buyer holds a
+token in Phase 3.
 
 ### Phase 4 — Market (CORE)
 `AlphaMarket.sol` + tests, `spec.ts`, `units.ts`, `events.ts`, `resolve.ts`, `score.ts`,
@@ -856,7 +906,7 @@ attribution.
 | R9 | Resolution runs twice | `require(!resolved)` in Solidity | Score writes idempotent on `(marketId, claimId)` |
 | R10 | Subgraph timeout mid-settlement | Fetch before submit | Journal + reconcile next tick |
 | R11 | Vague directive | `needs_clarification` with required intent fields | — |
-| R12 | Mainnet HBAR unavailable **or Hobby ToS concern** | ✅ **TAKEN 2026-09-05.** Running x402 on testnet — H1.1 accepts it. Facilitator URL, network string, token ID and accounts moved **together**; startup feePayer assertion still owed. §1 amended, values in `tracking/DECISIONS.md` | — |
+| R12 | Mainnet HBAR unavailable **or Hobby ToS concern** | ✅ **TAKEN 2026-09-05.** Running x402 on testnet — H1.1 accepts it. Facilitator URL, network string, token ID and accounts moved **together**; startup feePayer assertion still owed *(Phase 3 Unit 12)*. §1 amended, values in `tracking/DECISIONS.md`. ⚠️ **Updated 2026-09-08:** testnet is priced in **native HBAR (`0.0.0`)**, not USDC — the faucet never delivered. The atomic switch list is therefore facilitator · network · **asset** · accounts, and the **mainnet/USDC cutover is scheduled for the end of Phase 4**, gated on an exchange withdrawal whose lead time nobody controls | — |
 | R14 | Job fails after a paid read | Serve from persisted body (§5.7 means nothing is generated after payment) | — |
 | R15 | Payment ok, ATS transfer fails | Journal; retryable completion | Manual compensation, logged |
 | R16 | Two buyers, one unit | Inventory reservation before settlement | 409 |

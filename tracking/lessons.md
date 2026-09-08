@@ -1077,3 +1077,50 @@ would have thrown that away and left the architecture doc quieter and worse.
 **The shape worth naming.** Documentation rots in proportion to how far it sits from the code that
 changed, which is exactly inverse to how early a stranger reads it. The files nobody's brief names
 are the files a judge opens first.
+
+## 2026-09-08 — A proxy's own expiry says nothing about whether the proxy will work
+
+**What we expected.** SM-07 recorded a protection against the public ATS infrastructure expiring
+inside our window: *"An issued asset outlives the factory that issued it, so an expiry event costs us
+the ability to mint new reports, not the ones already minted."* The reasoning was clean and the
+evidence looked direct — proxy `0.0.10395983` carries its own expiration of 2026-12-05, well past the
+factory's 2026-09-10, and it was read off Mirror Node rather than assumed.
+
+**What happened.** Traced instead of reasoned about, by pulling the internal actions of the transfer
+SM-07 had already performed. An ordinary ERC-20 move of that already-issued token is:
+
+```
+depth 0  CALL          0.0.10395983   the proxy      expires 2026-12-05
+depth 1  STATICCALL    0.0.9212226    the resolver   expires 2026-09-10
+depth 2  DELEGATECALL  0.0.9212222                   expires 2026-09-10
+depth 1  DELEGATECALL  0.0.9213141                   expires 2026-09-10
+depth 2  DELEGATECALL  0.0.9212262                   expires 2026-09-10
+depth 3  DELEGATECALL  0.0.9212248, 0.0.9212239      expires 2026-09-10
+```
+
+⚠️ **The proxy holds storage. Every line of executable code is in a contract expiring inside the same
+80-second window.** The December date protects nothing. The claim was not merely incomplete — it was
+backwards about where the risk sat, and it is exactly the sentence someone would have relied on.
+
+**Why the wrong answer was so comfortable.** It came from one true measurement (the proxy's expiry) and
+one plausible piece of general knowledge (a deployed token is independent of its factory). Both halves
+are individually right. **The join is what is wrong**, and nothing about looking at either half
+surfaces it — the trace does, and the trace was one HTTP GET against a transaction we had already made.
+
+**What changes.**
+
+- **A dependency's blast radius is a property of the call graph, not of the deployment story.** "Which
+  contracts does this actually touch" is a question with a literal answer on Mirror Node
+  (`/contracts/results/{hash}/actions`), and it costs seconds. Reasoning from the proxy *pattern*
+  gives the wrong answer for a diamond, where the resolver is on the runtime path of every call.
+- ⚠️ **A protection is a claim and gets checked like one.** This repo already refuses to trust a
+  vendor's docs, an error string, or its own research sample without measuring. A reassurance we wrote
+  ourselves had none of that scrutiny, precisely because it was reassuring.
+
+**And the correction did not change the decision, which is the part worth noticing.** Re-measured, the
+dates have not moved and nothing is renewing them — but Hedera has not enabled contract rent on any
+network and has not since a March 2023 target, so the whole thing is inert. **The right answer was
+already the right answer for the wrong reason.** That is the outcome most likely to leave a false claim
+standing, because nothing downstream ever fails to flag it.
+
+*Correction recorded in `DECISIONS.md` under the SM-07 infrastructure decision, with the citations.*

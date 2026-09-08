@@ -96,7 +96,7 @@ const today = new Date().toISOString().slice(0, 10);
 console.log(JSON.stringify(rows.map((r) => [r.slug, r.live, r.status, today, r.lendingType]), null, 0));
 
 // ─── docs/protocol-inventory.md ──────────────────────────────────────────────────────────
-// `npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory` regenerates the committed
+// `npx tsx --env-file=.env scripts/ops/sweep-protocols.ts --inventory` regenerates the committed
 // artifact. Every open question below is computed from this run, not transcribed.
 if (process.argv.includes('--inventory')) {
   const inverted = answered.filter((r) => r.deposits != null && r.borrows != null && r.borrows > r.deposits);
@@ -116,7 +116,7 @@ Deployments are the 27 Ethereum \`lending\` entries in Messari's \`deployment.js
 \`status: prod\` and have a published query-id, plus morpho-blue, which Morpho publish themselves on
 Messari's standardized template.
 
-Regenerate with \`npx tsx --env-file=.env scripts/sweep-protocols.ts --inventory\`.
+Regenerate with \`npx tsx --env-file=.env scripts/ops/sweep-protocols.ts --inventory\`.
 
 ## Summary
 
@@ -134,7 +134,7 @@ ${rows.map((r) => { const c = PROTOCOLS.find((x) => x.slug === r.slug)!; const v
 
 \`status\` asks whether a deployment **answers**. The verdict asks whether it is **right** — a
 different question, and the one that decides what can carry a report. Produced by
-\`scripts/triage-protocols.ts\`, which reconciles deposits − borrows against DefiLlama as an external
+\`scripts/ops/triage-protocols.ts\`, which reconciles deposits − borrows against DefiLlama as an external
 reference, checks that borrows do not exceed deposits, asks for daily history over a recent window,
 and records whether revenue is plausible, absurd or zero.
 

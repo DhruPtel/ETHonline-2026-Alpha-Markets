@@ -22,8 +22,23 @@
 
 import type { Decimal } from '../types/wire.js';
 
-/** Working scale. Comfortably past the 23 decimal places observed; see `parse` for what exceeds it. */
-const SCALE = 40;
+/**
+ * Working scale.
+ *
+ * ⚠️ **Raised from 40 to 80 on 2026-09-07**, after ranking across all 25 live deployments hit
+ * `0.00000000000000162926873065418174459347072777589` — a token price with **47 decimal places**.
+ * The original 40 was sized against the 23 places seen on the five development deployments, and the
+ * five were not representative.
+ *
+ * The binding constraint is not decimal places, it is **significant digits plus leading zeros**. The
+ * Graph's BigDecimal carries up to 34 significant digits, so a sub-unit price of 1e-14 needs 14
+ * zeros plus 34 digits = 48 places. 80 leaves room for prices down to about 1e-46.
+ *
+ * Raising it is safe for hashes already computed: `format` trims trailing zeros, so a value inside
+ * the old scale formats identically under the new one. And the failure mode is a loud throw naming
+ * the value, never a silent truncation — so if 80 is ever exceeded we will be told.
+ */
+const SCALE = 80;
 const UNIT = 10n ** BigInt(SCALE);
 const PLAIN_DECIMAL = /^-?\d+(\.\d+)?$/;
 

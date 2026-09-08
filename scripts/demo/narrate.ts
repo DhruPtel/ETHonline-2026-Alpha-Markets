@@ -1,8 +1,9 @@
 // Unit 10's proof. compose → execute → narrate, end to end, and read the memo.
 import Anthropic from '@anthropic-ai/sdk';
 import { compose } from '../../src/agent/compose.js';
-import { execute, type ExecuteState } from '../../src/agent/execute.js';
+import { execute, type ExecuteState, type Timings } from '../../src/agent/execute.js';
 import { narrate, render } from '../../src/agent/narrate.js';
+import { validate } from '../../src/agent/validate.js';
 import { reportHash } from '../../src/domain/canonical.js';
 import { figureRef } from '../../src/engine/invariants.js';
 import type { Report, ReportPlan } from '../../src/types/report.js';
@@ -20,23 +21,79 @@ const DIRECTIVE = (MODES as readonly string[]).includes(arg) || !arg
 const manualPlan = (directive: string, slugs: string[], hs: string, hf: string): ReportPlan => ({
   subject: { directive, deployments: slugs, headline: figureRef(hs, hf) },
   reads: [{ documentId: 'balance-sheet', slugs, variables: {} }, { documentId: 'markets', slugs, variables: {} }],
-  checks: ['internal-consistency', 'chain-corroboration', 'market-population'],
+  checks: ['chain-corroboration'],
   rationale: 'fixed plan for the proof',
 });
 
 type Done = { ok: true; block: number; report: Report; hash: string };
 type NotDone = { ok: false; status: string };
+
+// ── Timing ───────────────────────────────────────────────────────────────────────────────────────
+// Measured, not optimised. The question this answers is only "where did the time go", and the
+// answer that matters is whether it is the two model calls (expected, nothing to switch off) or
+// the data layer (a knob worth finding).
+type Stage = { executeMs: number; narrateMs: number; queries: number; t: Timings };
+const stages: Stage[] = [];
+let composeMs = 0;
+
 async function run(plan: ReportPlan, block?: number): Promise<Done | NotDone> {
   const state: ExecuteState = { plan, analyst: ANALYST, ...(block ? { block } : {}) };
   const ex = await execute(state);
   if (ex.status !== 'completed') return { ok: false, status: ex.status };
+  const tNarrate = Date.now();
   const report = await narrate(ex.draft, client);
+  stages.push({ executeMs: ex.elapsedMs, narrateMs: Date.now() - tNarrate, queries: ex.queries, t: ex.timings });
   return { ok: true, block: ex.draft.block, report, hash: reportHash(report) };
+}
+
+/**
+ * Render, then report what the digit guard found — ⚠️ **as a warning, never a refusal.**
+ *
+ * The report prints in full first and nothing is withheld on a violation. See DECISIONS.md, "The
+ * digit guard warns in Phase 2 and enforces in Phase 3": a utilization computed from two figures
+ * this pipeline actually fetched is arithmetic on Graph data, and refusing it today would fail every
+ * report for something we do not yet consider broken.
+ */
+function present(report: Report, hash: string) {
+  console.log(render(report, hash));
+  const violations = validate(report);
+  if (!violations.length) { console.log('digit guard: ✅ clean — every figure in the text traces to a fact\n'); return; }
+  console.log(`digit guard: ⚠️  ${violations.length} violation(s) — the report above is printed anyway\n`);
+  // Capped, not filtered. A ranking's rank column alone produces ten violations and would bury the
+  // percentages underneath them; nothing is suppressed by kind, only by position.
+  for (const v of violations.slice(0, 10)) console.log(`  [${v.kind}] ${v.where}: ${v.detail}`);
+  if (violations.length > 10) console.log(`  … and ${violations.length - 10} more`);
+  console.log();
+}
+
+const ms = (n: number) => `${n.toLocaleString('en-US')} ms`;
+const row = (label: string, v: number) => console.log(`  ${label.padEnd(28)}${ms(v).padStart(11)}`);
+
+function printTiming() {
+  if (!stages.length && !composeMs) return;
+  console.log('\ntiming');
+  if (composeMs) row('compose (model)', composeMs);
+  for (const [i, s] of stages.entries()) {
+    const tag = stages.length > 1 ? ` [run ${i + 1}]` : '';
+    row(`execute${tag}`, s.executeMs);
+    row(`  fetch · ${s.queries} queries`, s.t.fetchMs);
+    row(s.t.corroborateCalls ? `  corroboration · ${s.t.corroborateCalls} deployment(s)` : '  corroboration · did not run', s.t.corroborateMs);
+    row('  engine checks', s.t.engineMs);
+    row('  block resolution', s.t.blockMs);
+    row(`narrate (model)${tag}`, s.narrateMs);
+  }
+  const model = composeMs + stages.reduce((a, s) => a + s.narrateMs, 0);
+  const total = composeMs + stages.reduce((a, s) => a + s.executeMs + s.narrateMs, 0);
+  console.log(`  ${'-'.repeat(39)}`);
+  row('total', total);
+  console.log(`  ${'model calls'.padEnd(28)}${`${Math.round((model / total) * 100)}%`.padStart(11)}`);
 }
 
 if (mode === 'memo') {
   console.log(`\ndirective: ${DIRECTIVE}\n`);
+  const tCompose = Date.now();
   const c = await compose(DIRECTIVE, client);
+  composeMs = Date.now() - tCompose;
   if (!c.ok) {
     console.log(`needs_clarification — missing: ${c.clarification.missing.join(', ')}\n`);
     console.log(c.clarification.reason);
@@ -46,7 +103,7 @@ if (mode === 'memo') {
   console.log(`plan: headline ${c.plan.subject.headline} · checks ${c.plan.checks.join(', ')}\n`);
   const r = await run(c.plan);
   if (!r.ok) { console.log(r.status); process.exit(1); }
-  console.log(render(r.report, r.hash));
+  present(r.report, r.hash);
 }
 
 if (mode === 'stability') {
@@ -71,12 +128,13 @@ if (mode === 'stability') {
 if (mode === 'withheld') {
   const r = await run(manualPlan('Report compound-v3 borrowing on Ethereum.', ['compound-v3-ethereum'], 'compound-v3-ethereum', 'totalBorrowBalanceUSD'));
   if (!r.ok) { console.log(r.status); process.exit(1); }
-  console.log(render(r.report, r.hash));
+  present(r.report, r.hash);
 }
 
 if (mode === 'morpho') {
   const r = await run(manualPlan('Balance overview for Morpho Blue.', ['morpho-blue'], 'morpho-blue', 'totalDepositBalanceUSD'));
   if (!r.ok) { console.log(r.status); process.exit(1); }
-  console.log(render(r.report, r.hash));
+  present(r.report, r.hash);
 }
+printTiming();
 await new Promise<void>((res) => process.stdout.write('', () => res()));

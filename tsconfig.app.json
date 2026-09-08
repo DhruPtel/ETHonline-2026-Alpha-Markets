@@ -1,0 +1,52 @@
+{
+  // ⚠️ The app gets its OWN tsconfig, and the root one is left exactly as it was.
+  //
+  // The root `tsconfig.json` is `"module": "NodeNext"` / `"moduleResolution": "NodeNext"`, and every
+  // import across `src/` and `scripts/` is written with an explicit `.js` extension because nodenext
+  // requires it — `import { runLoop } from '../src/agent/loop.js'`. Next's defaults are `esnext` +
+  // `bundler`, which do not. Letting Next rewrite the root config would silently stop ~33 scripts
+  // and the whole report pipeline from resolving under tsx.
+  //
+  // `next.config.ts` points Next here with `typescript.tsconfigPath`, so Next reads and rewrites
+  // THIS file and never touches the root. Verified: `next build` typechecks the app against these
+  // settings while `tsc -p tsconfig.json --noEmit` still passes over src/ and scripts/ unchanged.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  // ⚠️ `src` and `scripts` are excluded deliberately. They are the root tsconfig's job, and pulling
+  // them in here would typecheck nodenext-style `.js` imports under bundler resolution.
+  "include": [
+    "next-env.d.ts",
+    "next.config.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "src",
+    "scripts"
+  ]
+}

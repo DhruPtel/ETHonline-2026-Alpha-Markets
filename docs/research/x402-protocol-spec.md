@@ -255,9 +255,39 @@ GET https://api.blocky402.com/supported
   → signers: { "hedera:*": ["0.0.10571514"] }
 ```
 
-⚠️ **Blocky402 does not support `hedera:testnet` — mainnet only.** Our testnet dev loop has to run
-against `https://x402.org/facilitator` with a different feePayer. Four things swap together at
-cutover. **Don't discover this on demo day.**
+⚠️ **CORRECTED 2026-09-08 — this paragraph was wrong, and it is the sentence R12 rests on.**
+
+It used to read: *"**Blocky402 does not support `hedera:testnet` — mainnet only.** Our testnet dev loop
+has to run against `https://x402.org/facilitator` with a different feePayer. Four things swap together
+at cutover. **Don't discover this on demo day.**"*
+
+**Blocky402 supports `hedera:testnet` and always did.** Measured live in SM-05 on 2026-09-06:
+
+```
+GET https://api.testnet.blocky402.com/supported
+  → kinds: [{ x402Version:2, scheme:"exact", network:"hedera:testnet",
+              extra:{ feePayer:"0.0.7162784" } }]
+```
+
+**The error was reading one host as the vendor.** The block above queried `api.blocky402.com` — the
+**mainnet** host — saw only `hedera:mainnet` advertised, and generalised. `api.testnet.blocky402.com`
+is a different deployment with a different fee payer, and
+`docs/research/scaffold-hbar-x402-followup.md` records both hosts correctly, so this repo held the
+right answer and the wrong one at the same time.
+
+**Why it was expensive to be wrong about.** H1.2 requires settlement through Blocky402 specifically,
+and R12 — running x402 on testnet — rests entirely on Blocky402 supporting testnet. Taken at face
+value, this note made R12 read as unavailable, leaving only mainnet HBAR: an exchange withdrawal
+behind KYC, on an unknown clock, in front of a Phase 0 gate. **A single unverified sentence came close
+to costing days of waiting for something we already had.**
+
+**The rule this produced:** a capability claim about a vendor is a claim about a *host*, and a negative
+result on one host is not a result about another. `/supported` is now step 1 of SM-05 and the script
+refuses to continue if the answer changes. Written up in `tracking/lessons.md`, 2026-09-06.
+
+⚠️ The **testnet → mainnet cutover is still atomic** and that part of the original warning stands:
+facilitator URL, network string, asset id and the account pair move together or not at all (R12).
+Per `DECISIONS.md` 2026-09-08 that cutover happens at the **end of Phase 4**, not before.
 
 ⚠️ **Blocky402 is not in `docs/dev-tools/facilitators.md`.** Grepped the entire repo for "blocky" —
 zero hits. Not a red flag by itself (the list is explicitly non-exhaustive, anyone may run a

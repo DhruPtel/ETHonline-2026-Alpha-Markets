@@ -375,10 +375,32 @@ Escape hatch: `scheme.registerMoneyParser(fn)` (verified present) injects a live
 
 ### Verdict: USDC
 
-HBAR looks cheaper — no association, no setup. But we're selling dollar-priced financial reports, and
-HBAR costs us USD pricing (hand-computed tinybars), working spend controls (rejected by default), and
-stable revenue. USDC costs ~1.3 HBAR of one-time association across two accounts and a few minutes
-with the script above.
+⚠️ **SUPERSEDED 2026-09-08 — the decision is HBAR on testnet, USDC on mainnet. See `DECISIONS.md`.**
+This section is kept because its mechanics are correct and they are what the mainnet swap will need.
+Two of its three arguments did not survive measurement:
+
+- **"Working spend controls (rejected by default)"** — half right and it reads as fatal. SM-05
+  measured the default rejecting HBAR, then opted HBAR in explicitly with its own atomic per-payment
+  cap, and **the control kept working.** It is the *default* allowlist that excludes HBAR, not the
+  mechanism. `spendControls: false` was never the fix and must never appear.
+- **"USDC costs ~1.3 HBAR of association and a few minutes"** — it cost neither, because the USDC
+  never arrived. Circle's testnet faucet did not deliver, Discord went unanswered, and SM-08 later
+  found the faucet's API endpoint rate-limits independently of its web form. **The blocker was supply,
+  not setup.**
+
+The one argument that stands is **USD pricing**: `"$0.50"` throws on HBAR — `defaultMoneyConversion`
+rejects asset `0.0.0` — so a testnet price is hand-computed tinybars and is not legible to a buyer.
+That cost is accepted on testnet and removed at the mainnet cutover.
+
+**What the swap actually is**, since this note is where someone will look for it: token id, price
+format (`AssetAmount` → `"$…"`), the buyer's `allowedAssets` entry, and the facilitator's advertised
+asset. The association script below is the piece that turns back on. SM-05 kept its association path
+skipped rather than deleted for exactly this reason — **it is a price change, not a rewrite.**
+
+The original text, for the record: *"HBAR looks cheaper — no association, no setup. But we're selling
+dollar-priced financial reports, and HBAR costs us USD pricing (hand-computed tinybars), working spend
+controls (rejected by default), and stable revenue. USDC costs ~1.3 HBAR of one-time association
+across two accounts and a few minutes with the script above."*
 
 ---
 

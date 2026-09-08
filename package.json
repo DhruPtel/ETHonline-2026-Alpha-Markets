@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "smoke:01": "tsx --env-file=.env scripts/smoke/01-canonicalize.ts",
     "smoke:02": "tsx --env-file=.env scripts/smoke/02-query-subgraph.ts",
     "smoke:03": "tsx --env-file=.env scripts/smoke/03-snapshot-window.ts",
@@ -16,6 +20,8 @@
   "devDependencies": {
     "@openzeppelin/contracts": "4.9.6",
     "@types/node": "^22.20.1",
+    "@types/react": "19.2.8",
+    "@types/react-dom": "19.2.7",
     "solc": "0.8.28",
     "tsx": "^4.23.13",
     "typescript": "^5.9.3"
@@ -27,6 +33,9 @@
     "@x402/core": "2.25.0",
     "@x402/hedera": "2.25.0",
     "canonicalize": "^4.0.0",
-    "ethers": "6.16.0"
+    "ethers": "6.16.0",
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   }
 }
