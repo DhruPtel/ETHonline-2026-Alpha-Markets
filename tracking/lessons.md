@@ -1183,3 +1183,61 @@ both pass — which is why this surfaces as one broken import rather than a brok
 
 *Affects PHASE-3 Unit 6. `tsconfig.app.json` is now nodenext; `next.config.ts` carries no
 experimental options.*
+
+## 2026-09-08 — Nine units passed their own proofs and the product did not run
+
+**What we expected.** Units 0–8 each ended with a proof that fired: a real report survives the round
+trip, a page renders it at a public URL, a token carries the report hash in its creation event, an
+ISIN is unique across a million hashes. Nine green units in a row reads like nine-ninths of a working
+product.
+
+**What happened.** ⚠️ **Nothing joined them.** `demo/narrate.ts` ran compose → execute → narrate,
+computed the hash, printed the report and exited — the `Report` died with the process. The only
+caller of `save()` in the entire repo was `demo/store.ts`, a *test* that deliberately corrupts a
+stored row by one character and restores it, with the restore inside a `try` whose `finally` only
+closes connections. We had been using that as the report generator. The two rows the app displayed
+and the report Unit 8 tokenized were written by an assertion suite.
+
+A full import-graph sweep found nine seams. The three that mattered were one gap seen from three
+sides: `narrate` → `save` unwired, the only `save` caller being a test, and `compose.ts` — the
+planner, the entry to the whole pipeline — having no caller outside `scripts/demo/`. There was no
+production entry point at all, and `package.json` exposed `dev`, `build`, `start`, `typecheck` and
+nine smoke tests, none of which produce a report.
+
+**Why every proof passed anyway.** Because each brief named the unit's own files and each proof
+tested those files. Unit 5's brief said prove a report survives the round trip; it did, with a script
+that generated one specially. Unit 6's brief said render a stored report; there were stored reports
+to render. **No brief said "and the previous unit's output reaches you by a route a person would
+actually use,"** so no unit owned the join, and a seam owned by nobody is invisible to a proof
+written per unit.
+
+**The second half of the same shape, one day later.** `docs/research/x402-next-2.25.md` describes
+`withX402FromHTTPServer` as *"Same, with a pre-built `x402HTTPResourceServer` (for hooks)"*. That
+parenthetical was read at face value and an architectural recommendation was built on it — that Unit
+14 must abandon the plan's `withX402` to record a purchase. ⚠️ **It was wrong.** Reading the installed
+package showed `withX402` *is* `withX402FromHTTPServer` — `dist/esm/index.js:452` constructs the HTTP
+server and delegates — and that **eight of the nine hook-registration methods live on
+`x402ResourceServer`**, the object plain `withX402` already takes. Only `onProtectedRequest` needs the
+other wrapper, and Phase 3 does not need it. The plan was right and the note's summary cell was loose.
+
+**What changes.**
+
+- **A unit's proof answers "does this file work". Something else has to answer "does the sequence
+  run".** The sweep took under an hour and found nine things nine proofs could not. ⚠️ **Run it at the
+  end of every phase, not when something feels wrong** — nothing felt wrong, the deployed site was
+  serving real reports at real URLs the whole time.
+- ⚠️ **When a brief names one unit's files, the seam to the previous unit belongs to nobody by
+  default.** The cheap fix is to ask, per unit, "what calls this, by what command, that is not a
+  test?" If the answer is a demo script, that is the finding.
+- **A test that mutates shared state is not a generator.** `demo/store.ts` is correct as a proof and
+  was never wrong; using it as the way reports get made was. The corrupt-and-restore is safe inside
+  an assertion suite and is a live hazard as an everyday command.
+- ⚠️ **A summary table in our own research note is not the package.** This is the fourth
+  present-looking thing that was not what it appeared — after `extensionAlias` accepted and ignored,
+  the gateway error strings that never existed, and the env var set to empty. The others were vendor
+  or platform behaviour; **this one was our own writing**, which is worse, because a note we wrote
+  reads as settled fact rather than as a claim. `node_modules` is the authority, and checking took
+  ten minutes against an architectural change it would have caused.
+
+*Three of the nine seams are closed by `scripts/ops/report.ts`. The other six are recorded in
+`PHASE-3.md`.*

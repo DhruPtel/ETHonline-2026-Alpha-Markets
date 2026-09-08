@@ -3383,3 +3383,60 @@ zero-argument. Adding `report` would have made it the odd one out and forced `np
 **What this does not close.** Gap 3 stands — the app still does not read `report_tokens`, so the new
 report will look identical whether or not it is ever tokenized. The two-command loop is now
 generate → tokenize with no hand-copying; making the token visible to a reader is still open.
+
+## 2026-09-08 — The paywall design settles, and the x402 construction is confirmed from node_modules
+
+Design work and package verification, no code. The sweep and `scripts/ops/report.ts` are recorded in
+the two entries above; this is the third thing that happened today.
+
+**The paywall shape, settled.** A report is **private by default**. The public page becomes a
+preview — directive, analyst, block, hash, coverage counts, fact count, tokenized state — and the
+table, the assessment, the facts and the provenance sit behind the gate. A paid read grants **no
+durable access**: §5.19 already says *"Just settled an x402 payment (payment-identifier matched) →
+Serve once"*, and that is what we build. Re-access by address would need Unit 18's EIP-191 challenge,
+which is the declared cut point, and the x402 payer is a Hedera `0.0.x` while an EVM identity is an
+address — §5.4 already notes neither derives from the other.
+
+⚠️ **The split needs nothing the `Report` object does not already have.** `render()` returns one
+string with no seam in it, but the split is field-level and already exists: `subject.directive`,
+`analyst`, `block` and `verdict.coverage` are separate fields from `sections`, `assessment` and
+`facts`. Unit 6's page **already** composes its identity panel from fields and then renders the
+markdown — the preview is that page minus the `<Markdown>` block. No schema change, no type change.
+
+⚠️ **Gating loses nothing that was ever there.** Nothing public has ever exposed `canonical_json`, and
+a hash cannot be recomputed from rendered markdown, so "third-party verifiable" was already false
+before the gate. Worth saying plainly rather than discovering it in front of a judge.
+
+### The construction check that reversed a recommendation
+
+A recommendation had been made — on the strength of `docs/research/x402-next-2.25.md`'s summary cell
+*"(for hooks)"* — that Unit 14 abandon the plan's `withX402` for `withX402FromHTTPServer`, because the
+plain wrapper hands the handler nothing about the payment and so could not write a `purchases` row.
+**Reading the installed 2.25.0 reversed it.**
+
+- ⚠️ **`withX402` IS `withX402FromHTTPServer`.** `@x402/next/dist/esm/index.js:452` — `withX402`
+  constructs `new x402HTTPResourceServer(server, routes)` and delegates. One code path.
+- Both wrappers take the identical handler type, `(request: NextRequest) => Promise<NextResponse<T>>`
+  (`index.d.ts:254` and `:204`), and `index.js:415` calls `routeHandler(request)` with the bare
+  request. **The handler gets no payment context either way** — that half of the original claim was
+  right and changed nothing.
+- **Runtime-verified on the prototypes, not read off the types:** `onBeforeVerify`, `onAfterVerify`,
+  `onVerifyFailure`, `onBeforeSettle`, `onAfterSettle`, `onSettleFailure`, `onVerifiedPaymentCanceled`
+  and `registerExtension` all live on **`x402ResourceServer`** — the object plain `withX402` already
+  takes as its third argument. `x402HTTPResourceServer` carries exactly one hook the other lacks:
+  `onProtectedRequest`, which runs before payment processing and can return `{grantAccess: true}`.
+- Phase 3 is "serve once", so `grantAccess` is not needed. **`withX402` is confirmed correct and the
+  plan does not change.**
+
+**Also confirmed while there:** `payTo` accepts `string | DynamicPayTo` where
+`DynamicPayTo = (context: HTTPRequestContext) => string | Promise<string>`, so a per-report route can
+resolve the *report's own analyst's* `payTo` per DECISIONS 2026-09-08. And the `payment-identifier`
+extension is 284 lines with **zero** references to a facilitator and **zero** to any network or chain
+— §5.9's "server↔client, no facilitator involvement" is accurate as installed. Its
+`extractPaymentIdentifier(paymentPayload)` takes exactly what `AfterSettleHook` hands over.
+
+⚠️ **Two things in the research note the installed package contradicts, not corrected in the file:**
+the `"(for hooks)"` cell above, and the whole Next 15 / `--legacy-peer-deps` / `.npmrc` section, which
+Unit 1's M2 already superseded — we are on Next 16.3.4, the supported peer, there is no `.npmrc` in
+the repo and none is needed. The note's line-number claims about the dist match the installed file,
+so it was read against the real 2.25.0; it is reliable on internals and loose in one summary cell.

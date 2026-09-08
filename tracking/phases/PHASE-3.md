@@ -35,13 +35,15 @@ Plus **analyst identity**, which is not a fourth thing but a precondition for th
 | 3 | `agent/` — the split named | SCAFFOLD | ✅ README rewritten; `MODEL` → `config/model.ts` |
 | 4 | `store/db.ts` + `store/migrations/001_init.sql` | SCAFFOLD | ✅ four tables live; `scripts/ops/migrate.ts` is the runner |
 | 5 | `store/reports.ts` | LOGIC ★ | ✅ round trip proved on a **real** 140-fact report |
-| 6 | `app/` — the reading surface | SCAFFOLD | ⬜ **next** |
-| 7 | `tokenize/isin.ts` | LOGIC | ⬜ |
-| 8 | `tokenize/ats.ts` | LOGIC ★★ | ⬜ |
-| **9** | **PLAY GAP — look at the asset** | **PLAY** | ⬜ |
+| 6 | `app/` — the reading surface | SCAFFOLD | ✅ list + report page, deployed; `app/markdown.tsx` is the escaping boundary |
+| **6b** | **`app/` — preview + marketplace index** | **SCAFFOLD** | ⬜ ⚠️ **NEW — gating makes Unit 6's full page a preview** |
+| 7 | `tokenize/isin.ts` | LOGIC | ✅ base-36 of the hash mod 36⁹; 1,000,002 hashes, 0 collisions |
+| 8 | `tokenize/ats.ts` | LOGIC ★★ | ✅ token live, Sourcify `exact_match`; **split to `tokenize/hedera.ts`** |
+| **8b** | **`scripts/ops/report.ts`** | **LOGIC** | ✅ ⚠️ **NOT PLANNED — the production entry point the sweep found missing** |
+| **9** | **PLAY GAP — look at the asset** | **PLAY** | ✅ done as an investigation — see *Where the token is visible* |
 | 10 | `tokenize/transfer.ts` | LOGIC | ⬜ |
 | **11** | **PLAY GAP — move a real report** | **PLAY** | ⬜ |
-| 12 | `payments/server.ts` + `app/api/health` | LOGIC | ⬜ |
+| 12 | `payments/server.ts` + `app/api/health` | LOGIC | ⬜ **next** |
 | 13 | `payments/quotes.ts` | LOGIC | ⬜ |
 | 14 | `payments/gate.ts` + the gated route | LOGIC ★★ | ⬜ |
 | 15 | `payments/buyer.ts` | LOGIC ★ | ⬜ |
@@ -122,6 +124,28 @@ Directory named "public"* until it did.
   have made the store import from the agent. `save` now takes a `Report` and nothing else.
   ⚠️ **`001_init.sql` was not edited** — a migration that has run against a live database is history.
 
+- **6 · the reading surface.** `app/page.tsx` (list), `app/report/[hash]/page.tsx`, `app/markdown.tsx`,
+  `app/globals.css`. ⚠️ **`app/` importing `src/` collided with the root NodeNext convention**: Turbopack
+  does no `.js` → `.ts` aliasing and died inside `src/store/reports.ts` on its own `./db.js`.
+  `experimental.extensionAlias` is **webpack-only and Turbopack accepts and ignores it**. Fixed by
+  setting `tsconfig.app.json` to `nodenext`, which cost dropping `next/link` for a plain `<a href>` —
+  `next` is CJS with no `exports` map, so a default import binds `module.exports`. `next/server.js` in
+  the probe route gained a `.js` suffix; nothing else changed. `render()`'s `_hash` got its job: the
+  report hash is now in the markdown, because the markdown travels to a buyer where the page does not.
+- **7 · `tokenize/isin.ts`.** SM-07's `makeIsin` promoted verbatim; the new part is the body —
+  `BigInt(hash) % 36⁹`, base-36, uppercased, padded. **36⁹ not 16⁹**: a hex slice would use 0.0677% of
+  the alphabet space. 1,000,002 hashes → 0 collisions, and the check digit verified under an
+  independent implementation.
+- **8 · `tokenize/ats.ts` + `tokenize/hedera.ts`** *(the split, named before writing)*. Token live at
+  `0xE7aaEFB168F3E87975Fee1B0c932aE42776D8c6c`, Sourcify `exact_match`, `balanceOf == 1`, **7.71290100
+  HBAR** against SM-07's 7.71195075 for the same three steps. `prepare()` / `tokenize()` are split as a
+  safety property: everything that can stop the run happens before the first transaction. ⚠️ `landOrStop`
+  **throws instead of `process.exit`** — it is a library now, and Unit 14 will call it from a request.
+- **8b · `scripts/ops/report.ts`** *(not in any brief — see the sweep below)*. compose → execute →
+  narrate → `save`, printing the hash, the public URL, and the tokenize command with the hash filled in.
+  All four `execute` outcomes handled; only `completed` saves. **This is the first non-demo caller of
+  the pipeline in the project.**
+
 ### Traps — the things that will cost a session if not known
 
 1. ⚠️ **Do not edit the root `tsconfig.json`.** It is `module: NodeNext` / `moduleResolution: NodeNext`
@@ -141,40 +165,67 @@ Directory named "public"* until it did.
    are the pattern.
 4. ⚠️ **`MODEL` lives in `src/config/model.ts`**, not `src/agent/loop.ts`. Six importers.
 
-### Open
+### Open — the nine seams, from the 2026-09-08 loop sweep
 
-1. ⚠️ **`ARC_WALLET` is set in `.env` and nothing reads it.** A 42-char `0x…` address; grepped across
-   `src/`, `scripts/`, `app/` — zero references. Deliberately not added to `.env.example`, because that
-   file's rule is that a variable arrives with the unit that needs it. Someone should decide what it
-   was for; if it is a hand-noted copy of the Circle wallet address it duplicates `analysts.ts`'s
-   `arcAddress`, which is the one that gets verified live.
-2. ⚠️ **Vercel's Production env values have never been verified against local.** `vercel env ls` shows
-   names, not values. `HEDERA_SELLER_ID` is defined in Production and resolves to an **empty string** at
-   runtime — the deployed probe's challenge still carries `payTo: ""` as of this writing. Every other
-   Production value is unverified.
-3. ⚠️ **`DATABASE_URL` and `DATABASE_URL_DIRECT` are NOT set in Vercel.** Confirmed by `vercel env ls`.
-   **This blocks Unit 6's deployed reading surface** — it will work locally and render nothing in
-   production. Add them before or during Unit 6.
-4. ⚠️ **`app/api/probe/route.ts` is throwaway and still there.** It has answered both M1 and M2,
-   including from Vercel, so its job is done. It stays until Unit 12 replaces it with the real
-   `payments/server.ts` + health route — deleting it now would remove the only thing exercising the
-   x402 path end to end. `rm app/api/probe/route.ts` is the whole removal.
-5. **`scripts/demo/skills.ts` is broken and unrelated to this session's work.** It reads
-   `src/agent/skills/balance-overview.md`, which moved to `skills/unused/` when the forms were dropped
-   in Phase 2. It would throw ENOENT. Not in `package.json`, so nothing surfaces it.
-6. **Two real reports are stored** in Neon from Unit 5's proof runs (blocks 25930670 and 25930744).
-   They are genuine and Unit 6 can render them.
+⚠️ **Every unit passed its own proof and the product path did not run.** A full import-graph sweep
+found nine seams nobody owned. Ordered by what blocks the most; **three are closed by
+`scripts/ops/report.ts`.**
 
-### Unit 6 — the reading surface
+1. ✅ **CLOSED — `narrate` → `save` was unwired.** `demo/narrate.ts` printed the report and exited.
+2. ✅ **CLOSED — the only `save()` caller was a test that corrupts a row.** `demo/store.ts` flips one
+   character of `canonical_json` and restores it, with the restore inside a `try` whose `finally` only
+   closes connections. It was the de-facto generator. It remains correct **as a proof** and is not to
+   be used as a command.
+3. ⬜ **`report_tokens` is invisible to the app.** `list()` is `SELECT … FROM reports` with no join and
+   the report page imports only `load`. **A tokenized report renders identically to an untokenized
+   one** — the cross-chain commitment does not appear on the product surface. **6b closes this.**
+4. ⬜ **`Report.atsTokenAddress` is never populated.** `execute` sets `null`, `canonical()` strips it,
+   `load()` reattaches `null`, Unit 8 writes `report_tokens` without touching it. Needs a decision on
+   which is the source of truth — the column or the field — before both exist and disagree.
+5. ✅ **CLOSED — `compose.ts` had no caller outside `scripts/demo/`.** The pipeline had no production
+   entry point at all. `scripts/ops/report.ts` is it.
+6. ⬜ **Nothing produces a price.** `quotes.price_tinybars` is `NOT NULL CHECK > 0` and no constant,
+   config entry or function anywhere yields one. **Blocks Unit 13, and 14 and 15 behind it.**
+7. ⚠️ ⬜ **`HEDERA_SELLER_ID` resolves empty in Vercel Production.** The deployed probe's challenge
+   carries `payTo: ""`. **This is the empty-env-var trap on the route that will matter** — Unit 14's
+   gate would advertise nobody to pay. Fix before Unit 14 is demoed.
+8. ⬜ **The analyst-by-Arc-address lookup is inlined at `ats.ts:104`.** Units 12 and 13 both want it.
+   ~5 lines to hoist into `config/analysts.ts`; a duplication about to happen, not a break.
+9. ⬜ **`scripts/demo/skills.ts` is broken.** Reads `src/agent/skills/balance-overview.md`, at
+   `skills/unused/` since Phase 2. Blocks nothing.
 
-`app/` gains a list of published reports and a page that renders one: `app/page.tsx` reading
-`list()`, and `app/report/[hash]/page.tsx` reading `load()` and rendering the markdown. It depends on
-Unit 5, which is done and has rows in the database to show. Two things it must handle that nothing
-upstream does: ⚠️ **`Market.name` and `Token.symbol` are indexer-supplied and reach HTML** — escaping
-is Unit 6's job at the render boundary, deliberately not the store's, because escaping on write would
-break the hash. And **`render()` lives in `src/agent/narrate.ts`**, so rendering on read means the app
-importing from the agent; whether that is acceptable or wants a move is a decision Unit 6 should take
-rather than inherit.
+**Also still open, from earlier sessions:** `ARC_WALLET` is set in `.env` and read by nothing;
+Vercel's Production env values have never been verified against local beyond `DATABASE_URL`, which is
+now set and confirmed working; and `app/api/probe/route.ts` is throwaway and stays until Unit 12
+replaces it (`rm app/api/probe/route.ts` is the whole removal).
+
+**Not gaps, for the record:** the app never generating a report is decision 2. `validate.ts`,
+`evidence.ts` and reconcile's tier 2 are parked. `loop.ts`/`tools.ts` are the `ask.ts` demo surface by
+decision.
+
+### Unit 6b — the preview and the marketplace index
+
+⚠️ **New, and it exists because gating changes what Unit 6 built.** Unit 6's brief said "a page that
+renders one", and it does — fully, publicly. **x402's premise is paying for access to something you
+otherwise cannot see**, so a paid route serving the same content would gate nothing and the payment
+would prove nothing. The public page becomes a preview.
+
+**Public, and enough to decide:** the directive as the heading, the analyst address, the block, the
+full hash, `verdict.coverage` counts, the fact *count*, whether it is tokenized (proxy, ISIN, HashScan
+link), and the price.
+**Behind the gate:** `sections` (the table — every figure), `assessment`, `facts`, `checks`,
+`provenance`.
+
+⚠️ **This needs nothing the `Report` object does not already have.** `render()` returns one string with
+no seam, but the split is field-level and already exists, and `app/report/[hash]/page.tsx` **already**
+composes its identity panel from fields and then renders the markdown. The preview is that page minus
+the `<Markdown>` block. No schema change, no type change.
+
+**It also closes seam 3** — showing tokenized state means the app finally reads `report_tokens`.
+
+⚠️ **Gating loses nothing that was ever there.** Nothing public has ever exposed `canonical_json`, and
+a hash cannot be recomputed from rendered markdown, so third-party verifiability was already absent
+before the gate. Say that plainly rather than discover it in front of a judge.
 
 ---
 
@@ -664,6 +715,27 @@ returns nothing rather than a price. The same report quoted twice gives the same
 
 **What we're doing:** the checkpoint. One route, one branch table (§5.19), and the rule that the
 buyer is never charged for something they did not get.
+
+⚠️ **`withX402` is CONFIRMED correct — verified against the installed 2.25.0 on 2026-09-08, do not
+re-open this.** A recommendation was made to switch to `withX402FromHTTPServer`, on the strength of
+this repo's own research note calling it *"Same, with a pre-built `x402HTTPResourceServer` (for
+hooks)"*. Reading `node_modules` reversed it:
+
+- **`withX402` IS `withX402FromHTTPServer`** — `@x402/next/dist/esm/index.js:452` constructs the HTTP
+  server and delegates. One code path.
+- Both take the identical handler type `(request: NextRequest) => Promise<NextResponse<T>>`, and
+  `index.js:415` calls it with the bare request. **The handler gets no payment context either way.**
+- **Eight of the nine hook methods live on `x402ResourceServer`** — the object `withX402` already
+  takes: `onBeforeVerify`, `onAfterVerify`, `onVerifyFailure`, `onBeforeSettle`, `onAfterSettle`,
+  `onSettleFailure`, `onVerifiedPaymentCanceled`, `registerExtension`. Runtime-verified on the
+  prototype, not read off the types. So the `purchases` row is written by chaining
+  `.onAfterSettle(…)` onto the server before wrapping — no construction change.
+- `x402HTTPResourceServer` adds exactly one: `onProtectedRequest`, which can return
+  `{grantAccess: true}`. **Phase 3 is "serve once" (§5.19), so it is not needed.** It becomes
+  necessary only if re-access by address is ever built — which is Unit 18, the cut point.
+
+**Also confirmed:** `payTo` accepts `string | DynamicPayTo`, so the route resolves the *report's own
+analyst's* `payTo` per DECISIONS 2026-09-08 rather than an env var.
 
 **What's in it:** `withX402` on the route with the default **`authorization`** flow, so a handler
 failure means settle never runs and nobody is charged. ⚠️ **Three branches, not seven** (§5.19 as
