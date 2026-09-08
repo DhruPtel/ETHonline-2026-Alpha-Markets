@@ -4,10 +4,13 @@
 // and supplies variables, which is what removes the whole class of failure where a model emits a
 // field that does not exist on a deployment.
 //
-// ⚠️ **`needs_clarification` is a structural outcome, not a prompt instruction.** The model is given
-// two tools and must call one of them — either it proposes a plan or it names what is missing.
-// Asking politely in a system prompt gets a confident essay whenever the model would rather write
-// one; forcing a choice between two typed outputs does not.
+// ⚠️ **One tool, forced. The planner cannot ask a question, because there is no shape for one.**
+// It used to have two — `propose_plan` and `need_clarification` — and the clarification tool worked
+// exactly as designed, which is why it was removed on 2026-09-07: "what protocol has the best
+// financial health?" earned a well-reasoned refusal, and a refusal is the wrong answer. The
+// structural point survives its own feature, though: a prompt asking politely for a plan gets a
+// confident essay whenever the model would rather write one, and `tool_choice` does not. See the
+// note above `ComposeResult` for what the surviving `ok: false` arm is actually for.
 //
 // ⚠️ **No I/O beyond the model call.** Capabilities come from `config/protocols.ts`, which is
 // already measured — every field in it was read from a live deployment during the Phase 1 sweep, so
@@ -21,13 +24,41 @@ import { DOCUMENT_IDS, DOCUMENT_BRIEF } from '../graph/queries/index.js';
 import { figureRef } from '../engine/invariants.js';
 import { MODEL } from './loop.js';
 
-/** The figures a balance overview can be about. Narrower than the document, on purpose. */
+/**
+ * The figures a report can be ABOUT. Narrower than the document, on purpose.
+ *
+ * ⚠️ **KNOWN GAP, recorded rather than fixed (2026-09-07).** Every entry is a protocol-level
+ * balance-sheet field, so two kinds of directive cannot state their own subject:
+ *
+ *   - **A derived ratio.** "Which protocol is most leveraged" has no expressible headline, so it
+ *     plans as `totalBorrowBalanceUSD` every time — which is comparable, and is not what was asked.
+ *     This is why the Morpho-denominator case has never once arisen in a proof.
+ *   - **A market-level metric.** A directive about the markets inside a deployment gets a headline
+ *     that is that deployment's protocol total.
+ *
+ * What it would take: a derived-metric option whose value `ops.ratio` computes into a `unit:
+ * 'ratio'` fact, and a market-scoped headline id. Both are real design questions — a derived
+ * headline changes what `aboutOneFigure` means in `execute`, and a market headline changes what a
+ * `DATA_ERROR` blocks — so neither is a cleanup.
+ */
 const HEADLINE_FIELDS = [
   'totalDepositBalanceUSD', 'totalBorrowBalanceUSD', 'totalValueLockedUSD',
   'cumulativeDepositUSD', 'cumulativeBorrowUSD', 'cumulativeTotalRevenueUSD',
 ] as const;
-const CHECKS: readonly PlannedCheck[] = ['internal-consistency', 'chain-corroboration', 'external-reference', 'market-population'];
+// ⚠️ **Two choices, because only two are choices.** This listed four until 2026-09-07 and the
+// planner dutifully picked all of them. `internal-consistency` is not optional — `reconcile` runs
+// tier 0 on every report whatever the plan says — and `market-population` is a consequence of
+// asking for the `markets` document, not a separate request. A plan claiming a check nothing acts
+// on is the problem we just fixed on the reporting side; this is the same problem in the plan.
+// `external-reference` stays: it gates a tier that works and is waiting for an adapter.
+const CHECKS: readonly PlannedCheck[] = ['chain-corroboration', 'external-reference'];
 
+/**
+ * ⚠️ **Exported for Phase 3, used only here today — leave it exported.** `Capabilities` lives in
+ * `types/report.ts` beside the report contract because an outside analyst publishing into this
+ * market needs to know what a deployment can and cannot tell them before planning against it. That
+ * it currently has one in-repo consumer is a fact about how far we have built, not about its value.
+ */
 export function capabilitiesOf(slug: string): Capabilities | null {
   const p = PROTOCOLS.find((x) => x.slug === slug);
   if (!p) return null;
@@ -46,9 +77,16 @@ export function capabilitiesOf(slug: string): Capabilities | null {
 
 const PROPOSE: Anthropic.Tool = {
   name: 'propose_plan',
-  description: 'Propose a plan for a balance overview that answers the directive.',
+  description: 'Propose the plan for a report that answers the directive: what it covers, which documents produce it, and the metric it turns on.',
+  // ⚠️ `strict: true` makes `required` binding — without it the API returns whatever the model
+  // produced, which is how `reads` went missing and silently became a balance-sheet plan. Verified
+  // 2026-09-07 that strict permits properties absent from `required` (so `deployments` and
+  // `headlineSlug` stay genuinely optional) and requires `additionalProperties: false` on every
+  // object, which is why `variables` below is a closed shape rather than a free one.
+  strict: true,
   input_schema: {
     type: 'object',
+    additionalProperties: false,
     properties: {
       subject: { type: 'string', description: 'What the report is about, one sentence. Specific to the directive, not a generic overview.' },
       deployments: { type: 'array', items: { type: 'string' }, description: 'Slugs the report covers. Leave empty to cover ALL live deployments.' },
@@ -56,12 +94,25 @@ const PROPOSE: Anthropic.Tool = {
       headlineField: { type: 'string', enum: [...HEADLINE_FIELDS], description: 'The metric the directive turns on.' },
       reads: {
         type: 'array',
+        // ⚠️ `minItems: 1` and it is load-bearing. `strict` makes `reads` PRESENT, not non-empty —
+        // measured 2026-09-07: asked "Is Aave a good investment?" the planner returned `reads: []`,
+        // which is a refusal wearing a plan's clothes, and the throw below turned it into a crash.
+        // With a floor of one the same directive plans something real. Constraining the container
+        // beats instructing the model, again.
+        minItems: 1,
         items: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             documentId: { type: 'string', enum: [...DOCUMENT_IDS], description: 'Which document to run. See the catalogue in the system prompt for what each returns.' },
             slugs: { type: 'array', items: { type: 'string' } },
-            variables: { type: 'object' },
+            // ⚠️ Only `financial-snapshots` takes variables today, and `execute` does not yet read
+            // them. Kept and typed rather than dropped: the shape is what a snapshot read needs.
+            variables: {
+              type: 'object', additionalProperties: false,
+              properties: { startTimestamp: { type: 'string' }, endTimestamp: { type: 'string' } },
+              required: [],
+            },
           },
           required: ['documentId', 'slugs'],
         },
@@ -95,8 +146,16 @@ export type ComposeResult =
 // declare a reading its plan never took.
 const conventions = () => readFileSync(new URL('./skills/conventions.md', import.meta.url), 'utf8');
 
+// ⚠️ **The semantic notes go in, and they are the reason this function is not a one-liner.**
+// `capabilitiesOf` assembles everything Phase 1 measured about a deployment and `brief` used to
+// drop all of it except the triage word — so the planner never learned that Morpho means different
+// things by the standard field names, or that its deposits are the loan side, or that aave-v3's
+// revenue accumulator is poisoned. Measured before adding them: 6 of 25 live deployments carry a
+// note at all, 2,500 characters in total, and the whole system prompt goes 3,154 → 4,394 input
+// tokens. A 39% prompt for the measurements the rest of the repo exists to produce is a bargain.
 const brief = (c: Capabilities) =>
-  `- ${c.slug} (${c.liveSchemaVersion}, ${c.lendingType}, triage ${c.triageVerdict}) revenue ${c.revenue}; ${c.corroboration}`;
+  `- ${c.slug} (${c.liveSchemaVersion}, ${c.lendingType}, triage ${c.triageVerdict}) revenue ${c.revenue}; ${c.corroboration}; deposit USD from ${c.depositBasis}`
+  + (c.semanticNotes ? `\n    ⚠️ ${c.semanticNotes}` : '');
 
 export async function compose(directive: string, client: Anthropic): Promise<ComposeResult> {
   const live = PROTOCOLS.filter((p) => p.status === 'live').map((p) => capabilitiesOf(p.slug)!);
@@ -140,14 +199,19 @@ ${DOCUMENT_IDS.map((id) => `- **${id}** — ${DOCUMENT_BRIEF[id]}`).join('\n')}
   // expanding that to all 25 makes the plan contradict itself. Measured 2026-09-07: it planned
   // `markets` on makerdao correctly, left `deployments` empty, and the run was declined because one
   // of the other 24 was too stale to share a block.
-  const fromReads = [...new Set((i.reads ?? []).flatMap((r) => r.slugs ?? []))];
+  // ⚠️ **No balance-sheet fallback.** There used to be one, and it is what let a planner that never
+  // considered documents produce a protocol-level plan while nothing recorded that no choice was
+  // made. `strict` should make this unreachable; if it fires, the planner is broken and saying so
+  // is more useful than quietly answering a narrower question than the one asked.
+  if (!i.reads?.length) throw new Error('planner returned a plan with no reads — nothing to fetch, and substituting a default is what hid this before');
+  const fromReads = [...new Set(i.reads.flatMap((r) => r.slugs ?? []))];
   const deployments = i.deployments?.length ? i.deployments : fromReads.length ? fromReads : live.map((c) => c.slug);
   // ⚠️ Validate against config rather than trusting the schema. An enum constrains the shape of a
   // slug, not whether that deployment exists or answers.
   const unknown = deployments.filter((s) => !PROTOCOLS.some((p) => p.slug === s && p.status === 'live'));
   if (unknown.length) return {
     ok: false,
-    clarification: { missing: ['deployment'], reason: `not configured or not answering: ${unknown.join(', ')}`, suggestions: live.slice(0, 3).map((c) => `Balance overview for ${c.slug}`) },
+    clarification: { missing: ['deployment'], reason: `not configured or not answering: ${unknown.join(', ')}`, suggestions: live.slice(0, 3).map((c) => `Report ${c.slug}'s deposits and borrows`) },
   };
 
   // ⚠️ **The headline is what a failure costs, now that there is no form.** Naming a deployment
@@ -163,8 +227,7 @@ ${DOCUMENT_IDS.map((id) => `- **${id}** — ${DOCUMENT_BRIEF[id]}`).join('\n')}
     ok: true,
     plan: {
       subject: { directive, deployments, headline },
-      reads: (i.reads?.length ? i.reads : [{ documentId: 'balance-sheet', slugs: deployments }])
-        .map((r) => ({ documentId: r.documentId, slugs: r.slugs?.length ? r.slugs : deployments, variables: r.variables ?? {} })),
+      reads: i.reads.map((r) => ({ documentId: r.documentId, slugs: r.slugs?.length ? r.slugs : deployments, variables: r.variables ?? {} })),
       checks: i.checks, rationale: i.rationale,
     },
   };

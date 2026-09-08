@@ -288,11 +288,17 @@ export interface PlannedRead {
   readonly variables: Readonly<Record<string, string | number | boolean | null>>;
 }
 
+/**
+ * What a plan can ASK the engine to do — and only things that are genuinely a choice.
+ *
+ * ⚠️ `'internal-consistency'` and `'market-population'` were removed on 2026-09-07. Neither was a
+ * decision a plan gets to make: `reconcile` runs tier 0 on every report regardless, and the market
+ * population is checked whenever the `markets` document is read, which `reads` already says. A plan
+ * that claims a check nothing acts on is a plan that overstates what was verified.
+ */
 export type PlannedCheck =
-  | 'internal-consistency'
   | 'chain-corroboration'
-  | 'external-reference'
-  | 'market-population';
+  | 'external-reference';
 
 /**
  * What the model decides, before any data is read. Deterministic code executes it.
