@@ -3193,3 +3193,193 @@ and info strings being different lengths from SM-07's. Nothing structural moved.
 
 `tsc -p tsconfig.json --noEmit` exits 0. No transfer — that is Unit 10, and `transfer_tx` is null in
 the row precisely because it is a separate lifecycle step.
+
+## 2026-09-08 — Where the report token is actually visible, and why the obvious pages are empty
+
+Read-only investigation, no gas. **The token is visible, and three separate things were hiding it.**
+
+### Why the pages that looked empty were empty
+
+1. ⚠️ **It is not an HTS token, so the account page structurally cannot show it.**
+   `/api/v1/tokens/0.0.10425231` returns **404** — that id is a *contract*, not a token. ATS assets
+   are plain ERC-20 on the Hedera EVM. The account's token list does return one HTS token (6
+   decimals), which is why the page looks populated and wrong rather than blank.
+2. ⚠️ **The proxy is Sourcify-verified, but the verified ABI is `ResolverProxy`'s — 390 bytes, with no
+   `balanceOf` and no `Transfer`.** That is why the contract page offers ABI and bytecode and no read
+   interface. The asset's functions live on facets reached by `delegatecall`; the proxy's own ABI
+   genuinely does not contain them.
+3. ⚠️ **`EquityDeployed` is emitted by the FACTORY, not the proxy.** It is log index **95 of 96** in
+   the deploy transaction, against `0.0.9213391`. Anyone looking at the proxy for the report hash is
+   looking at the wrong contract. And the factory is **not** Sourcify-verified
+   (`match: null`), so HashScan has no ABI for it and can only render that log as raw hex.
+
+### Where the `alpha:<hash>` string actually is
+
+Deploy tx `0xe4c1dcb1…3784`, log **95**, contract **0.0.9213391**, topic0
+`0xa291f8f4…b739` = `EquityDeployed(address indexed deployer, address equityAddress, …)` — confirmed
+against `Factory__factory`'s ABI, not guessed. The string sits in that log's `data` (2,016 bytes) at
+**byte offset 1920**, preceded by the ABI length word `0x…046` = 70, which is exactly
+`len("alpha:" + 64 hex)`. The 140-hex run
+`616c7068613a3234303431…336535` decodes to
+`alpha:24041ca282d260d3ad843d197086f595d6a2fab46d4e5aadf3e1c1517bfdd3e5` — **byte-identical** to the
+primary key in Neon.
+
+### The mint is a standard ERC-20 Transfer, and it is on the proxy
+
+Issue tx `0x42847985…2ff6`, log **0**, contract **0.0.10425231**:
+`Transfer(from=0x0…0, to=0x32838fe9…b152, value=1)`, topic0 `0xddf252ad…b3ef` — which is exactly
+`keccak256("Transfer(address,address,uint256)")`, checked. **A transfer from the zero address is a
+mint**, so this single log is the on-chain proof of issuance, and it is on the contract everyone was
+already looking at. The same transaction also carries ATS's `TransferByPartition`, and grantRole
+carries `RoleGranted(operator, account, role=0x5eeaf560…a95f)` = ROLE_ISSUER.
+
+### Numeric balance, from two independent public APIs
+
+`balanceOf(0x32838fe9…)` and `totalSupply()` both return `0x…01` from **Mirror Node
+`/api/v1/contracts/call`** and from **Hashio `eth_call`**. Both are POST, so neither is a clickable
+link — that is the one thing genuinely not viewable by URL alone.
+
+⚠️ **HashScan could not be checked directly and that is a tooling limit, not a finding.** It is a Vue
+SPA that serves its shell with HTTP **404** on every deep route — `/mainnet/contract/0.0.1` 404s too.
+So every identifier below was verified against Mirror Node, and HashScan's *rendering* of them was
+not verified. Worth knowing before anyone tries to script a check against it.
+
+### The Mirror Node filter quirk that cost ten minutes
+
+`?topic0=…` on `/results/logs` returns **zero** logs on its own. It only works with a **bounded
+timestamp range** — `&timestamp=gte:X&timestamp=lte:Y`. Unbounded it silently returns an empty list
+rather than an error, which reads exactly like "the event is not there".
+
+## 2026-09-08 — Loop sweep: nine seams nobody owns, and the one that blocks everything
+
+Read-only trace from `scripts/demo/narrate.ts` to a token on Hedera. **Every unit passes its own
+proof and the loop does not run unattended.** Ordered by what blocks the most.
+
+**1 · narrate → save is unwired.** `demo/narrate.ts` runs compose → execute → narrate, computes
+`reportHash(report)`, renders, prints, exits. It never imports `save`. The `Report` is lost on exit.
+Phase 2's pipeline and Unit 5's store were each supposed to meet here and neither owns the join.
+**Blocks: the app, tokenization, and Units 13/14/15 — all of which need a persisted body.** ~2 lines,
+or better a real generator script.
+
+**2 · the only `save()` caller is a proof script that deliberately corrupts a row.**
+`scripts/demo/store.ts` is the *sole* path from a directive to a stored report. Its check 2 flips one
+character of `canonical_json` and check 5 restores it — ⚠️ **the restore is inside a `try` whose
+`finally` only closes connections**, so a Ctrl-C or crash between the two `UPDATE`s leaves a
+corrupted row that `load()` refuses to serve and the report page 500s on. Using it as the de-facto
+generator, which is what is happening, runs a corrupt-and-restore cycle on every report.
+
+**3 · `report_tokens` is invisible to the app.** `list()` is `SELECT … FROM reports` with no join and
+`app/report/[hash]/page.tsx` imports only `load`. Zero references to `report_tokens` anywhere under
+`app/`. **A tokenized report renders identically to an untokenized one**, so the cross-chain
+commitment — the thing the Tokenization track is judged on — is invisible on the product surface.
+Units 6 and 8 were to meet here; Unit 6 predates the table and Unit 8's brief said "no app changes".
+~15 lines. Confirmed live: 2 reports, 1 token, and the page shows no difference.
+
+**4 · `Report.atsTokenAddress` is never populated in any real path.** `execute.ts` sets it `null`,
+`canonical()` strips it, `load()` reattaches `null`, and Unit 8 writes `report_tokens` without
+touching it. The type has a field designed to carry the token and nothing fills it. Distinct from 3:
+that is the *query* linkage, this is the *object* linkage. Needs a decision on which is the source of
+truth before both exist and disagree.
+
+**5 · `compose.ts` has no caller outside `scripts/demo/`.** Verified by resolving every relative
+import across `src/`, `scripts/` and `app/` into a real graph — a naive path grep undercounts sibling
+`./x.js` imports and reported false orphans. The planner is reachable only from four demo scripts, and
+no `scripts/ops/` entry runs the pipeline. **This is the structural reason gap 1 exists: the pipeline
+has no production entry point at all.** `package.json` exposes `dev/build/start/typecheck` and the
+nine smoke tests — nothing that produces a report.
+
+**6 · nothing produces a price for Unit 13.** `quotes.price_tinybars` is `NOT NULL CHECK > 0`; no
+constant, config entry or function anywhere in `src/` yields one. The plan says "price in
+hand-computed tinybars", so this is a decision not yet taken rather than a broken wire — but it is an
+input with no producer, and Units 13/14/15 all sit behind it.
+
+**7 · `HEDERA_SELLER_ID` still resolves empty in Vercel Production.** The deployed 402 carries
+`payTo: ""`. Units 12/14 need a real `payTo` off the analyst row. Known, unchanged, still blocking a
+truthful Unit 14 proof.
+
+**8 · the analyst-by-Arc-address lookup is inlined in `ats.ts`.** `ANALYSTS.find(a => a.arcAddress
+=== report.analyst)` lives at `ats.ts:104`. Units 12 and 13 need the same resolution to get `payTo`.
+Not broken — a duplication about to happen. ~5 lines to hoist into `config/analysts.ts`.
+
+**9 · `scripts/demo/skills.ts` is still broken.** Reads `src/agent/skills/balance-overview.md`, which
+has been at `skills/unused/` since Phase 2. Confirmed still absent. Not blocking anything.
+
+### The shortest path that exists today
+
+```
+npx tsx --env-file=.env scripts/demo/store.ts "<directive>"     # generates, saves, prints the hash
+#   ⚠️ hand-copy the 64-char hash from stdout
+npx tsx --env-file=.env scripts/ops/tokenize.ts <hash> --confirm
+open https://et-honline-2026-alpha-markets.vercel.app/report/<hash>
+```
+
+⚠️ **It works, and every joint is a human.** The generator is a test that corrupts a row mid-run, the
+hash moves between commands by copy-paste, and the last page does not show the token that step 2 just
+minted. **Not executed** — it writes to Neon and spends HBAR, and this task was read-only.
+
+⚠️ **Not gaps, for the record:** the app never generating a report is decision 2, not a seam. `ats.ts`,
+`validate.ts`, `evidence.ts` and reconcile's tier 2 are known parked work. `loop.ts`/`tools.ts` are the
+`ask.ts` demo surface by decision.
+
+## 2026-09-08 — scripts/ops/report.ts: the pipeline finally has a production entry point
+
+One file, 138 lines. **`npx tsx --env-file=.env scripts/ops/report.ts "<directive>"` → a saved
+report, its hash, its public URL, and the tokenize command with the hash already in it.** Gaps 1, 2
+and 5 from this morning's loop sweep close together, because they were one gap seen from three sides.
+
+**A promotion, and here is exactly what moved.** From `demo/narrate.ts`: the compose → execute →
+narrate sequence, the timing breakdown, and `present()`'s shape — render first, then the digit-guard
+warning. From `demo/store.ts`: the `save` call and the fact-count summary. **Left behind:** the four
+demo modes and their hand-written `manualPlan`s, the `stability`/`withheld`/`morpho` branches, the
+five `must()` assertions — and, the reason this file exists, `demo/store.ts`'s deliberate
+one-character corruption of `canonical_json` whose restore sits outside its `finally`. Neither demo
+was touched; both still prove what they proved.
+
+⚠️ **No default directive, unlike both demos.** They fall back to a canned Aave directive when given
+no argument, which is right for a proof and wrong here: this command writes to the store, and a
+default would quietly generate and keep a report nobody asked for.
+
+⚠️ **All four `execute` outcomes are handled and only one of them saves.** `blocked` names the
+headline figure that cannot be stood behind; `declined` names why the plan could not run; `budget`
+names the limit hit and suggests narrowing the directive. `compose` returning `needs_clarification`
+prints the missing pieces and the suggested directives. **Every one of them ends with "Nothing was
+saved."** — because a report that does not publish must not be in the store.
+
+⚠️ **A re-save is stated as a fact, not a failure.** `save` returns `inserted: false` when the hash is
+already there, and the output says `ALREADY STORED` plus "the same directive at the same block
+produced a byte-identical report". The hash is the id; that is the design working.
+
+**A TypeScript finding worth keeping.** The early exits were first routed through one
+`async function stop(): Promise<never>`. That does **not** narrow a discriminated union — only a
+*synchronous* `never`-returning call is a control-flow terminator, so `ex.draft` and `planned.plan`
+all failed to resolve. Fixed by keeping a `problem()` that only prints and repeating
+`await close(); process.exit(1)` at each site. The repetition is deliberate and the comment says so.
+
+**Proof, on a real directive** — "Balance overview for Compound v3 on Ethereum — how big is it and
+what is being borrowed?":
+
+- Report generated at block 25934484, 6 facts, **saved**, hash
+  `ea756902fc433ceae75164e77a4198d9c1e371e7173c5a4d85fa8d868c00fbb7`.
+- ⚠️ The digit guard fired — one `typed-digit` violation on `"31%"`, the utilization — and the report
+  **printed and saved anyway**, which is DECISIONS.md 2026-09-08 working as written. Enforcement is
+  Phase 4's.
+- The printed hash **is** the primary key in Neon; reports went 2 → 3.
+- The report is live at
+  `https://et-honline-2026-alpha-markets.vercel.app/report/ea756902…fbb7` **with no redeploy**, and it
+  is on the index. `force-dynamic` earning its keep.
+- Timing: compose 7.7s, execute 0.65s, narrate 25.9s — the two model calls are 98% of it.
+- The printed tokenize command was checked **without running it** (no chain calls this unit):
+  `tokenize.ts` reads `process.argv[2]` as the hash and `--confirm` from argv, the printed form
+  matches, `prepare()` would find the report, no token row exists for it, and it would mint ISIN
+  `XXEAPDVQTO77`.
+- `tsc -p tsconfig.json --noEmit` exits 0.
+
+⚠️ **Not added to `package.json`, deliberately.** Checked first: **zero** of the nine `scripts/ops/`
+scripts are in there — `migrate`, `tokenize`, `verify-ats`, `verify-analyst` and the rest are all run
+as `npx tsx --env-file=.env scripts/ops/…`. Only the nine smoke tests have entries, and those are
+zero-argument. Adding `report` would have made it the odd one out and forced `npm run report --
+"directive"` for the argument. The brief said "if that fits how the repo already works"; it does not.
+
+**What this does not close.** Gap 3 stands — the app still does not read `report_tokens`, so the new
+report will look identical whether or not it is ever tokenized. The two-command loop is now
+generate → tokenize with no hand-copying; making the token visible to a reader is still open.
