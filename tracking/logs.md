@@ -2541,3 +2541,92 @@ failure rather than letting it reach a challenge.
 
 The probe route stays until this is resolved; it has now answered from Vercel, which was the condition
 for deleting it, but deleting it would also delete the only thing currently exercising that env path.
+
+## 2026-09-08 — Circle credentials still work, and SM-08's half-run assertion can now close for real
+
+Read-only check ahead of Unit 2 (`config/analysts.ts`), whose proof depends on the recorded analyst
+address being checkable against the live Circle API rather than against a constant.
+
+**All three Circle variables are present and well-formed in `.env`** — `CIRCLE_API_KEY` (78 chars,
+`TEST_API_KEY` prefix, so a sandbox key, consistent with testnet), `CIRCLE_ENTITY_SECRET` (64 hex
+characters = the 32 bytes Circle wants), `CIRCLE_WALLET_ID` (36 chars, UUID-shaped). None empty.
+
+**The credentials still function.** One live read — `circle.getWallet({ id })`, `GET
+/v1/w3s/wallets/{id}`, the same call SM-08 makes in its reuse branch at line 84 — returned:
+
+```
+  address       0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7
+  accountType   EOA
+  blockchain    ARC-TESTNET
+  state         LIVE
+  custodyType   DEVELOPER
+  createDate    2026-09-06T20:06:03Z
+```
+
+**The address matches the one hardcoded in the three demo scripts and recorded in `DECISIONS.md`,
+exactly.** `accountType: EOA` satisfies §5.18 — `claimId` derives the author from `msg.sender` and an
+EOA's Circle address is deterministic — and `custodyType: DEVELOPER` confirms it is a
+developer-controlled wallet rather than a user-controlled one.
+
+⚠️ **The script was not run, deliberately.** SM-08 obtains the address through a read, but the read is
+step 1 of six and the script continues into a contract deploy and a payable transaction. `.env.example`
+also warns that running it without `CIRCLE_WALLET_ID` creates a *second* wallet, which is a
+wrong-author bug rather than an inconvenience. The call was reused; the script was not.
+
+**So Unit 2's proof can be the strong version** — assert `analysts.ts`'s Arc address equals what the
+live API returns, closing the half of SM-08's assertion that has been open since 2026-09-06 because
+`analysts.ts` did not exist.
+
+⚠️ **One caveat on where that proof runs.** This confirms the values in the local `.env`. Yesterday's
+deploy found `HEDERA_SELLER_ID` set-but-empty in Vercel Production while non-empty locally, so
+"the credentials work" is currently a statement about this machine. If Unit 2's assertion is ever
+expected to pass in CI or on Vercel, the Production values are a separate and unverified question.
+
+## 2026-09-08 — Phase 3 Unit 2: config/analysts.ts, and SM-08's half-run assertion finally closes
+
+`src/config/analysts.ts` plus its proof, `scripts/ops/verify-analyst.ts`. One row, one lookup, two
+live assertions. Nothing else touched — `execute.ts` still takes an address parameter and the four
+demo scripts still carry the literal, because changing that is a function signature and four call
+sites, which is the next commit.
+
+**Both assertions pass against live services.**
+
+```
+── alpha-1  "Alpha Markets House Analyst"   model claude-sonnet-5
+  arcAddress
+    config      0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7
+    circle      0x1b7035bbe0da8f3bcb721863d42e1079e4a116a7   ✅
+    accountType EOA   ✅   blockchain ARC-TESTNET   state LIVE
+  hederaEvmAddress
+    config      0x32838fe90541567bbf77fa0570661f3c20e2b152
+    mirror node 0x32838fe90541567bbf77fa0570661f3c20e2b152   ✅   for 0.0.10387690
+    key type    ECDSA_SECP256K1   deleted false
+```
+
+**§5.18 is now checked rather than assumed.** It requires `analysts.ts`'s address to equal the Circle
+wallet address; SM-08 could only run the `msg.sender` half on 2026-09-06 because this file did not
+exist. The other half is closed, and `accountType: EOA` is asserted alongside it — an SCA would mean
+re-provisioning, and finding that out now costs nothing against finding it out in Phase 4.
+
+⚠️ **The EVM address was READ, not derived.** `GET /api/v1/accounts/0.0.10387690` → `evm_address`.
+Cross-checked once against `ethers.Wallet(key).address` and the two agree, but Mirror Node is what the
+file records as its source, because the account's own record is the authority on its alias and
+deriving it ourselves would only prove we can repeat our own arithmetic. The proof script deliberately
+does not read `HEDERA_SELLER_KEY` at all — the check needs no private key, and not asking for one
+keeps its credential surface to the two Circle values plus a public GET.
+
+⚠️ **One thing the row shape decides silently, and it should be a decision rather than a default.**
+`arcAddress` is the analyst's *identity* — who wrote the report, who stakes. `hederaAccountId` and
+`hederaEvmAddress` are a *treasury* role: the x402 `payTo` and the ATS issuer. Today they are one
+entity because there is one analyst, so the row reads naturally. Adding a second analyst forces the
+question the shape currently answers by itself: **does each analyst get its own Hedera account —
+its own `payTo`, its own ATS issuer — or do all analysts sell through one platform treasury and
+differ only by `arcAddress`?** The plan's agent-economy framing implies the first; the single row
+implies nothing either way. Recorded rather than resolved.
+
+Smaller notes: the lookup throws on an unknown id rather than returning `null`, because a silent
+`undefined` would reach `Report.analyst` as the string `"undefined"` and hash exactly as cleanly as a
+real address. `model` is imported from `loop.ts`'s `MODEL` rather than restated, so the two cannot
+drift. And the proof script's `env()` treats an empty string as missing — yesterday's deployed probe
+produced a challenge with an empty `payTo` precisely because `??` falls back on `undefined` and not
+on `""`.
