@@ -4068,3 +4068,69 @@ of one settlement.
 `tsc -p tsconfig.json --noEmit` exits 0. Nothing in `gate.ts`, `server.ts` or `quotes.ts` changed —
 the gate was right as built. **The probe route can now be deleted**, since the real route has been
 proved end to end; that is a separate change and has not been made here.
+
+## 2026-09-08 — Phase 3 Unit 10: the lifecycle operation, on a token that carries a real report
+
+`src/tokenize/transfer.ts` (192 lines) and `scripts/ops/move-token.ts` (108). **H2.4's third element
+is done** — issuance and configuration were Unit 8, and this is at least one lifecycle operation, on
+a token whose creation event commits a report a stranger can read at a URL. SM-07 proved the same
+move against `FAKE_REPORT_HASH`.
+
+```
+  transfer tx  0x3b92dc2f7e0c614084b9d4f2df76743b06102832cd09a253c995690f50ad14c6
+  proxy        0x1805A2de801032859780BacE8Ff04a13B68E76D2   ISIN XX5FVRD1TMD1
+  from         0x32838fe9… (analyst alpha-1, 0.0.10387690)
+  to           0x683ee842… (0.0.10387696)
+  HashScan     https://hashscan.io/testnet/contract/0x1805A2de801032859780BacE8Ff04a13B68E76D2
+```
+
+⚠️ **Standalone, and NOT caused by a payment.** Own is cut, so a buyer pays to read and no token
+moves. H2.4 asks for issuance, configuration and ≥1 lifecycle operation — it does not ask for the
+operation to be *caused* by a purchase, and reading it that way was our own addition. **The token
+moved is deliberately not the one the buyer bought in Unit 15**, so the video cannot conflate "a
+token moved" with "a purchase moved a token".
+
+**Balances asserted from the chain, not eyeballed off a receipt** — SM-07's own finding was that
+proxy creation is not issuance and a status-1 receipt is not a balance change:
+
+```
+  ✅ sender 1 → 0        ✅ recipient 0 → 1
+  re-read afterwards:  analyst holds 0   recipient holds 1
+```
+
+**`transfer_tx` written**, and only *after* the balances were asserted — a `transfer_tx` recorded
+against a transaction that executed but moved nothing would be a row asserting something that did not
+happen.
+
+**The token moved and the report did not**, which is the property worth showing:
+
+```
+  ✅ report still readable at its URL (HTTP 200)
+  ✅ page still shows this hash, its ISIN and its proxy
+  ✅ creation event still commits alpha:<hash>   ← immutable; a transfer cannot alter it
+```
+
+⚠️ **Cost: the gas is IDENTICAL to SM-07's and the whole difference is relay price drift.**
+406,630 gas both times — byte-for-byte the same work. SM-07 paid 105.0 tinybars/gas, this run 107.0,
+so the `+0.00813260 HBAR` is the relay repricing and nothing about the transaction changed. Lifecycle
+total is now 7.71195 (Unit 8) + 0.43509 = **8.14704 HBAR against SM-07's measured 8.13891**, $0.0344
+for this step.
+
+**Two failures proved before anything was sent**, both with `--confirm` set, which is the part that
+matters: a report with no token stops naming the missing row *and the command that would create it*,
+and a malformed recipient stops on the address itself.
+
+⚠️ **The recipient is a required argument and was never defaulted.** Picking one would move a real
+asset to an address nobody chose. Confirmed with the user before spending, along with which of the
+two tokenized reports to move.
+
+⚠️ **`store/tokens.ts`'s header is now stale**: it says "Read-only. `tokenize/ats.ts` is the only
+writer", and `transfer.ts` is now a second writer of `report_tokens` (it updates `transfer_tx` through
+`db()`, since `tokens.ts` exposes no writer and is out of this unit's scope). One sentence to fix
+whenever a brief touches that file.
+
+⚠️ **`ats.ts`'s two leaked `pooled()` clients are still there.** `transfer.ts` does not import
+`ats.ts`, so per the brief I did not open it. Still two lines, still waiting for a unit that has
+reason to be in the file.
+
+`tsc -p tsconfig.json --noEmit` exits 0.
