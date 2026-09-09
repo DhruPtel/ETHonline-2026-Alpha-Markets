@@ -29,8 +29,9 @@ interface State { reports: Report[]; quotes: Quote[]; purchases: Purchase[]; pri
 const short = (h: string) => `${h.slice(0, 10)}…${h.slice(-6)}`;
 const when = (iso: string | null) => (iso ? `${iso.slice(0, 16).replace('T', ' ')}Z` : '—');
 
-export function StateTables({ target, setTarget, log, refreshToken }: {
+export function StateTables({ target, setTarget, log, refreshToken, onView, busy }: {
   target: string; setTarget: (h: string) => void; log: Log; refreshToken: number;
+  onView: (hash: string) => void; busy: boolean;
 }) {
   const [state, setState] = useState<State | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,10 +86,14 @@ export function StateTables({ target, setTarget, log, refreshToken }: {
       {error ? <p className="bad-line mono">{error}</p> : null}
       {!state ? <p className="op-note">Loading…</p> : (
         <>
-          <h3>Reports <span className="count">{state.reports.length}</span> <span className="op-note">· {state.price.hbar} HBAR each · click one to target it</span></h3>
+          {/* ⚠️ **This IS the session record.** Hashes and addresses used to vanish on a refresh, so an
+              interrupted run meant regenerating a report just to keep testing. Everything here is
+              read from Neon on mount — the reports and tokens are already durable, so no browser
+              storage is involved and nothing is lost by reloading the page. */}
+          <h3>Reports <span className="count">{state.reports.length}</span> <span className="op-note">· {state.price.hbar} HBAR each · click a row to target it · survives a refresh</span></h3>
           <div className="table-scroll">
             <table className="grid pick">
-              <thead><tr><th>Directive</th><th>Hash</th><th>Block</th><th>Token</th><th>Moved</th><th>Created</th></tr></thead>
+              <thead><tr><th>Directive</th><th>Hash</th><th>Block</th><th>Token</th><th>Proxy</th><th>Moved</th><th>Created</th><th>Body</th></tr></thead>
               <tbody>
                 {state.reports.map((r) => (
                   <tr key={r.hash} onClick={() => setTarget(r.hash)}
@@ -102,8 +107,20 @@ export function StateTables({ target, setTarget, log, refreshToken }: {
                            target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{r.token.isin}</a>
                       ) : '—'}
                     </td>
-                    <td className="mono">{r.token ? (r.token.transferTx ? 'yes' : 'no') : '—'}</td>
+                    <td className="mono">{r.token ? `${r.token.proxyAddress.slice(0, 12)}…` : '—'}</td>
+                    <td className="mono">
+                      {r.token
+                        ? (r.token.transferTx
+                            ? <a href={`https://hashscan.io/testnet/transaction/${r.token.transferTx}`}
+                                 target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>yes</a>
+                            : 'no')
+                        : '—'}
+                    </td>
                     <td className="mono">{when(r.createdAt)}</td>
+                    <td>
+                      <button type="button" className="quiet" disabled={busy}
+                        onClick={(e) => { e.stopPropagation(); onView(r.hash); }}>View</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

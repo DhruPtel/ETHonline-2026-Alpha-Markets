@@ -78,7 +78,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ stop: (error as Error).message }, { status: 409 });
   }
 
-  const plan = {
+  const plan: Record<string, unknown> = {
     url: opts.url,
     buyer: opts.accountId,
     perPaymentTinybars: DEFAULT_LIMITS.perPaymentTinybars,
@@ -86,6 +86,63 @@ export async function POST(request: Request): Promise<NextResponse> {
     spentTodayTinybars: spent(opts.accountId).toString(),
     ledgerNote: 'the daily ledger is a temp file; a serverless instance does not keep it between cold starts',
   };
+
+  // ── The gate probe. ⚠️ **A dry run that passes where the spend fails is not a dry run.** ────────
+  //
+  // This used to validate the shape of the URL and nothing else, so a Gate pointing at an origin
+  // with no such report — or at something that is not this app at all — planned cleanly and then
+  // failed on the spend step, after the operator had been told the plan was good.
+  //
+  // `buy()`'s first act is `fetch(url)` and a hard requirement that the status is 402; everything
+  // after that depends on it. So the probe here is exactly that request, made without paying:
+  // an unpaid GET costs nothing, moves nothing, and answers the only question the plan could not.
+  //
+  // ⚠️ It also lets the plan show the REAL quoted price, payTo and feePayer — decoded from the live
+  // challenge rather than assumed — which is the thing an operator actually wants to check before
+  // authorising a spend.
+  try {
+    const probe = await fetch(opts.url, { headers: { accept: 'application/json' } });
+    plan.gateStatus = probe.status;
+
+    if (probe.status === 404) {
+      return NextResponse.json({
+        stop: `the gate answered 404 for this report. ${base} has no report ${reportHash.trim()} — ` +
+          'either the hash is wrong or that origin is a different deployment with a different store.',
+        plan,
+      }, { status: 409 });
+    }
+    if (probe.status !== 402) {
+      return NextResponse.json({
+        stop: `the gate answered ${probe.status}, not 402. buy() requires a 402 challenge and would ` +
+          `refuse this URL. Check that ${base} is this app and that the route is gated.`,
+        plan,
+      }, { status: 409 });
+    }
+
+    // The challenge is public — it is what an unpaid caller is meant to receive.
+    const header = probe.headers.get('payment-required');
+    if (header) {
+      const padded = header + '='.repeat((4 - (header.length % 4)) % 4);
+      const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as
+        { accepts?: { amount?: string; asset?: string; payTo?: string; network?: string; extra?: { feePayer?: string } }[] };
+      const accepted = decoded.accepts?.[0];
+      if (accepted) {
+        plan.quotedTinybars = accepted.amount;
+        plan.quotedHbar = accepted.amount ? hbar(accepted.amount) : undefined;
+        plan.payTo = accepted.payTo;
+        plan.network = accepted.network;
+        plan.feePayer = accepted.extra?.feePayer;
+        // ⚠️ Checked here rather than discovered by `vet()` after a round trip.
+        plan.withinPerPaymentCap = accepted.amount
+          ? BigInt(accepted.amount) <= BigInt(DEFAULT_LIMITS.perPaymentTinybars) : undefined;
+      }
+    }
+  } catch (error) {
+    return NextResponse.json({
+      stop: `the gate at ${base} could not be reached: ${(error as Error).message}`,
+      plan,
+    }, { status: 409 });
+  }
 
   if (!confirm) {
     return NextResponse.json({ mode: 'dry', plan, spent: false });

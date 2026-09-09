@@ -1,28 +1,40 @@
 /* The console's own styles. Scoped to /console — imported by its page and nothing else.
    ⚠️ THROWAWAY, like the rest of app/console/.
 
-   Extends globals.css rather than restating it: --ink, --muted, --rule, --bg, --panel, --link and
-   the .mono / .masthead / .lede rules all come from there. What is added below is a sunken surface
-   for the terminal, three status colours (status is content in a terminal, not decoration), and one
-   accent used on exactly one thing — the button that spends. */
+   Extends globals.css rather than restating it: the .mono / .masthead / .lede / .memo / table rules
+   all come from there. What is added below is a sunken surface for the terminal, three status
+   colours (status is content in a terminal, not decoration), one accent used on exactly one thing —
+   the button that spends — and the panels this console added.
 
-:root {
+   ── ⚠️ LIGHT THEME, AND WHY IT IS SCOPED THE WAY IT IS ────────────────────────────────────────
+   The console is light-only. globals.css supports both schemes and the PRODUCT PAGES KEEP THAT —
+   the marketplace and the report preview must not move because the console changed.
+
+   So the palette is redefined on `main.console` rather than on `:root`. Custom properties inherit,
+   so everything inside the console gets the light values while `:root` is untouched and every other
+   page renders exactly as before. The one thing outside `main` that needs painting is the page
+   background, and `body:has(main.console)` reaches it without a class on <body> and without
+   touching globals.css. */
+
+main.console {
+  color-scheme: light;
+  --ink: #16181d;
+  --muted: #5f6672;
+  --rule: #dcdfe5;
+  --bg: #fbfbfa;
+  --panel: #ffffff;
+  --link: #12457a;
   --term: #f3f4f6;
   --good: #1d6b3f;
   --warn: #8a5a08;
   --bad: #a3241f;
   --spend: #8a3a12;
+  color: var(--ink);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --term: #101216;
-    --good: #6fbf8b;
-    --warn: #d9a441;
-    --bad: #e08a83;
-    --spend: #e0895a;
-  }
-}
+/* ⚠️ Only on a page that actually contains the console. The product pages have no main.console and
+   are unaffected in either scheme. */
+body:has(main.console) { background: #fbfbfa; color: #16181d; }
 
 /* A control panel is not a memo — it gets width. The reading measure is kept narrow inside it. */
 main.console { max-width: 74rem; padding-bottom: 4rem; }
@@ -83,21 +95,46 @@ main.console { max-width: 74rem; padding-bottom: 4rem; }
   border-left: 2px solid var(--rule);
 }
 
-.field { display: grid; gap: 0.3rem; margin: 0 0 0.9rem; }
-.field span { font-size: 0.8125rem; color: var(--muted); }
+/* ⚠️ The left column was cramped: label and control at the same weight, inputs the same height as
+   the text around them, and no room between a field and the next thing. The structure is unchanged —
+   what moved is density and the affordance that an input is something you type into. */
+.field { display: grid; gap: 0.35rem; margin: 0 0 1.1rem; }
+.field > span {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
 .field input, .field textarea {
   font: inherit;
   width: 100%;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.7rem;
   color: var(--ink);
-  background: var(--panel);
-  border: 1px solid var(--rule);
-  border-radius: 4px;
+  /* A sunken well reads as enterable; a panel-coloured box on a panel does not. */
+  background: #fff;
+  border: 1px solid #c7ccd6;
+  border-radius: 5px;
+  box-shadow: inset 0 1px 2px rgb(16 24 40 / 6%);
   resize: vertical;
 }
+.field input::placeholder, .field textarea::placeholder { color: #9aa2b0; }
 .field input.mono, .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; }
-.field input:focus, .field textarea:focus { outline: 2px solid var(--link); outline-offset: -1px; }
-.field input:disabled, .field textarea:disabled { opacity: 0.55; }
+.field input:hover:not(:disabled), .field textarea:hover:not(:disabled) { border-color: #a8b0bd; }
+.field input:focus, .field textarea:focus {
+  outline: 2px solid var(--link);
+  outline-offset: -1px;
+  border-color: var(--link);
+  box-shadow: none;
+}
+.field input:disabled, .field textarea:disabled { opacity: 0.55; box-shadow: none; }
+
+/* One line under a field saying what the field wants. Not a second label. */
+.hint { display: block; color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
+.dim { color: var(--muted); }
+.ok { color: var(--good); font-weight: 600; }
+.miss { color: var(--bad); font-weight: 600; }
+
+.quiet-link { align-self: center; font-size: 0.8125rem; }
 
 button { font: inherit; cursor: pointer; border-radius: 4px; }
 button:disabled { cursor: not-allowed; }
@@ -230,3 +267,123 @@ table.pick tbody tr.picked td { background: var(--term); box-shadow: inset 2px 0
   .term-wrap { position: static; }
   .term { height: 24rem; min-height: 0; }
 }
+
+
+/* ── Signing as — accounts and holdings ────────────────────────────────────────────────────────
+   Above the controls, because "no wallet is connected" has to be read before a spend button is. */
+
+.accounts { margin: 0 0 2.5rem; padding-bottom: 1.75rem; border-bottom: 1px solid var(--rule); }
+.accounts h3 { margin: 1.75rem 0 0.6rem; font-size: 0.8125rem; font-weight: 600; }
+.accounts h3 .count { color: var(--muted); font-weight: 400; }
+.accounts h3 .op-note { display: inline; margin: 0; }
+
+.acct-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.acct {
+  padding: 0.9rem 1rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+/* The two accounts are told apart by an edge, not a fill — one of them spends 7.7 HBAR. */
+.acct-analyst { box-shadow: inset 3px 0 0 var(--spend); }
+.acct-buyer { box-shadow: inset 3px 0 0 var(--link); }
+
+.acct-role {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.acct-label { font-weight: 600; margin: 0.1rem 0 0.7rem; }
+.acct-facts { display: grid; gap: 0.4rem; margin: 0; }
+.acct-facts > div { display: grid; grid-template-columns: 4.25rem minmax(0, 1fr); gap: 0.6rem; align-items: baseline; }
+.acct-facts dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.acct-facts dd { margin: 0; overflow-wrap: anywhere; }
+.acct-note { margin: 0.7rem 0 0; color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
+
+/* An address is a control here: clicking it fills the transfer recipient. */
+.addr {
+  padding: 0.1rem 0.3rem;
+  margin: -0.1rem -0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  color: var(--link);
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.addr:hover { background: var(--term); text-decoration: underline; }
+
+/* A holdings row where the chain and the database disagree is the reading worth seeing. */
+table.grid tr.disagree td { background: #fdf3f2; }
+
+/* ── The document pane ─────────────────────────────────────────────────────────────────────────
+   Full width under the grid: a report is a document and wants the measure, not a sidebar. */
+
+.doc {
+  margin: 2.5rem 0 0;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow: hidden;
+}
+.doc-paid { border-top: 3px solid var(--good); }
+.doc-door { border-top: 3px solid var(--warn); }
+
+.doc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--term);
+}
+.doc-head strong { display: block; font-size: 0.875rem; }
+.doc-sub { display: block; color: var(--muted); font-size: 0.75rem; line-height: 1.5; }
+
+.doc-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  gap: 0.5rem 1.5rem;
+  margin: 0;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  font-size: 0.8125rem;
+}
+.doc-facts > div { display: grid; gap: 0.1rem; min-width: 0; }
+.doc-facts dt {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.doc-facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.doc-probe {
+  margin: 0;
+  padding: 0.75rem 1.1rem;
+  border-bottom: 1px solid var(--rule);
+  background: #fffdf6;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+.doc-probe strong { color: var(--ink); }
+
+/* The document itself keeps globals.css's .memo rules — same look a paid body has anywhere else. */
+.doc .memo { padding: 1.5rem 1.1rem 1.75rem; max-width: 46rem; }
+.doc .memo h1 { font-size: 1.25rem; }

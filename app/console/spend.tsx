@@ -20,6 +20,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Log, Tone } from './terminal.js';
+import type { ConsoleDoc } from './document.js';
 
 type Json = Record<string, unknown>;
 
@@ -139,17 +140,44 @@ export function Spend(props: SpendProps) {
   );
 }
 
-/** The buy response carries three things no other operation does. */
-export function buyExtra(json: Json, log: Log): void {
+/**
+ * The buy response carries three things no other operation does.
+ *
+ * ⚠️ **A factory now, because the purchased body has somewhere to go.** It used to print four table
+ * lines into the terminal and discard the markdown — so the artefact the payment existed to buy was
+ * the one thing the console could not show you. `onDoc` hands it to the document pane.
+ */
+export const buyExtra = (onDoc: (doc: ConsoleDoc) => void) => (json: Json, log: Log): void => {
   for (const e of (json.trace as Json[]) ?? []) {
     log.write('buy', `${String(e.event)}  ${JSON.stringify(e)}`, 'note');
   }
-  const body = json.body as { hashMatchesRequested: boolean; markdownChars: number; tableLines: string[]; figure: string | null } | undefined;
+  const body = json.body as { hashMatchesRequested: boolean; markdownChars: number; tableLines: string[]; figure: string | null; markdown?: string } | undefined;
+  const purchase = json.purchase as { paymentId?: string; amountHbar?: string; payTo?: string; settledTransaction?: string } | undefined;
+  const plan = json.plan as { url?: string } | undefined;
   if (body) {
     log.write('buy', `hash in body matches requested: ${body.hashMatchesRequested}`, body.hashMatchesRequested ? 'good' : 'bad');
     log.write('buy', `markdown ${body.markdownChars} chars — the half the preview page does not serve`, 'good');
     for (const line of body.tableLines) log.write('buy', line.slice(0, 110), 'plain');
     log.write('buy', `a figure from it: ${body.figure ?? '(none found)'}  ← grep the public page for this`, 'note');
+
+    // ⚠️ The fix: render what was paid for, rather than describing it.
+    if (body.markdown) {
+      const hash = (json.body as Json & { hash?: string }).hash
+        ?? plan?.url?.split('/').pop() ?? '';
+      onDoc({
+        source: 'paid',
+        reportHash: String(hash),
+        markdown: body.markdown,
+        figure: body.figure,
+        facts: [
+          ['paid', `${purchase?.amountHbar ?? '?'} HBAR to ${purchase?.payTo ?? '?'}`],
+          ['payment id', purchase?.paymentId ?? '—'],
+          ['settled', purchase?.settledTransaction ?? '—'],
+          ['body', `${body.markdownChars} chars`],
+        ],
+      });
+      log.write('buy', 'body rendered below — this is the document the payment bought', 'good');
+    }
   }
   const moved = json.moved as Json | undefined;
   if (moved?.transfers) {
@@ -164,4 +192,4 @@ export function buyExtra(json: Json, log: Log): void {
     log.write('buy', `${r.refused ? '✅' : '⛔'} ${r.label} — ${r.refused ? `refused by "${r.control}"` : 'NOT refused'}`,
       r.refused ? 'good' : 'bad');
   }
-}
+};

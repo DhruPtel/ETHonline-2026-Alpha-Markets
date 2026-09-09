@@ -5011,3 +5011,128 @@ decided-provisionally, with a table of what would overturn each and the instruct
 first.
 
 Nothing committed.
+
+## 2026-09-09 — The console becomes a real test surface, and one control is blocked at the src/ boundary
+
+`app/console/` and `app/api/console/` only. ⚠️ **`src/` untouched, and every product file untouched** —
+confirmed with `git status` against `src/`, `app/page.tsx`, `app/report/`, `app/markdown.tsx`,
+`app/globals.css` and `app/layout.tsx`. `tsc` exits 0 on both configs; `next build` passes.
+
+### ⚠️ BLOCKED — transfer cannot go both ways without changing `src/`
+
+**The requirement cannot be met from the console, and this is the module-boundary finding.**
+`src/tokenize/transfer.ts::prepare()` takes `(reportHash, to)` — **the signer is not a parameter.**
+It builds the wallet from `HEDERA_SELLER_KEY` itself and then *actively refuses* any signer that is
+not the analyst:
+
+```ts
+const wallet = new ethers.Wallet(`0x${env('HEDERA_SELLER_KEY')…}`, provider);
+if (wallet.address.toLowerCase() !== analyst.hederaEvmAddress.toLowerCase()) throw …
+```
+
+Asking for buyer → analyst does not fail with "wrong signer". It fails with something better, which
+is what makes the shape unmistakable:
+
+```
+  POST /api/console/transfer  { reportHash: <a token the BUYER holds>, to: <analyst evm> }
+  → { "stop": "the recipient is the sender. A transfer to yourself demonstrates nothing." }
+```
+
+⚠️ **`prepare()` cannot even represent the question.** The signer is always the analyst, so a request
+to send *to* the analyst reads as a self-transfer. The function has no way to express "the buyer
+sends".
+
+**Two routes around it, both refused.** Editing `src/tokenize/transfer.ts` to take a signer is out of
+scope. Building the plan in the console and calling the exported `send()` would mean the console
+owning the preflight for a **spending** operation — chain-id check, key/holder match, self-transfer
+check, balance assertion — which is exactly the safety logic `prepare()` exists to hold, and it would
+contradict this console's own rule that nothing is reimplemented. ⚠️ There is also a data problem
+underneath: `send()` writes `report_tokens.transfer_tx` unconditionally, so a return trip would
+**overwrite the outbound hash** and lose the record of the first move. A `from` parameter alone would
+not fix that.
+
+⚠️ **The consequence is visible right now: three of the four report tokens are held by the buyer and
+cannot come back.** The holdings panel shows it.
+
+**Not spent, and deliberately.** A one-way analyst → buyer transfer would cost 0.43 HBAR to re-prove
+a path three transactions already prove, and the return leg — the half that is actually untested — is
+the impossible one. The Plan step was exercised in both directions instead, which costs nothing and
+is what produced the evidence above. The control says the limitation on itself rather than hiding it.
+
+### Both bugs fixed
+
+⚠️ **Plan accepted a bad gate.** It validated the URL's *shape* and nothing else, so a Gate pointing
+at an origin with no such report planned cleanly and failed on the spend — after the operator had
+been told the plan was good. Plan now makes the same unpaid `fetch` that `buy()` makes first, which
+costs nothing and answers the only question it could not:
+
+```
+  good gate  → gateStatus 402 · quoted 100000 tinybars (0.00100000 HBAR)
+               payTo 0.0.10387690 · feePayer 0.0.7162784 · withinPerPaymentCap true
+  bad hash   → STOP "the gate answered 404 for this report … either the hash is wrong or that
+               origin is a different deployment with a different store."
+```
+
+It also decodes the live challenge, so the plan now shows the **real** price and payee rather than an
+assumed one.
+
+⚠️ **The purchased body was discarded.** `buy` received the markdown, printed four table lines and
+dropped the rest — the one artefact the payment existed to buy was the thing you could not look at.
+There is now a document pane, and it renders with **`app/markdown.tsx`, the product's own renderer**,
+not a second one: that component is the escaping boundary for indexer-supplied market names, and a
+console with its own parser would be testing itself.
+
+### Added
+
+**Signing as** — the two accounts, both address forms, HBAR balances, and which env key signs for
+each. ⚠️ There is no wallet connection anywhere in this build and a page of spend buttons implies
+one; the panel says so first. Clicking an EVM address fills the transfer recipient, so it is picked
+rather than typed.
+
+**Holdings** — `balanceOf` per token per account, read from the chain, with the database's opinion
+beside it. `transfer_tx` records what we last sent; `balanceOf` records what is. All four agree today
+and the panel highlights a row where they would not.
+
+**The console door** — any report's body read straight from the store, unpaid, labelled as what it
+is. ⚠️ It exists because there is **no identity system**: a purchase is served once and
+`payments/auth.ts` is the declared cut point, so a paid report cannot be re-read. Fine in a surface
+deleted before submission; not fine in `app/report/`. **The gate is unchanged** and the proof is the
+paywall probe below.
+
+**Session state** — the reports table already read Neon, so nothing was lost on refresh; what was
+missing was the addresses and transactions. Proxy addresses and a linked transfer transaction are now
+in the table, and no browser storage is involved.
+
+### Looks
+
+Light theme, **scoped so the product pages cannot move**. The palette is redefined on `main.console`
+rather than `:root` — custom properties inherit, so the console goes light while `:root` keeps
+globals.css's dual-scheme support for the marketplace and the preview. The one thing outside `main`
+is the page background, reached with `body:has(main.console)`. The built console stylesheet contains
+**no `:root` rule and no `prefers-color-scheme: dark`**; globals.css keeps both.
+
+The left column gained density and input affordance: labels at weight rather than muted, sunken
+wells with a real border and inset shadow so an input reads as enterable, hover and focus states, and
+a `.hint` line under a field. Structure unchanged. ⚠️ The **Gate** field was mislabelled — it wants an
+**origin** and read like it wanted a report URL. It is now "Gate origin — scheme and host only, no
+path" with an example and a note that the route appends the path itself.
+
+### Proof
+
+```
+  bad gate fails at Plan                     ✅ 404 → STOP, nothing sent
+  good gate Plan decodes the live challenge  ✅ price/payTo/feePayer/cap shown
+  purchased body renders                     ✅ document pane, product renderer
+  holdings from chain                        ✅ analyst 1 · buyer 3 · all agree with the DB
+  unpaid read works                          ✅ 2,062 chars, 46 facts, figure $1.27B
+  paywall still holds                        ✅ "$1.27B" occurs 0× on /report/<hash>, local AND
+                                                deployed; unpaid GET /api/reports/<hash> → 402
+  product pages unchanged                    ✅ text-identical to the deployed pre-change build,
+                                                both / and /report/<hash>
+  /console traced size                       1.69 MB vs 1.68 MB baseline (+0.01, not material)
+  api/console/accounts                       7.57 MB — ethers, isolated in its own route so
+                                                /api/console/state stays a 1.75 MB database read
+  tsc (root + app) · next build              exit 0
+```
+
+Nothing committed.
