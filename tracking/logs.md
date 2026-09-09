@@ -4813,3 +4813,75 @@ duplicated into console files that get deleted, and `TxCost` is deliberate with 
 at both sites.
 
 Nothing committed.
+
+## 2026-09-09 — Structure assessed and found sound; six subsystem READMEs written
+
+Read-only assessment first, then documentation. **No code moved, renamed or changed.**
+
+### The assessment: the structure is fine, and I am not recommending a reorganisation
+
+`src/`'s nine-way split reads cleanly — `types → domain → graph`/`engine → agent`, with `config` at
+the bottom importing nothing and `store`/`tokenize`/`payments` as three peers above. No cycles, every
+directory name describes its contents. Four observations, only one of which is worth acting on:
+
+⚠️ **`render()` in `agent/narrate.ts` looks misplaced and is not.** `narrate()` emits `{fact:ID}`
+placeholders it *cannot fill*; `render()` fills them. Those are the two halves of one invariant — "no
+model ever types a digit" — and separating them would put the halves in different files.
+`app/markdown.tsx` already documents itself as parsing the output of that one generator, so the
+coupling is deliberate and recorded. **Leave it.**
+
+⚠️ **`app/` genuinely did not read clearly, and that was the real gap.** Eleven authored routes, seven
+of them scaffolding, discoverable only by opening files. Fixed by `app/README.md` rather than by
+moving anything.
+
+**Minor, reported and not acted on:** `scripts/demo/` holds proofs rather than demonstrations — the
+name is slightly off and `scripts/README.md` already says what it is. Its file headers identify
+themselves by bare unit number, and the numbers **collide across phases** — "Unit 10's proof" is both
+`adapter.ts` (Phase 1) and `narrate.ts` (Phase 2), and there are seven such pairs. The two Phase 3
+demos switched to naming the subject instead (*"Proof for `src/tokenize/isin.ts`"*), which is the
+better convention and arrived on its own. And `tokenize/hedera.ts` has five consumers outside
+`tokenize/`, but they take only `fetchJson` and `MIRROR`; the tokenize-specific machinery stays put.
+Neither is worth touching four days out.
+
+### The six READMEs
+
+`src/domain/`, `src/store/`, `src/tokenize/`, `src/payments/`, `src/config/` and `app/`. Every
+subsystem now has one; `docs/ARCHITECTURE.md`'s *where to go next* table drops the "the promise is
+dropped" paragraph and points at all nine.
+
+Each leads with the one non-obvious thing rather than describing mechanics — `store/` exists because
+narration is inside the hash so a report cannot be re-derived; `tokenize/` because the creation event
+carries the same 32 bytes Arc will reference; `payments/` because the body must already exist or a
+120-second validity window lands on the critical path; `domain/` because one file decides what a
+report *is*; `config/` because it is measurements rather than settings, and that is why no rule
+tests a protocol by name; `app/` because the whole directory is one line — what is free and what a
+payment buys.
+
+⚠️ **Deliberate divergence from the four existing READMEs: no line counts.** The Phase 2 four carry
+them (`execute.ts` (392), `client.ts` (300)) and they are exactly the thing that went stale — this
+repo has already spent one commit correcting three of those numbers. The new six carry none, and no
+function inventories or file tables either. Voice and structure match; the rotting part does not.
+
+### Two errors caught in my own drafts before they shipped
+
+⚠️ **`app/README.md` said "six of the twelve routes are throwaway".** Counted properly: eleven
+authored routes, **seven** scaffolding (`/api/probe`, `/console`, five console API routes) and four
+product. The twelve in the build output includes the framework's `_not-found`.
+
+⚠️ **It also said "the app never generates a report", which is false** — `/api/console/generate` does
+exactly that. Corrected to *no **product** route generates one*, with the console named as the
+exception and as one more reason it is not product. That is the precise class of overclaim these
+documents were written to avoid.
+
+### Verification
+
+Every factual claim checked against the code rather than the plan: the 28/25 protocol counts and the
+single analyst row read from the modules themselves; `dangerouslySetInnerHTML` absent everywhere but
+the comments saying so; `quotes.state` and `purchases.delivered_at` confirmed to have no writer;
+`recover.ts` and `auth.ts` confirmed absent; `maxSupply: 1n`, `decimals: 0` and the on-chain ISIN
+check digit read from source; `config/` confirmed to import nothing from `src/` at runtime.
+
+⚠️ **`app/README.md` sits inside the directory Next scans for routes**, so the build was re-run to
+confirm markdown is ignored: 12 routes, unchanged, exit 0. `tsc` exits 0. No code changed.
+
+Nothing committed.

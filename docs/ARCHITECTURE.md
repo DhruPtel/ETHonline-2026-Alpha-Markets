@@ -106,23 +106,22 @@ truth, which has never been decided either way; `tokenize/ats.ts` leaks two data
 
 ## Where to go next
 
-⚠️ **This page used to promise "each subsystem then has its own README", and six directories have
-none.** Four subsystems have one — they are the Phase 2 subsystems, deep enough that the reading
-*order* matters as much as the files. The Phase 3 subsystems are smaller and carry their reasoning in
-unusually thorough file headers instead. **Writing six more READMEs four days from a deadline, for
-code Unit 17 and Phase 4 will change, would manufacture exactly the staleness this document is being
-corrected for** — so the promise is dropped and the table below names files where there is no README.
+**Every subsystem has its own README.** Four were written in Phase 2 and six on 2026-09-09; each
+answers *what is this and why does it exist* rather than listing what it exports, and each leads with
+the one non-obvious thing about its subsystem.
 
 | you want | read |
 |---|---|
+| what a report *is*, and why there is one hasher | `src/domain/README.md` |
 | the report shape another analyst must target | `src/types/README.md` → `report.ts` |
 | how data is fetched and trusted | `src/graph/README.md` |
 | how a verdict is decided | `src/engine/README.md` |
 | the pipeline, and why `agent/` holds two systems | `src/agent/README.md` |
-| how a report is stored, and the two Neon URLs | `src/store/db.ts` header, then `reports.ts` |
-| how a report becomes a token on Hedera | `src/tokenize/ats.ts` header, then `hedera.ts` |
-| how the paywall works | `src/payments/gate.ts` header, then `server.ts` and `quotes.ts` |
-| what the app serves, and where the paywall line falls | `app/report/[hash]/page.tsx` header |
+| why a report cannot be regenerated | `src/store/README.md` |
+| the hash committed on a public chain | `src/tokenize/README.md` |
+| how the paywall works, and what it does not do | `src/payments/README.md` |
+| where the paywall line falls, and which routes are throwaway | `app/README.md` |
+| why the engine needs no protocol-specific branches | `src/config/README.md` |
 | what to run | `scripts/README.md` |
 | what is done and what is left in Phase 3 | `tracking/phases/PHASE-3.md` |
 | why a decision was made | `tracking/DECISIONS.md`, `tracking/lessons.md` |
