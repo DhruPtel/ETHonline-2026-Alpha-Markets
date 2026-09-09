@@ -4551,3 +4551,103 @@ above it was a session behind. The prose got updated because writing it was the 
 not because updating it never was.
 
 Nothing committed.
+
+## 2026-09-09 — Every report token verified, and tokenize now verifies instead of printing a command
+
+**All four report tokens are `exact_match` on Sourcify.** Three were 404 at the start of this run and
+were verified by the existing script, unchanged, one address at a time:
+
+```
+  XXCQBDTBC9X2  0xE7aaEFB1…  exact_match   (was already verified)
+  XX5FVRD1TMD1  0x1805A2de…  exact_match   ← verified this run
+  XXCTORZL97X8  0x954A192a…  exact_match   ← verified this run
+  XXR0WXU28WL2  0xF8c19cE9…  exact_match   ← verified this run
+```
+
+Each took about twenty seconds and no gas. `creationMatch` is `null` on all four, which is expected
+and documented: the proxy is created by `new ResolverProxy(...)` **inside** the factory's
+`deployEquity` call, so there is no top-level creation transaction for Sourcify to fetch. The runtime
+match is what makes HashScan render source and decode events. **H2.3 is closed.**
+
+### Where the wiring went, and why not the obvious place
+
+**`scripts/ops/tokenize.ts` calls `verifyAts()` as its final step.** `src/tokenize/ats.ts` was the
+obvious home — verify right where you mint — and it is the wrong one:
+
+⚠️ **`ats.ts` runs in two environments and the verifier only works in one.** `scripts/ops/` imports it
+from a machine with the full dependency tree; `app/api/console/tokenize/route.ts` imports it into a
+Vercel function. Verification needs `solc` and `@openzeppelin/contracts`, both **devDependencies**,
+neither present in a deployed function. Putting it in `ats.ts` would either drag a compiler into a
+serverless bundle or fail at runtime in exactly one of the two callers — a library that behaves
+differently depending on where it is imported. `ats.ts` got a header section recording the decision
+and its consequence; no code in it changed.
+
+**`verify-ats.ts` is now a module as well as a script.** `verifyAts()`, `sourcifyStatus()` and the two
+link helpers are exported; the CLI is behind an `isMain` guard so importing it parses no argv and
+compiles nothing. ⚠️ **The gate did not move and did not change** — same comparison, same bytes, same
+place, same diagnostics. The one change is that a refusal **throws `VerificationError`** instead of
+`process.exit(1)`, which is exactly the transformation `landOrStop` underwent when it was promoted out
+of SM-07 into `src/tokenize/hedera.ts`: a library cannot exit a process that has other work to finish.
+The CLI catches and exits, so running the script behaves identically to before — confirmed by
+re-running it against an already-verified token and getting the same output and exit 0.
+
+⚠️ **`VerificationError.stage` exists so a caller can tell a wrong-source refusal from a bad afternoon
+at Sourcify**, and the two deserve opposite responses. `gate` means the deployed bytecode is not what
+this repo compiles — never retry, investigate. `submit`/`confirm` mean the bytes matched and a third
+party did not cooperate — retrying later is correct and free. `tokenize.ts` prints different advice
+for each, and for `gate` it prints *do not retry and do not change compiler settings*.
+
+### A verification failure cannot throw away a minted token
+
+By the time verification runs, the asset exists, ~7.9 HBAR is spent and the row is written. So the
+call is wrapped, reported, and **never rethrown**; the exit code still reflects the tokenization
+checks. It also runs *after* the proof and the cost block, so an operator reads the expensive
+irreversible part first.
+
+**Tested without spending 7.9 HBAR** by extracting the verify block *verbatim* out of
+`scripts/ops/tokenize.ts` at runtime — sliced between two markers, not retyped — and running it
+against a stub `result` in the scratchpad:
+
+```
+  case 1  a real token          → ✅ exact_match      exit 0
+  case 2  a NON-ResolverProxy   → ❌ gate refused,    exit 0   ← the property that matters
+                                    "do NOT retry", and the tokenization still passes
+```
+
+### The gate still refuses, shown rather than asserted
+
+Pointed at `0xba2d5fc2…` — the live ATS **resolver**, a real contract that is not a ResolverProxy:
+
+```
+  compiled runtime  390 bytes
+  on-chain runtime  2115 bytes
+  STOP  bytecode mismatch. Nothing submitted.
+        first difference at byte 8 …
+        The difference is in executable code, not the metadata trailer — this is not the
+        same contract, or not the same compiler version.
+  exit 1 · Sourcify record for it afterwards: still HTTP 404 — nothing was submitted
+```
+
+### ⚠️ The console still cannot verify, and that is why `--all` exists
+
+`app/api/console/tokenize` is how tokens get minted now, and it has no compiler and cannot get one.
+A token minted from the browser arrives **unverified**. `verify-ats.ts --all` reads `report_tokens`,
+skips anything already verified in one GET, and submits the rest:
+
+```
+  ── Sweeping 4 token(s) from report_tokens
+    ✅ XXCQBDTBC9X2  already exact_match      (×4)
+  already verified 4 · newly verified 0 · failed 0
+  PASS  every report token is verified on Sourcify.
+```
+
+Idempotent and free when there is nothing to do, so it is safe to run after any console session.
+⚠️ It is the one path in this file that needs `DATABASE_URL`; the single-address form stays
+credential-free, which is the property that lets anyone reproduce a verification without being us.
+
+`tsc -p tsconfig.json --noEmit` exits 0. Three files changed, no dependencies added, nothing about
+how a token is minted was touched.
+
+⚠️ **Left undone deliberately, because it is outside this task's file scope:** `README.md`,
+`docs/evidence.md`, `tracking/phases/PHASE-3.md` and `scripts/README.md` all still say one of four
+tokens is verified. That was true this morning and is false now. Four documents to correct.

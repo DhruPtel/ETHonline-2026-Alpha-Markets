@@ -12,6 +12,7 @@ import { prepare, tokenize, FACTORY_ID, RESOLVER_ID } from '../../src/tokenize/a
 import { ChainWriteError, hbar, settledBalance, usdPerHbar } from '../../src/tokenize/hedera.js';
 import { close } from '../../src/store/reports.js';
 import { pooled } from '../../src/store/db.js';
+import { verifyAts, VerificationError, hashScanLink, sourcifyLink } from './verify-ats.js';
 
 // SM-07's measured lifecycle, per step, so drift is visible rather than inferred. Unit 8 runs the
 // first three; `transfer` is Unit 10's and is listed to show what the 8.139 total includes.
@@ -130,8 +131,46 @@ console.log(`  SM-07 measured ${SM07_UNIT8.toFixed(8)} for these three steps ` +
   `(${SM07_FULL.toFixed(8)} including Unit 10's transfer)`);
 console.log(`  at $${usd.toFixed(6)}/HBAR → $${(Number(spent) / 1e8 * usd).toFixed(4)}`);
 
-console.log(`\n  HashScan  https://hashscan.io/testnet/contract/${result.proxyAddress}`);
-console.log(`  verify    npx tsx scripts/ops/verify-ats.ts ${result.proxyAddress}`);
+// ─── Verify on Sourcify ──────────────────────────────────────────────────────────────────────────
+// ⚠️ **This used to print the command instead of running it, and nobody ran it.** Three of the first
+// four report tokens sat unverified for a day for exactly that reason, against a requirement that is
+// pass/fail on the Hedera track. Printing a next step is not a next step.
+//
+// ⚠️ **A verification failure MUST NOT fail a tokenization that already succeeded.** By this line the
+// asset exists, 7.9 HBAR is spent and the row is written; none of that is undone by Sourcify being
+// unreachable. So this is reported and never thrown, the exit code still reflects the *tokenization*
+// checks above, and the retry command is printed for a human.
+//
+// ⚠️ It runs after the proof and the cost so an operator sees the expensive, irreversible part
+// first. Verification is free and repeatable; nothing below this line can lose anything.
+
+console.log(`\n── Verify on Sourcify`);
+let verifyNote = '';
+try {
+  const verified = await verifyAts(result.proxyAddress);
+  console.log(`\n  ✅ ${verified.match}${verified.alreadyVerified ? '  (already verified — 409 is a success)' : ''}`);
+  verifyNote = `verified on Sourcify (${verified.match})`;
+} catch (error) {
+  const stage = error instanceof VerificationError ? error.stage : 'unknown';
+  console.error(`\n  ❌ NOT VERIFIED — failed at ${stage}`);
+  console.error(`  ${(error as Error).message}`);
+  console.error(`\n  ⚠️ The token exists and the gas is spent. This is the only thing left undone.`);
+  console.error(
+    stage === 'gate'
+      // The one stage that must never be retried blind: the bytes on chain are not what we compiled.
+      ? `  ⚠️ The gate refused, which means the deployed bytecode is not what this repo compiles.\n` +
+        `     Do NOT retry and do NOT change compiler settings. Investigate the difference above.`
+      : `  Retry (free, no gas, repeatable):\n` +
+        `     npx tsx scripts/ops/verify-ats.ts ${result.proxyAddress}\n` +
+        `  Or sweep every unverified token at once:\n` +
+        `     npx tsx --env-file=.env scripts/ops/verify-ats.ts --all`,
+  );
+  verifyNote = `⚠️ NOT verified — see above`;
+}
+
+console.log(`\n  HashScan  ${hashScanLink(result.proxyAddress)}`);
+console.log(`  Sourcify  ${sourcifyLink(result.proxyAddress)}`);
+console.log(`  status    ${verifyNote}`);
 console.log(`\n${failed === 0 ? 'PASS' : `FAIL — ${failed} check(s)`}\n`);
 await close();
 process.exit(failed === 0 ? 0 : 1);

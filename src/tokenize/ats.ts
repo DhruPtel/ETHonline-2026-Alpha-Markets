@@ -10,6 +10,28 @@
 // ⚠️ **The struct below was paid for.** SM-07 spent a reverted deploy finding two values in our own
 // research note that revert on-chain. It is promoted with its reasoning attached; the comments on
 // `maxSupply` and `regulationType` are the receipt.
+//
+// ── Why Sourcify verification is NOT in this file (decided 2026-09-09) ───────────────────────────
+//
+// A report token has to be verified on Sourcify — H2.3 is pass/fail on the Hedera track — and the
+// obvious home for "verify it after minting it" is right here, at the end of `tokenize()`. It is the
+// wrong home, for one reason that is not about taste:
+//
+// ⚠️ **This module runs in two environments and the verifier only works in one.** `scripts/ops/`
+// imports it from a machine with the full dependency tree; `app/api/console/tokenize/route.ts`
+// imports it into a Vercel function. Verification needs `solc` and `@openzeppelin/contracts`, which
+// are **devDependencies** and are not present in a deployed function. Importing the verifier here
+// would either drag a compiler into a serverless bundle or fail at runtime in exactly one of the two
+// callers — a library that behaves differently depending on where it is imported is the surprise
+// this codebase spends most of its comments avoiding.
+//
+// So `tokenize()` mints and nothing else, and verification is the CLI's final step —
+// `scripts/ops/tokenize.ts` calls `verifyAts()` from `scripts/ops/verify-ats.ts`.
+//
+// ⚠️ **The consequence, stated rather than left to be discovered: a token minted through the console
+// is NOT verified.** The route has no compiler and cannot get one. `npx tsx --env-file=.env
+// scripts/ops/verify-ats.ts --all` sweeps every row in `report_tokens` and verifies whatever is
+// outstanding; it is idempotent and free. Run it after any console minting session.
 
 import { ethers } from 'ethers';
 import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
