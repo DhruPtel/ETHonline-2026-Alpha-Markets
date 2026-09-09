@@ -13,6 +13,25 @@
 // ⚠️ **Two phases, as Unit 8 established.** `prepare()` does every check that can stop the run —
 // no token, wrong key, wrong chain, nothing to send, sending to yourself — and `send()` is the only
 // thing that spends. Everything that can fail should fail before gas is paid.
+//
+// ── Either account can sign (2026-09-09) ─────────────────────────────────────────────────────────
+//
+// ⚠️ **This used to sign as the analyst and only the analyst.** The key came from
+// `HEDERA_SELLER_KEY` inside `prepare()` and any other signer was refused, so a token that had moved
+// to the buyer could never come back — and asking for it produced *"the recipient is the sender"*,
+// because the signer was always the analyst and the analyst was the requested recipient. Three of
+// four report tokens were stranded, which meant the transfer path could not be tested at its edges.
+//
+// ⚠️ **A caller names a ROLE, not a key.** `signer: 'analyst' | 'buyer'` is looked up here. A
+// function that took a private key as an argument would let any caller sign as anything, move the
+// key into logs and stack traces, and delete the one check that makes a shared key safe — that the
+// key derives the address of the account it claims to be. That check is preserved per role below.
+//
+// ⚠️ **`config/analysts.ts` is deliberately NOT changed.** The buyer is not an analyst: it publishes
+// nothing, has no Arc address, and `scripts/ops/verify-analyst.ts` asserts every row in that file
+// against the live Circle API, which a buyer row would fail. Its identity is `HEDERA_BUYER_ID` /
+// `HEDERA_BUYER_KEY`, and its EVM address is **read from Mirror Node** — the account's own answer
+// about itself, the same provenance `analysts.ts` records for `hederaEvmAddress`.
 
 import { ethers } from 'ethers';
 import { IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
@@ -39,15 +58,38 @@ export interface TxCost {
   readonly gasPrice: bigint;
 }
 
+/**
+ * Which configured account signs. ⚠️ **A role, resolved here — never a key from a caller.**
+ *
+ * `'analyst'` is the token's issuer, from the report's own `config/analysts.ts` row.
+ * `'buyer'` is the x402 buyer agent, from `HEDERA_BUYER_ID` / `HEDERA_BUYER_KEY`.
+ */
+export type SignerRole = 'analyst' | 'buyer';
+
+/** A resolved signer: who it claims to be, and a wallet proved to derive that account's address. */
+export interface Signer {
+  readonly role: SignerRole;
+  readonly accountId: string;
+  readonly evmAddress: string;
+  readonly wallet: ethers.Wallet;
+}
+
 export interface TransferPlan {
   readonly reportHash: string;
   readonly token: ReportToken;
+  /**
+   * The token's ISSUER, always — this is who minted it, not who is sending it now.
+   * ⚠️ Kept under this name because `scripts/ops/move-token.ts` reads it and is out of scope here.
+   * For the account paying for THIS transfer, read `signer`.
+   */
   readonly analyst: AnalystConfig;
+  readonly signer: Signer;
   readonly wallet: ethers.Wallet;
   readonly from: string;
   readonly to: string;
   readonly fromBalance: bigint;
   readonly toBalance: bigint;
+  /** The SIGNER's HBAR balance — whoever signs pays the gas. */
   readonly balanceTinybars: bigint;
 }
 
@@ -67,7 +109,58 @@ export interface TransferResult {
  * each analyst owns its own tokens, and reading the holder from a shared variable would mean one
  * analyst signing away another's asset.
  */
-export async function prepare(reportHash: string, to: string): Promise<TransferPlan> {
+/**
+ * Resolve a role to a signing wallet, and refuse a key that is not the account it claims to be.
+ *
+ * ⚠️ **This is `ats.ts:132`'s guarantee, kept and generalised.** That check exists because one
+ * shared key is only safe while something proves it derives the row's address; without it a wrong
+ * `HEDERA_SELLER_KEY` would sign from an account nobody registered, silently and irreversibly. The
+ * same rule now applies per role, against a *different* source of truth for each:
+ *
+ *   analyst  the address in `config/analysts.ts`, which `scripts/ops/verify-analyst.ts` already
+ *            asserts against the live Circle API and Mirror Node
+ *   buyer    the address Mirror Node reports for `HEDERA_BUYER_ID` — read, never derived, so the
+ *            check compares our key against the network's answer rather than against itself
+ */
+async function resolveSigner(
+  role: SignerRole,
+  analyst: AnalystConfig,
+  provider: ethers.JsonRpcProvider,
+): Promise<Signer> {
+  const [accountId, keyEnv] = role === 'analyst'
+    ? [analyst.hederaAccountId, 'HEDERA_SELLER_KEY']
+    : [env('HEDERA_BUYER_ID'), 'HEDERA_BUYER_KEY'];
+
+  // ⚠️ For the buyer this is the ONLY statement of what its address is, so it is read rather than
+  // assumed. For the analyst it double-checks config against the network at no extra cost.
+  const account = await fetchJson<MirrorAccount>(`${MIRROR}/api/v1/accounts/${accountId}`);
+  const expected = role === 'analyst' ? analyst.hederaEvmAddress : account.evm_address;
+
+  const wallet = new ethers.Wallet(`0x${env(keyEnv).replace(/^0x/, '').slice(-64)}`, provider);
+  if (wallet.address.toLowerCase() !== expected.toLowerCase()) {
+    throw new Error(
+      `${keyEnv} derives ${wallet.address} but the ${role} account ${accountId} is ${expected}. ` +
+      'The key and the account it claims to be are different accounts — refusing to sign.',
+    );
+  }
+  if (role === 'analyst' && account.evm_address.toLowerCase() !== analyst.hederaEvmAddress.toLowerCase()) {
+    throw new Error(
+      `config/analysts.ts says ${analyst.id} is ${analyst.hederaEvmAddress} but Mirror Node reports ` +
+      `${account.evm_address} for ${accountId}. Config and the network disagree about the same account.`,
+    );
+  }
+  return { role, accountId, evmAddress: wallet.address, wallet };
+}
+
+/**
+ * @param signer Which configured account sends. ⚠️ Defaults to `'analyst'` so existing callers —
+ *   `scripts/ops/move-token.ts` — keep their exact previous behaviour.
+ */
+export async function prepare(
+  reportHash: string,
+  to: string,
+  signer: SignerRole = 'analyst',
+): Promise<TransferPlan> {
   if (!/^0x[0-9a-fA-F]{40}$/.test(to)) {
     throw new Error(`"${to}" is not a 20-byte EVM address. The recipient must be given explicitly.`);
   }
@@ -93,15 +186,14 @@ export async function prepare(reportHash: string, to: string): Promise<TransferP
     throw new Error(`chainId ${chainId} is not Hedera testnet (${HEDERA_TESTNET_CHAIN_ID}).`);
   }
 
-  const wallet = new ethers.Wallet(`0x${env('HEDERA_SELLER_KEY').replace(/^0x/, '').slice(-64)}`, provider);
-  if (wallet.address.toLowerCase() !== analyst.hederaEvmAddress.toLowerCase()) {
-    throw new Error(
-      `HEDERA_SELLER_KEY derives ${wallet.address} but analyst ${analyst.id} holds this token at ` +
-      `${analyst.hederaEvmAddress}. The key and the holder are different accounts.`,
-    );
-  }
+  const resolved = await resolveSigner(signer, analyst, provider);
+  const wallet = resolved.wallet;
+
   if (to.toLowerCase() === wallet.address.toLowerCase()) {
-    throw new Error('the recipient is the sender. A transfer to yourself demonstrates nothing.');
+    throw new Error(
+      `the recipient is the sender — ${signer} is ${wallet.address}. A transfer to yourself ` +
+      'demonstrates nothing. Did you mean to sign as the other account?',
+    );
   }
 
   // ⚠️ **Balances read from the CHAIN before anything is sent.** SM-07's own finding was that proxy
@@ -111,15 +203,22 @@ export async function prepare(reportHash: string, to: string): Promise<TransferP
   const fromBalance = await contract.balanceOf(wallet.address);
   const toBalance = await contract.balanceOf(to);
   if (fromBalance !== 1n) {
+    // ⚠️ Names the SIGNER, not the analyst. "analyst holds 0" was actively misleading once the buyer
+    // could sign — it sent people to the wrong account.
     throw new Error(
-      `analyst ${analyst.id} holds ${fromBalance} of ${token.isin}, not 1. ` +
-      (fromBalance === 0n ? 'It has already been transferred — check report_tokens.transfer_tx.' : ''),
+      `the ${signer} (${resolved.accountId}, ${wallet.address}) holds ${fromBalance} of ` +
+      `${token.isin}, not 1. ` +
+      (fromBalance === 0n
+        ? 'It does not hold this token — check token_transfers for where it went, and sign as ' +
+          'whichever account holds it.'
+        : ''),
     );
   }
 
-  const account = await fetchJson<MirrorAccount>(`${MIRROR}/api/v1/accounts/${analyst.hederaAccountId}`);
+  // ⚠️ The SIGNER's balance: whoever signs pays the gas.
+  const account = await fetchJson<MirrorAccount>(`${MIRROR}/api/v1/accounts/${resolved.accountId}`);
   return {
-    reportHash, token, analyst, wallet,
+    reportHash, token, analyst, signer: resolved, wallet,
     from: wallet.address, to, fromBalance, toBalance,
     balanceTinybars: BigInt(account.balance.balance),
   };
@@ -161,11 +260,25 @@ export async function send(plan: TransferPlan): Promise<TransferResult> {
     );
   }
 
-  // ⚠️ Recorded only AFTER the balances are asserted. A `transfer_tx` written against a transaction
-  // that executed but moved nothing would be a row asserting something that did not happen.
+  // ⚠️ Recorded only AFTER the balances are asserted. A hash written against a transaction that
+  // executed but moved nothing would be a row asserting something that did not happen. Unit 10
+  // established this and it is unchanged by the history table below.
   //
-  // ⚠️ This makes `transfer.ts` a second writer of `report_tokens`; `store/tokens.ts`'s header still
-  // says `ats.ts` is the only one. That comment is now stale and the file is out of this unit's scope.
+  // ── Two writes, and the append is the real record (2026-09-09) ─────────────────────────────────
+  //
+  // ⚠️ **`token_transfers` is the history; `report_tokens.transfer_tx` is a pointer at the latest
+  // hop.** Before 004 there was only the column, and `send()` overwrote it — so a token moving back
+  // would have erased the outbound hash and left the row claiming a single transfer that never
+  // happened in that direction. The append cannot lose a hop; `tx_hash` is UNIQUE, so re-recording
+  // one after a retry is a no-op rather than a duplicate claim.
+  //
+  // ⚠️ The column is still written because two readers outside this file's scope use it —
+  // `scripts/ops/move-token.ts` and `app/api/console/state`. Its meaning narrows from "the transfer"
+  // to "the most recent transfer" and nothing about those callers breaks.
+  await db()`
+    INSERT INTO token_transfers (report_hash, tx_hash, from_address, to_address, signer)
+    VALUES (${plan.reportHash}, ${receipt.hash}, ${plan.from}, ${plan.to}, ${plan.signer.role})
+    ON CONFLICT (tx_hash) DO NOTHING`;
   await db()`
     UPDATE report_tokens SET transfer_tx = ${receipt.hash} WHERE report_hash = ${plan.reportHash}`;
 

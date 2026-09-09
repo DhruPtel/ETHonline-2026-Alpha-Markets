@@ -7,8 +7,12 @@
 // ⚠️ **There is no wallet connection.** Every button on this page signs server-side from a key in
 // `.env`. That is easy to miss on a page full of spend controls, and missing it makes the whole
 // surface misleading — so the two accounts are named at the top, with both address forms, before any
-// operation is offered. Clicking an EVM address fills the transfer recipient, which is the other
-// half of the point: a recipient should be picked, not typed from memory.
+// operation is offered.
+//
+// ⚠️ **Both ends of a transfer are picked here, not typed.** Each account offers *send from* — which
+// sets the signing role — and *send to*, which fills the recipient. Since 2026-09-09 either account
+// can sign, so choosing a direction is now a real choice and a mistyped 40-hex address would move a
+// real asset to nobody.
 //
 // ⚠️ **Holdings come from the chain, and the database's opinion is shown beside them.** `transfer_tx`
 // records what we last sent; `balanceOf` records what is true. A row where those disagree is the
@@ -37,8 +41,11 @@ interface Payload {
   accounts: Account[]; holdings: Holding[]; holdingsError: string | null; tokenCount: number;
 }
 
-export function Accounts({ onPickRecipient, refreshToken }: {
-  onPickRecipient: (evm: string) => void; refreshToken: number;
+export function Accounts({ onPickRecipient, onPickSigner, signer, refreshToken }: {
+  onPickRecipient: (evm: string) => void;
+  onPickSigner: (role: 'analyst' | 'buyer') => void;
+  signer: 'analyst' | 'buyer';
+  refreshToken: number;
 }) {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -71,16 +78,19 @@ export function Accounts({ onPickRecipient, refreshToken }: {
       </header>
       <p className="op-note">
         ⚠️ <strong>No wallet is connected.</strong> Every operation on this page is signed on the
-        server from a key in <span className="mono">.env</span>. Click an EVM address to use it as
-        the transfer recipient.
+        server from a key in <span className="mono">.env</span>. Use <em>send from</em> and{' '}
+        <em>send to</em> to set both ends of a transfer rather than typing an address.
       </p>
 
       {error ? <p className="bad-line mono">{error}</p> : null}
 
       <div className="acct-grid">
         {(data?.accounts ?? []).map((a) => (
-          <div key={a.role} className={`acct acct-${a.role}`}>
-            <div className="acct-role">{a.role}</div>
+          <div key={a.role} className={`acct acct-${a.role}${signer === a.role ? ' acct-signing' : ''}`}>
+            <div className="acct-role">
+              {a.role}
+              {signer === a.role ? <span className="acct-flag">signing</span> : null}
+            </div>
             <div className="acct-label">{a.label}</div>
             <dl className="acct-facts">
               <div>
@@ -109,6 +119,18 @@ export function Accounts({ onPickRecipient, refreshToken }: {
                 </dd>
               </div>
             </dl>
+            <div className="acct-actions">
+              <button type="button" className="plan sm" disabled={!a.keySet || !a.accountId}
+                onClick={() => onPickSigner(a.role)}
+                title={a.keySet ? `Sign the transfer as the ${a.role}` : `${a.keyEnv} is not set`}>
+                Send from
+              </button>
+              <button type="button" className="plan sm" disabled={!a.evmAddress}
+                onClick={() => onPickRecipient(a.evmAddress!)}
+                title="Use this address as the transfer recipient">
+                Send to
+              </button>
+            </div>
             {a.note ? <p className="acct-note">{a.note}</p> : null}
           </div>
         ))}

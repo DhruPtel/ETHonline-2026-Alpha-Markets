@@ -5136,3 +5136,98 @@ path" with an example and a note that the route appends the path itself.
 ```
 
 Nothing committed.
+
+## 2026-09-09 — Transfer works both ways, and a token's movements become a history
+
+`src/tokenize/transfer.ts`, one new migration, and the console's transfer control. ⚠️ `ats.ts`, the
+gate, the store's report functions, `config/analysts.ts`, migrations 001–003 and every product page
+are untouched — confirmed with `git status`. `tsc` exits 0 on both configs; `next build` passes.
+
+### ⚠️ `config/analysts.ts` did NOT need changing, and that is worth saying
+
+The brief asked to stop if the signer change wanted something in that file. It does not. The buyer is
+**not an analyst** — it publishes nothing, has no Arc address, and `scripts/ops/verify-analyst.ts`
+asserts every row in that file against the live Circle API, which a buyer row would fail. Its identity
+is `HEDERA_BUYER_ID` / `HEDERA_BUYER_KEY`, and its EVM address is **read from Mirror Node** — the
+account's own answer about itself, the same provenance `analysts.ts` records for `hederaEvmAddress`.
+
+### A role, not a key
+
+`prepare(reportHash, to, signer: 'analyst' | 'buyer' = 'analyst')`. ⚠️ **The caller names a role and
+`src/` looks up the key.** A private key as an argument would let any caller sign as anything, put
+the key in logs and stack traces, and delete the check that makes one shared key safe. The default
+keeps `scripts/ops/move-token.ts` — out of scope to edit — behaving exactly as before.
+
+⚠️ **`ats.ts:132`'s guarantee is kept and generalised**, against a different source of truth per role:
+the analyst against `config/analysts.ts` (already checked live), the buyer against Mirror Node. Either
+way a key that does not derive the account it claims to be is refused before anything is sent. The
+analyst path additionally cross-checks config against Mirror Node, which costs nothing on a request
+that was already being made.
+
+### `transfer_tx` was the real bug
+
+⚠️ **`send()` overwrote the column, so a return trip would have erased the outbound hash** and left
+the row claiming a single transfer in whatever direction the token last went. `004_token_transfers.sql`
+adds a child table — one row per hop, `seq` for order (two hops in one second are possible and a
+timestamp would not separate them), `tx_hash` UNIQUE so a re-record after a retry is a no-op rather
+than a second claim about one event.
+
+Rejected: a jsonb array on `report_tokens` (every append is a read-modify-write on a column two other
+readers use, and a concurrent second transfer silently drops one) and a wider column (answers "twice",
+not "n times"). ⚠️ **The column is kept and still written**, narrowed from *the* transfer to *the most
+recent* one, because `move-token.ts` and `/api/console/state` read it and are out of scope.
+
+⚠️ **The backfill leaves direction NULL rather than guessing.** It is *inferable* — `prepare()` could
+only sign as the analyst until today — but the recipient was an argument and was never stored, and a
+row with an inferred sender would look authoritative about a fact nobody recorded. The `note` says
+what the row is and what it lacks; the hash, which is the real part, survives.
+
+### Proof
+
+```
+  migration run twice                    ✅ second run: "relation token_transfers already exists,
+                                            skipping" — clean no-op, 5 tables
+  three pre-existing hashes              ✅ all three survive, verified after both new transfers
+
+  signer that does not hold the token    ✅ STOP before sending:
+     "the analyst (0.0.10387690, 0x32838fe9…) holds 0 of XXR0WXU28WL2, not 1. It does not hold
+      this token — check token_transfers for where it went, and sign as whichever account holds it."
+
+  buyer → analyst   0xd878020ead594000…   ✅ sender 1 → 0   ✅ recipient 0 → 1
+     gas 386,741   0.42154769 HBAR   vs Unit 10's 0.43509410 → −0.01354641   ($0.0329)
+     buyer  1098.76616172 → 1098.34461403
+
+  analyst → buyer   0xaf47b89c0388e60a…   ✅ sender 1 → 0   ✅ recipient 0 → 1
+     gas 386,741   0.42154769 HBAR   vs Unit 10's 0.43509410 → −0.01354641   ($0.0329)
+     analyst 1056.89430460 → 1056.47275691
+
+  both hops recorded and readable        ✅ token 348482a5… now has THREE hops:
+     seq 3  0x3f283d64…  backfilled (direction not recorded)
+     seq 7  0xd878020e…  buyer    0x683eE842… → 0x32838fe9…
+     seq 8  0xaf47b89c…  analyst  0x32838fe9… → 0x683ee842…
+
+  holdings after the round trip          ✅ chain and database agree on all four tokens
+  tsc (root + app) · next build          exit 0
+```
+
+⚠️ **Both transfers cost 0.42154769 — identical to each other and 0.0135 HBAR UNDER Unit 10's
+measurement.** Gas was 386,741 against Unit 10's 406,630: **19,889 gas less, and the same both ways.**
+Unit 10 moved a token to an address that had never held one; both hops here moved it to an account
+that had held it before, so the recipient's holder slot already existed. The saving is a warm storage
+write, not a pricing change — and it is the same in both directions, which is what says it is
+structural rather than drift. Total spent: **0.84309538 HBAR**, under the ~0.87 estimated.
+
+⚠️ **`seq` has gaps** (3 → 7 → 8). `BIGSERIAL` consumes values on the `ON CONFLICT DO NOTHING`
+attempts made by repeated migration runs. Gaps are normal for a sequence and ordering is unaffected —
+`seq` is an ordering, not a count.
+
+### The console
+
+The transfer control takes a signer role, and the **Signing as** panel drives both ends: each account
+offers *send from* (sets the signing role) and *send to* (fills the recipient), with the signing
+account flagged. The stale "the analyst always signs" note is gone. The route reports the full
+history after a move and asserts that earlier hops survived, so the overwrite bug cannot come back
+unnoticed. ⚠️ The gas-payer balance now reads the **signer's** account, not the analyst's — with the
+buyer signing, the analyst's balance would not have moved and the cost line would have read zero.
+
+Nothing committed.

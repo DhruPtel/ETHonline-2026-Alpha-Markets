@@ -387,3 +387,36 @@ table.grid tr.disagree td { background: #fdf3f2; }
 /* The document itself keeps globals.css's .memo rules — same look a paid body has anywhere else. */
 .doc .memo { padding: 1.5rem 1.1rem 1.75rem; max-width: 46rem; }
 .doc .memo h1 { font-size: 1.25rem; }
+
+/* ── The signer toggle ─────────────────────────────────────────────────────────────────────────
+   Two mutually exclusive roles, so a segmented control rather than a dropdown: both options and
+   the current one are readable without opening anything, which matters when the choice decides
+   which account spends. */
+
+.seg { display: inline-flex; border: 1px solid #c7ccd6; border-radius: 5px; overflow: hidden; }
+.seg-opt {
+  padding: 0.45rem 0.95rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  background: #fff;
+  border: 0;
+  border-right: 1px solid #c7ccd6;
+}
+.seg-opt:last-child { border-right: 0; }
+.seg-opt:hover:not(:disabled):not(.on) { background: var(--term); color: var(--ink); }
+.seg-opt.on { background: var(--ink); color: var(--bg); font-weight: 600; }
+.seg-opt:disabled { opacity: 0.55; }
+
+.acct-actions { display: flex; gap: 0.4rem; margin-top: 0.85rem; }
+.plan.sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+/* The account currently signing is marked, because it is the one that will spend. */
+.acct-signing { border-color: var(--ink); }
+.acct-flag {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+  color: var(--bg);
+  background: var(--ink);
+  border-radius: 3px;
+}

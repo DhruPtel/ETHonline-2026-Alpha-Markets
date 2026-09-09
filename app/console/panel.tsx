@@ -23,6 +23,8 @@ export function Panel() {
   const [target, setTarget] = useState('');
   const [recipient, setRecipient] = useState('');
   const [site, setSite] = useState('');
+  /** Which configured account signs a transfer. ⚠️ A ROLE — the browser never sees a key. */
+  const [signer, setSigner] = useState<'analyst' | 'buyer'>('analyst');
   const [refreshToken, setRefreshToken] = useState(0);
   const [doc, setDoc] = useState<ConsoleDoc | null>(null);
 
@@ -67,7 +69,8 @@ export function Panel() {
 
   return (
     <>
-      <Accounts onPickRecipient={setRecipient} refreshToken={refreshToken} />
+      <Accounts onPickRecipient={setRecipient} onPickSigner={setSigner} signer={signer}
+        refreshToken={refreshToken} />
 
       <div className="console-grid">
         <div className="ops">
@@ -110,27 +113,36 @@ export function Panel() {
             log={log} busy={busy} setBusy={setBusy} onDone={refresh} />
 
           <Spend id="transfer" title="Transfer" cost="0.43 HBAR" path="/api/console/transfer"
-            note={<>Moves the token to another address. The recipient is <strong>never defaulted</strong> —
-              picking one would move a real asset to an address nobody chose. Click an EVM address in{' '}
-              <strong>Signing as</strong> to fill it.</>}
-            armKey={`${hash}|${recipient.trim()}`}
+            note={<>Moves the token between the two accounts, <strong>in either direction</strong>.
+              The recipient is <strong>never defaulted</strong> — picking one would move a real asset
+              to an address nobody chose. Use <em>send from</em> and <em>send to</em> above.</>}
+            armKey={`${hash}|${recipient.trim()}|${signer}`}
             body={() => (targeted && /^0x[0-9a-fA-F]{40}$/.test(recipient.trim())
-              ? { reportHash: hash, to: recipient.trim() } : null)}
+              ? { reportHash: hash, to: recipient.trim(), signer } : null)}
             fields={
               <>
+                <div className="field">
+                  <span>Signs the transfer</span>
+                  {/* ⚠️ A role, not a key. `src/tokenize/transfer.ts` resolves it and refuses a key
+                      that does not derive the account it claims to be. */}
+                  <div className="seg">
+                    {(['analyst', 'buyer'] as const).map((r) => (
+                      <button key={r} type="button" disabled={busy}
+                        className={`seg-opt${signer === r ? ' on' : ''}`}
+                        onClick={() => setSigner(r)}>{r}</button>
+                    ))}
+                  </div>
+                  <small className="hint">
+                    The signer must hold the token — <strong>Holdings</strong> above says which
+                    account does. Whoever signs pays the gas.
+                  </small>
+                </div>
                 <label className="field">
                   <span>Recipient — EVM address (0x…, 40 hex)</span>
                   <input className="mono" value={recipient} spellCheck={false}
                     placeholder="0x683ee842…"
                     onChange={(e) => setRecipient(e.target.value)} disabled={busy} />
                 </label>
-                {/* ⚠️ Stated rather than hidden — see logs.md, 2026-09-09. */}
-                <p className="op-note dim">
-                  ⚠️ <strong>The analyst always signs.</strong>{' '}
-                  <span className="mono">src/tokenize/transfer.ts</span> reads{' '}
-                  <span className="mono">HEDERA_SELLER_KEY</span> itself and refuses any other signer,
-                  so a token cannot be sent back from the buyer through this control.
-                </p>
               </>
             }
             log={log} busy={busy} setBusy={setBusy} onDone={refresh} />
