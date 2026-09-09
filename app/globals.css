@@ -124,3 +124,85 @@ a { color: var(--link); }
   font-weight: 600;
 }
 .memo tbody tr:last-child td { border-bottom: 0; }
+
+/* ── Buying, and the inventory ────────────────────────────────────────────────────────────────
+   Added 2026-09-09. ⚠️ **Additive only.** Every rule below is a new selector and a new custom
+   property — nothing above this line is modified, so the marketplace index and the report preview
+   render exactly as they did. Dual-scheme like the rest of this file: the console's light theme is
+   scoped to `main.console` and is not involved here. */
+
+:root {
+  --good: #1d6b3f;
+  --warn-bg: #fffdf6;
+  --warn-edge: #d9b45a;
+  --paid-bg: #f3f9f4;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --good: #6fbf8b;
+    --warn-bg: #211d14;
+    --warn-edge: #6b5a2a;
+    --paid-bg: #16201a;
+  }
+}
+
+/* The one button on the product that spends. Weight and a solid fill, because it is irreversible. */
+.buy {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.7rem 1.25rem;
+  margin: 0.25rem 0 0;
+  color: var(--bg);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: 5px;
+}
+.buy:hover:not(:disabled) { opacity: 0.88; }
+.buy:disabled { cursor: progress; color: var(--muted); background: transparent; border-color: var(--rule); }
+
+.buy-stage { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.875rem; }
+.buy-error { margin: 0.6rem 0 0; color: #a3241f; font-size: 0.875rem; }
+@media (prefers-color-scheme: dark) { .buy-error { color: #e08a83; } }
+
+/* ⚠️ Who pays. This sits above the button on purpose — it is the thing a reader must not misread. */
+.agent-pays {
+  margin: 1.25rem 0 1rem;
+  padding: 0.8rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--link);
+  border-radius: 4px;
+  font-size: 0.9375rem;
+}
+.agent-pays .dim { color: var(--muted); }
+
+/* ⚠️ The honest limit of a purchase, said in the interface rather than only in a document. */
+.no-durable {
+  margin: 1.25rem 0 0;
+  padding: 0.7rem 0.9rem;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-edge);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.no-durable strong { color: var(--ink); }
+
+.settled {
+  margin: 0 0 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--paid-bg);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--good);
+  border-radius: 4px;
+  font-size: 0.9375rem;
+}
+.settled-links { margin: 0 0 0.5rem; font-size: 0.875rem; }
+
+/* The bought document: the same look the memo has, separated by a rule so it reads as delivered. */
+.memo.bought { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+
+.read-at { margin-top: 2.5rem; font-size: 0.8125rem; }

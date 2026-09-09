@@ -5231,3 +5231,129 @@ unnoticed. ⚠️ The gas-payer balance now reads the **signer's** account, not 
 buyer signing, the analyst's balance would not have moved and the cost line would have read zero.
 
 Nothing committed.
+
+## 2026-09-09 — Buy-and-read on the product page, and an inventory of who holds what
+
+`app/report/[hash]/page.tsx`, a client component beside it, `app/holdings/` and `app/api/holdings/`.
+⚠️ **`src/` untouched, the console untouched, the marketplace index untouched** — confirmed with
+`git status`. `tsc` exits 0 on both configs; `next build` passes.
+
+⚠️ **One file outside the named list: `app/globals.css`.** The brief said to match the product pages,
+which are dual-scheme through that file, and the new controls needed rules. Everything appended is a
+**new selector or a new custom property** — nothing above the added block is modified — and the proof
+is that the marketplace index still renders text-identical to the deployed build. Flagged because it
+was a scope call rather than an instruction.
+
+### An agent pays, and the page says so
+
+⚠️ **The copy does not let a visitor think they paid.** Above the button: *"An agent pays, not you.
+This asks the server to run our buyer agent, which pays from its own Hedera account. No wallet is
+connected and you are not charged."* After settlement it names the accounts —
+`0.0.10387696 paid 0.00100000 HBAR to 0.0.10387690` — and says the facilitator covered the network
+fee. x402 ships no Hedera browser paywall, so a human completing one of these here is not a thing
+that can be built; the agent is the buyer this service is for, and the page states that rather than
+implying a missing feature.
+
+⚠️ **The interface admits it cannot remember.** Both before and after the purchase: *"There is no
+sign-in, so nothing here can know you bought it — refreshing loses the report below, and buying again
+pays again."* An interface that looked like it remembered and did not would be worse than one that
+says it does not.
+
+### One buyer path — and a consequence worth naming
+
+The control calls **`/api/console/buy`**, the route the console already uses. A second buyer path
+could disagree with the first about caps, about what lands in `purchases`, and about what counts as
+settled.
+
+⚠️ **That makes a console route load-bearing for the product, so the console's own removal note is now
+wrong about it.** Every console file says `rm -r app/console app/api/console` is the whole removal;
+after this change that deletes the product's buy button. Either the buy route moves out of
+`app/api/console/` before submission, or the removal is not both directories. **Recorded, not fixed —
+it is a decision about what ships.**
+
+### The paywall still holds
+
+The server component renders the preview and the public counts; the body exists only in the JSON
+returned to the button's own request and lives in component state. Nothing is rendered-then-hidden
+and nothing is inlined into the RSC payload.
+
+```
+  unpaid HTML (12,513 bytes) — occurrences:
+    $1.27B  0     $1.04B  0     $759.2M  0     "Spark WETH"  0     "Market (reserve)"  0
+```
+
+### Proved in a real browser
+
+⚠️ **An actual Chromium, not a curl.** No new dependency: a Playwright browser was already cached at
+`~/.cache/ms-playwright`, and Node 22 has global `fetch` and `WebSocket`, so the DevTools Protocol was
+driven directly from a scratchpad script.
+
+```
+  buy button          "Have the agent buy this report — 0.001 HBAR"
+  $1.27B in the DOM   before the click: 0   →   after: 2
+  settled line        buyer 0.0.10387696 paid 0.00100000 HBAR to 0.0.10387690, x402/Hedera testnet
+                      network fee 0.00259648 HBAR covered by facilitator 0.0.7162784, not the buyer
+  table rendered      Market (reserve) | Deposits (USD) | Borrows (USD)
+                      Spark WETH  $1.27B  $1.04B
+```
+
+### ⚠️ FINDING — buying the same report twice charges twice
+
+Asked for, and deliberately **not fixed**:
+
+```
+  first  pay_21cfb40e17094af3898bb3dcc799dbdd   settled 21:18:31   0.001 HBAR
+  second pay_059f6d9b0e0e415b88548e673b53abce   settled 21:18:48   0.001 HBAR
+  same report, same body (2,062 chars), two separate settlements
+```
+
+**Why.** There is no identity system, so the server cannot know the same visitor is asking again.
+Every request mints a fresh payment identifier and takes a live quote, and §5.19 is "serve once" —
+nothing anywhere keys *this payer already has this report*. The `purchases` table records both, so
+the double charge is visible after the fact and not silent. Closing it needs either the
+payment-identifier response cache (Unit 17) or address proof (Unit 18) — one unbuilt, one the
+declared cut point.
+
+### The inventory
+
+`/holdings` lists each account's tokenized reports. ⚠️ **A product route, not the console's** —
+`/api/console/accounts` returns the same balances but also reports **which environment keys are set**,
+which is a fine reading on a throwaway surface and a configuration disclosure on a public one. It also
+airs where the database and the chain disagree, which a product page has no business doing. Same
+measurement, different audience.
+
+`balanceOf` on chain is the authority, and a third bucket — **held elsewhere** — exists because a token
+sent to an address neither account controls is a real state the `transfer_tx` column cannot express.
+
+```
+  analyst 0.0.10387690  XXCQBDTBC9X2
+  buyer   0.0.10387696  XXR0WXU28WL2 · XXCTORZL97X8 · XX5FVRD1TMD1
+  all four /report/<hash> links → 200 · /holdings → 200 · matches the chain read exactly
+```
+
+### Weight
+
+⚠️ **The 9.6 MB stayed in the route.**
+
+```
+  /report/[hash]     1.76 → 1.77 MB   (+0.01 — the client component, nothing that pays)
+  api/console/buy    9.60 → 9.60 MB   unchanged
+  /holdings          1.67 MB          a shell; no src/ import, no chain client
+  api/holdings       7.57 MB          ethers, where the reading happens
+  /console           1.69 MB          unchanged
+```
+
+Marketplace index text-identical to the deployed build; the console still renders its panels and its
+scoped light palette still wins over the new `:root` tokens.
+
+### Cost of this run
+
+Two reads at 0.00100000 HBAR = **0.00200000 HBAR from the buyer**. The 0.00259648 HBAR network fee on
+each was paid by the facilitator `0.0.7162784`, which is the point of the pattern.
+
+⚠️ **One thing to be aware of and not fixed here: this is an unauthenticated public button that
+spends.** Anyone who can reach a report page can make the buyer agent pay. `buyer.ts`'s per-payment
+cap is the only bound, and its cumulative cap is a temp file a serverless cold start forgets. Fine on
+testnet at 0.001 HBAR; it is not a thing to point at mainnet.
+
+Nothing committed.

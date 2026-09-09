@@ -19,6 +19,9 @@ import { notFound } from 'next/navigation.js';
 import { load } from '../../../src/store/reports.js';
 import { tokenFor } from '../../../src/store/tokens.js';
 import { REPORT_PRICE_HBAR } from '../../../src/config/pricing.js';
+// ⚠️ A CLIENT component. The buyer agent, `@x402` and `@hiero-ledger/sdk` stay behind
+// `/api/console/buy`; this page ships the button and nothing that pays. See its header.
+import { BuyAndRead } from './buy.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,14 +64,12 @@ export default async function ReportPage({ params }: { params: Promise<{ hash: s
         <div><dt>Report hash</dt><dd className="mono break">{hash}</dd></div>
       </dl>
 
-      {/* ── What a payment buys, stated rather than left as a gap ────────────────────────────── */}
+      {/* ── What a payment buys, stated rather than left as a gap ──────────────────────────────
+          ⚠️ The counts stay on the SERVER and are public — they say how much of the picture the
+          report rests on without giving away a single figure. The body is never rendered here:
+          `BuyAndRead` receives it in the response to its own request and holds it in state, so an
+          unpaid visitor's HTML contains no part of it. */}
       <section>
-        <h2>The report is behind a paywall</h2>
-        <p>
-          <strong>{REPORT_PRICE_HBAR} HBAR</strong> buys <strong>one read</strong> — the figures, the market
-          table and the analyst&rsquo;s assessment. Payment settles on Hedera testnet over x402.
-          A read is not a subscription, and it does not transfer the token.
-        </p>
         <dl className="identity">
           <div><dt>Figures measured</dt><dd>{factCount}</dd></div>
           <div><dt>Markets read</dt><dd>{coverage.marketsRead}</dd></div>
@@ -81,6 +82,8 @@ export default async function ReportPage({ params }: { params: Promise<{ hash: s
           what the analyst concludes from them, are what a payment buys.
         </p>
       </section>
+
+      <BuyAndRead reportHash={hash} priceHbar={REPORT_PRICE_HBAR} />
 
       {/* ── The on-chain half, public by nature ──────────────────────────────────────────────── */}
       <section>
@@ -99,6 +102,9 @@ export default async function ReportPage({ params }: { params: Promise<{ hash: s
             <p>
               <a href={`https://hashscan.io/testnet/contract/${token.proxyAddress}`}
                  target="_blank" rel="noreferrer">View on HashScan →</a>
+              {/* ⚠️ A link rather than a balance. Reading `balanceOf` here would put `ethers` and an
+                  RPC client on every report page; `/holdings` does the read once, in a route. */}
+              {' · '}<a href="/holdings">Who holds this token →</a>
             </p>
           </>
         ) : (
