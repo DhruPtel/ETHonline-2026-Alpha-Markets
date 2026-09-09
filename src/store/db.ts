@@ -73,7 +73,14 @@ export const pooled = () => {
 
 let client: ReturnType<typeof pooled> | null = null;
 
-/** How many pooled clients this process has constructed. Observability only; nothing branches on it. */
+/**
+ * How many pooled clients this process has constructed.
+ *
+ * ⚠️ **Nothing branches on it and, as of 2026-09-09, nothing reads it either** — it has no caller in
+ * `src/`, `app/` or `scripts/`. Kept rather than deleted because the number it counts is the thing
+ * this section of the file exists to keep at one, and a leak (see `tokenize/ats.ts`) is invisible
+ * without it. Removing it is a code change and belongs in its own commit.
+ */
 let clientsCreated = 0;
 export const pooledClientsCreated = (): number => clientsCreated;
 

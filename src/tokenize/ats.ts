@@ -108,6 +108,14 @@ export async function prepare(reportHash: string): Promise<TokenPlan> {
 
   // ⚠️ Both checked BEFORE deploying. `report_hash` is the primary key and (as of migration 003)
   // `isin` is UNIQUE, so a second tokenize would fail its insert *after* the gas was spent.
+  //
+  // ⚠️ **KNOWN, UNFIXED: this is a leaked client.** `pooled()` CONSTRUCTS — see `store/db.ts` — and
+  // this call and the insert at the end of `tokenize()` each build a client with its own pool and
+  // close neither. Every module that reads or writes should call the shared `db()` instead; these
+  // two are the only holdouts in `src/`, and `scripts/ops/tokenize.ts:108` is a third in the same
+  // flow. Two clients per tokenize run against a Neon pool that caps them, where a limit failure
+  // presents as a timeout rather than as a limit error. Documented 2026-09-09; **fixing it is a
+  // behaviour change and belongs in its own commit.**
   const existing = await pooled()<{ report_hash: string; proxy_address: string; isin: string }[]>`
     SELECT report_hash, proxy_address, isin FROM report_tokens
     WHERE report_hash = ${reportHash} OR isin = ${isin}`;
@@ -241,6 +249,8 @@ export async function tokenize(plan: TokenPlan): Promise<TokenizeResult> {
     (await (await token.issue(plan.analyst.hederaEvmAddress, 1n, '0x', { gasLimit: 2_000_000 })).wait())!,
     [...landed, 'ISSUER is granted.']);
 
+  // ⚠️ The second leaked `pooled()` client — see the note in `prepare()`. Known, unfixed, and a
+  // behaviour change to close.
   await pooled()`
     INSERT INTO report_tokens (report_hash, proxy_address, isin, deploy_tx, grant_role_tx, issue_tx)
     VALUES (${plan.reportHash}, ${proxyAddress}, ${plan.isin},

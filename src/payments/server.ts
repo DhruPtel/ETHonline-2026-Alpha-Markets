@@ -75,8 +75,11 @@ export function network(): NetworkConfig {
  * error. `scripts/smoke/05-x402-purchase.ts` builds at module scope and awaits `initialize()` at
  * line 245 — that is the line not to copy.
  *
- * Same shape as `store/reports.ts`'s `let client = null; const db = () => (client ??= pooled())`:
+ * Same shape as `store/db.ts`'s `let client = null; export function db() { return (client ??= pooled()) }`:
  * calling the function is what constructs, and a warm invocation reuses one server.
+ *
+ * ⚠️ This sentence used to point at `store/reports.ts`, where the pattern lived until the three
+ * per-module clients were consolidated into `db.ts` on 2026-09-08. Corrected 2026-09-09.
  *
  * ⚠️ **`initialize()` is NOT called here.** `withX402` syncs with the facilitator itself on first
  * use; calling it eagerly would move the `process.exit` risk back into construction. Constructing is

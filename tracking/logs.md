@@ -4414,3 +4414,140 @@ lived.
 
 `tsc -p tsconfig.json --noEmit` exits 0. `next build` passes. No dependencies added, no existing page
 or route changed, nothing in `src/` touched.
+
+## 2026-09-09 — Structural review of the whole repo, read-only, and eight things nobody had recorded
+
+Read-only. No code changed, no transactions, no database writes, no dependencies. A cold session read
+`PHASE-3.md`, the tail of `logs.md`, `DECISIONS.md` and `lessons.md`, then every file under `src/`,
+`app/` and `scripts/`, and checked the claims against the live deployment and against Sourcify.
+
+**Both checks pass.** `tsc -p tsconfig.json --noEmit` exits 0. `scripts/ops/migrate.ts` is a clean
+no-op — 001, 002 and 003 all re-applied as skips, four tables present.
+
+**The structure is sound and the direction is clean.** Nine subsystems under `src/`, no import cycles,
+`config/` depends on nothing. The one edge worth naming is `payments/gate.ts` importing `render` from
+`agent/narrate.ts` — the paid body is rendered markdown, so the payment layer depends on the pipeline.
+`types/`, `domain/`, `store/` and `graph/client.ts` are reusable as they stand, and `tokenize/`'s
+prepare/spend split is the pattern Phase 4's chain subsystem should copy.
+
+**Eight findings that were not in any document.** ⚠️ `HEDERA_SELLER_KEY` is EMPTY in Vercel Production
+— the empty-env-var trap, fourth instance, live now; the deployed `/api/health` reports it itself. The
+gate and buyer do not need it, so the paywall is unaffected, but `ats.prepare()` and
+`transfer.prepare()` both read it, so tokenize and transfer cannot run on the deployed site. That is
+the real reason the console's deployed half was never proved, not the `vercel login` the last entry
+blamed. ⚠️ **The throwaway console is live on production and unauthenticated** — `/console` returns
+200, `/api/console/state` returns real rows, and all four controls render; the project is repo-linked,
+so the commit deployed it. ⚠️ **Two of the three report tokens are unverified on Sourcify** (404 on
+`0x1805A2de…` and `0x954A192a…`, `exact_match` on `0xE7aaEFB1…`), against a pass/fail Hedera
+requirement, when `verify-ats.ts` would verify both unchanged in about twenty seconds each.
+⚠️ **Nothing anywhere writes `quotes.state`** — every row is `'open'` forever, `isLive()`'s state check
+is always true, and `quotes_report_state_idx` indexes a constant — while `quotes.ts:56` and
+`PHASE-3.md`'s Unit 13 brief both say Unit 14 moves it to `'settled'`. ⚠️ **`config/pricing.ts`'s
+`reportPrice()` is dead**, and its 38-line header exists to justify it: Unit 13 wrote `quoteAmount()`
+instead, correctly, because a challenge must advertise the quote's frozen price rather than the
+constant. Two units, one problem, one survivor. ⚠️ **A third leaked `pooled()` client** at
+`scripts/ops/tokenize.ts:108`, beyond the two known ones in `ats.ts` — the script's `close()` closes
+the shared client, not that one, so a fix confined to `ats.ts` leaves it behind. ⚠️ `store/db.ts`'s
+`pooledClientsCreated()` and two `settledBalance` re-export lines are dead. ⚠️ The ATS resolver's
+expiry is now **0.7 days out** on the live health route.
+
+**The two known stale headers are confirmed, and five more found.** `README.md` still says Phase 3 is
+"⬜ not built" and "Nothing is deployed. There is no web app yet"; `docs/ARCHITECTURE.md` says the
+same and additionally puts digit-guard enforcement in Phase 3 when it moved to Phase 4.
+`scripts/README.md` calls `ask.ts` "the one you actually run" and names five of eleven ops scripts,
+missing the production entry point. `PHASE-3.md`'s status table has six rows marked ⬜ for finished
+work and still calls Unit 12 "next", while the prose section below it is right — the exact trap that
+document's own header warns about. Seam 7 is closed in reality and still listed open:
+`HEDERA_SELLER_ID` reads `set → 0.0.10387690` in Production, and `gate.ts` stopped reading env for
+`payTo` anyway.
+
+**Duplication that arrived because two units solved one problem:** six copies of the empty-is-missing
+env helper (three documents point at `db.ts`'s as the pattern and nobody imports it), four live copies
+of `MIRROR`, two of `RESOLVER_ID` while `ats.ts` exports it, three of `hbar()` — that last one for a
+real reason, a `string` input `hedera.ts` does not accept, which is one union member rather than two
+copies. `TxCost`'s duplication is deliberate and documented at both sites; leave it.
+
+**What Phase 4 will trip over, and the biggest one is not the contract.** `RETENTION_FLOOR = 300` is
+about sixty minutes on Ethereum for four of the five live deployments — aave-v3's 439,844 is the
+outlier. So settlement **cannot re-read the block the report was written at.** Reading at a fresh
+block, reading snapshots, or corroborating against the archive RPC are three different designs with
+three different meanings for "the analyst was right", and nothing picks one; `commonBlock` refuses
+rather than falling back. That is a decision to take before the market contract is written, not after.
+Beyond it: no Solidity infrastructure at all (the only precedent is smoke/08 compiling a source string
+in-process, and that script must not be copied — it creates a second Circle wallet without
+`CIRCLE_WALLET_ID`); `buyer.ts`'s daily cap lives in a temp file that a serverless cold start
+forgets, which is the wrong foundation for an agent staking unattended; and `blockAtTimestamp` — the
+primitive a named-date settlement needs — exists in `corroborate.ts` and is wired to nothing.
+
+Reported, not fixed, at the user's instruction. Nothing was edited except this file.
+
+## 2026-09-09 — Nine stale documents corrected, and the README stops saying Phase 3 is not built
+
+Documentation only. **Every change to a `.ts`/`.tsx` file is a comment line** — verified by diffing
+with comment lines filtered out, which returns nothing. `tsc -p tsconfig.json --noEmit` exits 0.
+
+**Claims verified against reality before writing them, not taken from the review.** That mattered:
+the repo had moved overnight. A fourth report token had been minted (`XXR0WXU28WL2`,
+`0xF8c19cE9…`), a third x402 payment had settled at 17:35 UTC, and ⚠️ **`HEDERA_SELLER_KEY` — which
+the morning's review found EMPTY in Vercel Production — now reads `set`.** Writing the review's
+finding into a document would have shipped a false claim. Live counts at the time of writing: 8
+reports, 4 tokenized, 3 transferred, 3 payments settled, `/api/health` `ok: true`.
+
+**The two judge-facing documents.** `README.md` said *"Phase 3 ⬜ not built"* and *"Nothing is
+deployed. There is no web app yet."* It now opens with the live URL and the four counts, and carries
+a **What is not built** section that names `recover.ts`, `auth.ts`, the two play gaps, all of Phase 4,
+⚠️ **the three of four report tokens not verified on Sourcify**, and the internal gaps — the unwritten
+`quotes.state`, the leaked clients, the two throwaway surfaces still deployed. It also gained a
+**How a report is sold** section with a sequence diagram and the five load-bearing decisions, which is
+what H1.4 asks for and what the README had never contained. `docs/ARCHITECTURE.md` gained a second
+diagram for the product path and a *what is built / what is not* table.
+
+⚠️ **The README had been UNDERclaiming for eleven units, and that is the safe direction.** Had it
+overclaimed — a paid read that did not settle, a token that did not verify — a judge would find it in
+one click. That asymmetry is why nothing here was softened: the Sourcify gap, the unauthenticated
+console, and the leaked clients are all now stated in the document a judge opens first.
+
+**ARCHITECTURE's README promise: dropped, not fulfilled.** It said *"each subsystem then has its own
+README"* and six directories have none. Writing six more four days from a deadline, for code Unit 17
+and Phase 4 will change, would manufacture exactly the staleness being corrected — so the sentence is
+gone and the *Where to go next* table now names file headers where there is no README. The four that
+exist are the Phase 2 subsystems, where reading *order* matters as much as the files.
+
+**Seven more headers fixed beyond the two known ones.** `store/tokens.ts` (read-only claim, and
+`transfer.ts` is a second writer) and `payments/server.ts:78` (pointed at `reports.ts` for a pattern
+that moved to `db.ts`) were the known pair. Also: `agent/execute.ts` and `agent/loop.ts` both ended
+*"there is no persistence layer yet"* — written before Unit 4, and `src/store/` has existed for a day;
+`execute.ts` additionally called partial-run resumption *"Phase 3's problem"* when decision 2 removed
+it from the phase. `agent/narrate.ts` said the digit rule is enforced by Unit 11; it warns, and
+enforcement has now moved twice. `graph/client.ts` restated the superseded *"roughly 500 blocks"*
+retention figure that `blockwindow.ts` corrects forty lines away in another file — aave-v3 retains
+439,844. `config/pricing.ts`'s header described `reportPrice()` as what Units 13 and 14 call; nothing
+calls it, because Unit 13 wrote `quoteAmount()` instead and was right to. `store/db.ts` and
+`app/api/probe/route.ts` gained notes saying what is now true of them.
+
+**`quotes.ts`'s `state` comment: rewritten to describe the code, and the gap named rather than fixed.**
+It said *"Unit 14 moves a row to `'settled'`"*. Unit 14 does not — `gate.ts` updates `purchases`. The
+comment now leads with **nothing writes this column** and spells out the three consequences: a dead
+half of `isLive()`, a dead half of `quote()`'s reuse filter, and an index over a constant. ⚠️ **No
+behaviour changed** — that is Unit 17's commit, and the comment says so.
+
+**Tracking.** `PHASE-3.md`'s status table had **six rows marked ⬜ for finished work** with Unit 12
+still labelled *next*; corrected, with the unplanned console added as row `C` and the deployed-surface
+table re-checked live. Six of the nine loop-sweep seams are now closed and marked so; seams 4
+(`atsTokenAddress` source of truth) and 9 (`demo/skills.ts` broken) remain, and two new ones were
+added from the review. `docs/evidence.md` gained a Phase 3 section — four tokens, three transfers,
+three settled payments, with links — kept deliberately separate from Phase 0's fixture-based
+evidence, ⚠️ because the Phase 0 ATS token carries `FAKE_REPORT_HASH` and a judge should be shown the
+Phase 3 set. `scripts/README.md` stopped calling `ask.ts` *"the one you actually run"* and now lists
+all eleven ops scripts with what each spends.
+
+**A lesson, because this is the third occurrence.** The 2026-09-08 entry ended with a checklist naming
+four documents to update whenever a unit moves from unbuilt to built. ⚠️ **Two of the four do not
+exist for Phase 3** — there is no `PHASE-3-status.md` (the table lives inside `PHASE-3.md`) and no
+Phase 3 task board — and a checklist that is half unfindable reads as not applying. A third failure
+mode is new: **the status table and the prose disagreed inside one file.** `PHASE-3.md`'s *"Where this
+actually stands"* was accurate and is how this session reconstructed events; the table forty lines
+above it was a session behind. The prose got updated because writing it was the task; the table did
+not because updating it never was.
+
+Nothing committed.

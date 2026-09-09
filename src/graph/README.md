@@ -6,7 +6,7 @@ downstream sees it.
 
 ## Read in this order
 
-1. **`client.ts`** (297) — everything stands on it, including Phase 4 settlement. Queries one
+1. **`client.ts`** (300) — everything stands on it, including Phase 4 settlement. Queries one
    deployment or many, and turns gateway failures into decisions: `PRUNED` and `LAGGING` come back
    as the *same message*, so the discriminator is arithmetic inside it.
 2. **`queries/index.ts`** (32) — the document menu, plus the catalogue the planner reads. The agent

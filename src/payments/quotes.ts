@@ -50,11 +50,30 @@ export interface Quote {
   readonly priceTinybars: string;
   readonly expiresAt: Date;
   /**
-   * ⚠️ **`'expired'` is a value nothing writes, and that is intentional.** Expiry is a fact about
-   * time, not a stored flag: nothing sweeps this table, so a stored `'expired'` would only ever be
-   * as fresh as the last sweep that did not run. `state` records *settlement* — Unit 14 moves a row
-   * to `'settled'`. A row that is `'open'` and past `expiresAt` is not a contradiction; it means the
-   * offer lapsed without ever being paid. Read liveness through `isLive()`, never through `state`.
+   * ⚠️ **NOTHING WRITES THIS COLUMN. Every row is `'open'` forever.** Stated first because the rest
+   * of this comment used to describe an intention and read as a description.
+   *
+   * `'expired'` is unwritten *by design*: expiry is a fact about time, not a stored flag, and since
+   * nothing sweeps this table a stored `'expired'` would only ever be as fresh as the last sweep
+   * that did not run. Read liveness through `isLive()`, never through `state`. That half is correct
+   * and deliberate.
+   *
+   * ⚠️ **`'settled'` is unwritten by OMISSION, and that is a real gap.** This comment said "Unit 14
+   * moves a row to `'settled'`" and Unit 14 does not: `gate.ts`'s `onAfterSettle` updates
+   * `purchases`, which is where a settlement is actually recorded, and never touches `quotes`.
+   * Three things follow, none of them fixed here:
+   *
+   *   - `isLive()`'s `state === 'open'` test is always true, so liveness is decided by `expiresAt`
+   *     alone and the state half of that predicate is dead weight.
+   *   - `quote()`'s reuse filter also carries `state = 'open'`, always true, for the same reason.
+   *   - `quotes_report_state_idx` (001_init) indexes `(report_hash, state)` where the second column
+   *     is a constant.
+   *
+   * ⚠️ **No money consequence today**, which is why this is a gap and not a bug: the Own tier is cut,
+   * so nothing is reserved against a supply of one and two paid reads of one report are both valid.
+   * It becomes load-bearing the moment anything wants to ask "was this offer taken?" without joining
+   * `purchases` — which is Unit 17's territory. **Changing it is a behaviour change and belongs in
+   * its own commit.** Recorded 2026-09-09; the comment now describes the code rather than the plan.
    */
   readonly state: 'open' | 'settled' | 'expired';
   readonly createdAt: Date;

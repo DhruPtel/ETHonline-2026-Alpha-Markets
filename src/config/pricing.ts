@@ -22,10 +22,21 @@
 // So the file now has two halves:
 //
 //   `REPORT_PRICE_TINYBARS` / `REPORT_PRICE_HBAR`  — plain values, **no vendor import at runtime**.
-//                                                    What a page displays.
-//   `reportPrice(asset)`                           — assembles the `AssetAmount` a challenge needs,
-//                                                    taking the asset id from a caller that has
-//                                                    `@x402/hedera` loaded anyway (Units 13, 14).
+//                                                    What a page displays, and what `quotes.ts`
+//                                                    freezes into a row. Both are live.
+//   `reportPrice(asset)`                           — assembles an `AssetAmount` from the constant.
+//                                                    ⚠️ **UNUSED — see below.**
+//
+// ⚠️ **`reportPrice()` has no caller anywhere in the repo, and the split above is still the right
+// shape.** It was written for Units 13 and 14. Unit 13 then wrote `quotes.ts`'s `quoteAmount(q, asset)`
+// instead — correctly, and it is the one to copy: a challenge must advertise the price **frozen into
+// the quote row**, not the current value of this constant, or the row is a decoration. Unit 14 calls
+// `quoteAmount`. So the two units solved one problem twice and only the better answer is wired up.
+//
+// Kept rather than deleted for one reason: the mainnet/USDC cutover needs exactly this function for
+// any price that is *not* coming off a quote, and re-deriving the two-halves reasoning would cost
+// more than the eight lines. ⚠️ If the cutover arrives and still nothing calls it, delete it then.
+// Recorded 2026-09-09.
 //
 // ⚠️ **The no-restated-vendor-constant property is kept, not traded away.** This file never writes
 // HBAR's asset id down. `reportPrice` receives it, and the only correct argument is
@@ -70,10 +81,14 @@ export const REPORT_PRICE_HBAR = (Number(REPORT_PRICE_TINYBARS) / TINYBARS_PER_H
 /**
  * The price as an `AssetAmount`, for whatever is building a payment challenge.
  *
+ * ⚠️ **UNUSED as of 2026-09-09 — nothing calls this.** The gate takes its `AssetAmount` from
+ * `payments/quotes.ts`'s `quoteAmount(q, asset)`, which reads the price frozen into the quote row
+ * rather than this constant. That is the correct source for anything being *sold*; see the header.
+ *
  * ⚠️ **Pass `HBAR_ASSET_ID` from `@x402/hedera`.** It is not defaulted and not restated here, because
  * a defaulted asset id would either re-import the SDK — the whole reason for this split — or hardcode
- * a vendor constant this file has no business owning. The callers that need this (Units 13 and 14)
- * import `@x402/hedera` regardless, so the import is free where it happens and expensive here.
+ * a vendor constant this file has no business owning. Any caller that needs a challenge amount
+ * imports `@x402/hedera` regardless, so the import is free where it happens and expensive here.
  *
  * ⚠️ At the mainnet cutover this is called with USDC's token id instead, and `REPORT_PRICE_TINYBARS`
  * changes to USDC's atomic units in the same commit. The shape does not change.

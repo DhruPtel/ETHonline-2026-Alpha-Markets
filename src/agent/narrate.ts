@@ -3,8 +3,13 @@
 // ⚠️ **The model never types a number.** It returns ONE markdown table string and one paragraph,
 // whose every financial figure is a `{fact:ID}` placeholder, and the renderer substitutes the
 // computed value. `narrate` maps that into the `Section[]` the wire contract expects. That is what
-// makes an invented figure impossible rather than unlikely — Unit 11 enforces it, but this output
-// shape is what makes enforcement possible at all.
+// makes an invented figure impossible rather than unlikely — and it is this output shape, not a
+// checker, that does the work.
+//
+// ⚠️ **`validate.ts` (Unit 11) WARNS; it does not enforce.** This header said "Unit 11 enforces it"
+// and that has never been true of the shipped code — DECISIONS.md, *"The digit guard warns in Phase 2
+// and enforces in Phase 3"*, and PHASE-3.md moved enforcement again, to Phase 4, gated on two missing
+// fact ids. Every report is saved regardless of what the guard finds. Corrected 2026-09-09.
 //
 // ⚠️ **Structural validation here; the digit guard is Unit 11's.** This file checks that a table
 // and a non-empty summary came back at all, because a malformed return should name itself rather

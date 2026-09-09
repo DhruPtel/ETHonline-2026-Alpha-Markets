@@ -4,10 +4,21 @@
 // Because narration is inside the report hash, what this hashes is a DRAFT hash over the data — see
 // `dataHash` below. It is not the identity a market settles against.
 //
-// ⚠️ **State in, state out.** Vercel gives 300 seconds and one invocation is one step, so a report
-// across several deployments will not fit in one call. Nothing here owns the run: a caller passes
-// state and gets state back, exactly as `loop.ts` does with `messages[]`. There is no persistence
-// layer yet; this is the shape one needs.
+// ⚠️ **State in, state out.** Nothing here owns the run: a caller passes `ExecuteState` and gets
+// state back, exactly as `loop.ts` does with `messages[]`.
+//
+// ⚠️ **The premise behind that shape has been measured and it is softer than it reads.** This said a
+// report across several deployments "will not fit in one call" against Vercel's 300 seconds. In
+// practice it does: `DEFAULT_BUDGET.maxWallClockMs` is 240,000 and `execute` stops *itself* at it,
+// returning `status: 'budget'` — a clean outcome, not a kill — and a real 25-deployment run through
+// `app/api/console/generate` completed in 2.4 seconds of execute time inside a 47-second pipeline.
+// The 300-second ceiling is real and the arithmetic is in that route's header; it is not routinely hit.
+//
+// ⚠️ **There IS a persistence layer now — `src/store/` — and it stores REPORTS, not runs.** This
+// header used to end "there is no persistence layer yet; this is the shape one needs", written before
+// Unit 4. Nothing persists a partial run, and that is a decision rather than a gap: PHASE-3 decision 2
+// removed the whole job-progression apparatus from this phase — no ticker, no leases, no
+// request-driven advance. See `Gathered` below for what is and is not resumable. Corrected 2026-09-09.
 
 import type { CheckResult, Exclusion, Fact, Report, ReportPlan, Severity } from '../types/report.js';
 import type { JsonScalar, Provenance } from '../types/wire.js';
@@ -76,11 +87,15 @@ export type ExecuteResult =
  * What a budget-stopped run had already collected. Returned instead of discarded — a run that
  * stops at deployment 20 of 25 has done twenty deployments of real work.
  *
- * ⚠️ **This is not the resumable path.** There is no persistence layer, and nothing yet merges a
- * `Gathered` into a second run: a caller that re-invokes `execute` still restarts, with only the
- * block carried over. What is missing to close it is a caller that passes this back in and a merge
- * that dedupes by fact id and by the slugs already covered. Phase 3's problem; the shape is here so
- * the work is not thrown away in the meantime.
+ * ⚠️ **This is not the resumable path, and as of Phase 3 it is not scheduled to become one.** Nothing
+ * merges a `Gathered` into a second run: a caller that re-invokes `execute` restarts, with only the
+ * block carried over. What would close it is a caller that passes this back in and a merge that
+ * dedupes by fact id and by the slugs already covered.
+ *
+ * ⚠️ This used to read "Phase 3's problem". It is not — PHASE-3 decision 2 removed request-driven
+ * advance from the phase entirely, and no unit was written for it. The shape stays because a
+ * budget-stopped run has done real work and throwing it away would be worse; nothing consumes it
+ * today. Corrected 2026-09-09.
  */
 export interface Gathered {
   readonly facts: Readonly<Record<string, Fact>>;

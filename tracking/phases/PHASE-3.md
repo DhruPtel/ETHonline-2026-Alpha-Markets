@@ -36,22 +36,25 @@ Plus **analyst identity**, which is not a fourth thing but a precondition for th
 | 4 | `store/db.ts` + `store/migrations/001_init.sql` | SCAFFOLD | ✅ four tables live; `scripts/ops/migrate.ts` is the runner |
 | 5 | `store/reports.ts` | LOGIC ★ | ✅ round trip proved on a **real** 140-fact report |
 | 6 | `app/` — the reading surface | SCAFFOLD | ✅ list + report page, deployed; `app/markdown.tsx` is the escaping boundary |
-| **6b** | **`app/` — preview + marketplace index** | **SCAFFOLD** | ⬜ ⚠️ **NEW — gating makes Unit 6's full page a preview** |
+| **6b** | **`app/` — preview + marketplace index** | **SCAFFOLD** | ✅ ⚠️ **NEW — gating makes Unit 6's full page a preview**; closes seam 3 |
 | 7 | `tokenize/isin.ts` | LOGIC | ✅ base-36 of the hash mod 36⁹; 1,000,002 hashes, 0 collisions |
 | 8 | `tokenize/ats.ts` | LOGIC ★★ | ✅ token live, Sourcify `exact_match`; **split to `tokenize/hedera.ts`** |
 | **8b** | **`scripts/ops/report.ts`** | **LOGIC** | ✅ ⚠️ **NOT PLANNED — the production entry point the sweep found missing** |
 | **9** | **PLAY GAP — look at the asset** | **PLAY** | ✅ done as an investigation — see *Where the token is visible* |
-| 10 | `tokenize/transfer.ts` | LOGIC | ⬜ |
+| 10 | `tokenize/transfer.ts` | LOGIC | ✅ 1 → 0 and 0 → 1 asserted from chain; three tokens moved |
 | **11** | **PLAY GAP — move a real report** | **PLAY** | ⬜ |
-| 12 | `payments/server.ts` + `app/api/health` | LOGIC | ⬜ **next** |
-| 13 | `payments/quotes.ts` | LOGIC | ⬜ |
-| 14 | `payments/gate.ts` + the gated route | LOGIC ★★ | ⬜ |
-| 15 | `payments/buyer.ts` | LOGIC ★ | ⬜ |
+| 12 | `payments/server.ts` + `app/api/health` | LOGIC | ✅ lazy, memoized; health asserts network + feePayer |
+| 13 | `payments/quotes.ts` | LOGIC | ✅ live quote reused, not duplicated per request |
+| 14 | `payments/gate.ts` + the gated route | LOGIC ★★ | ✅ unpaid → 402 naming a real payee |
+| 15 | `payments/buyer.ts` | LOGIC ★ | ✅ **three real paid requests settled end to end** |
 | **16** | **PLAY GAP — buy one, then break it** | **PLAY** | ⬜ |
-| 17 | `payments/recover.ts` | LOGIC ★ | ⬜ |
-| 18 | `payments/auth.ts` — human **identity**, not human payment | LOGIC | ⬜ ⚠️ **the cut point** |
+| 17 | `payments/recover.ts` | LOGIC ★ | ⬜ **the file does not exist** |
+| 18 | `payments/auth.ts` — human **identity**, not human payment | LOGIC | ⬜ ⚠️ **the cut point; the file does not exist** |
+| **C** | **`app/console/` — the test surface** | **THROWAWAY** | ✅ ⚠️ **NOT PLANNED — every operation behind a button** |
 
-**Nineteen units: one setup, one probe, three play gaps, and fourteen files.** ⚠️ Phase 4 is CORE and
+**Nineteen units: one setup, one probe, three play gaps, and fourteen files** — plus two that were
+never planned (`8b`, the production entry point the sweep found missing, and `C`, the test console).
+**15 of 19 done as of 2026-09-09**; what is left is two play gaps, Unit 17, and the declared cut point. ⚠️ Phase 4 is CORE and
 unstarted and the deadline is **2026-09-13**, so read *If it does not fit* at the end before starting,
 not after. **Unit 18 is the declared cut point** — everything above it is the phase, and it is the one
 thing designed to be dropped without a requirement moving.
@@ -62,11 +65,18 @@ judgment.
 
 ---
 
-## Where this actually stands — 2026-09-08, end of session
+## Where this actually stands — 2026-09-09
 
 ⚠️ **Read this before touching anything.** Written so a session starting cold can trust it without
 checking. Where a unit landed differently from the brief above, this section is right and the brief
 above is what was planned.
+
+⚠️ **The status table above went stale between 2026-09-08 and 2026-09-09 and this section did not.**
+Six rows read ⬜ for finished work and Unit 12 was still marked "next" while Units 12–15 were
+deployed and settling payments. Corrected 2026-09-09. **This is the third time the same failure has
+happened in this project** — see `tracking/lessons.md`, *"The rule bound the file being changed"*,
+which named a four-document checklist that was then not run. The table is the first thing anyone
+reads in this file, so it is the thing to update first, not last.
 
 ### Deployed
 
@@ -74,8 +84,14 @@ above is what was planned.
 |---|---|
 | production | `https://et-honline-2026-alpha-markets-o1dz9goh5-alpha-markets.vercel.app` |
 | aliased | **`https://et-honline-2026-alpha-markets.vercel.app`** ← use this |
-| `GET /` | 200, renders the scaffold page |
-| `GET /api/probe` | **402** with a `payment-required` header; challenge carries `network: hedera:testnet`, `extra.feePayer: 0.0.7162784` |
+| `GET /` | 200 — the marketplace, 8 reports, 4 of them tokenized |
+| `GET /report/<hash>` | 200 — the public preview; the figures are not in the HTML |
+| `GET /api/reports/<hash>` | **402** — price 100,000 tinybars, `payTo 0.0.10387690`, `feePayer 0.0.7162784` |
+| `GET /api/health` | 200, `ok: true` — facilitator advertises our network and feePayer |
+| `GET /api/probe` | **402** — throwaway, its removal condition met, still deployed |
+| `GET /console` | 200 — ⚠️ **throwaway, unauthenticated, and deployed.** Not intended |
+
+All six re-checked live on 2026-09-09.
 
 Vercel project `et-honline-2026-alpha-markets`, repo-linked (`.vercel/repo.json`). `vercel.json`
 declares `{"framework": "nextjs"}` — the project preset was "Other" and deploys failed with *No Output
@@ -146,6 +162,43 @@ Directory named "public"* until it did.
   All four `execute` outcomes handled; only `completed` saves. **This is the first non-demo caller of
   the pipeline in the project.**
 
+- **6b · the preview and the marketplace index.** `app/report/[hash]/page.tsx` stopped calling
+  `render()`; the index joins `report_tokens` through `tokensFor()`. ⚠️ **The paywall is a real
+  boundary, proved by grepping the served HTML** for a figure from the paid body and finding zero
+  occurrences on both localhost and the deployment — a CSS-hidden table is not a paywall.
+  `config/pricing.ts` split at the same time: importing `HBAR_ASSET_ID` for one string pulled
+  `@hiero-ledger/sdk`, `@grpc/grpc-js` and `pino` into both pages, **~1.8 MB → ~4.0 MB, measured**.
+- **10 · `tokenize/transfer.ts`.** H2.4's third element. Balances asserted from the chain, 1 → 0 and
+  0 → 1, on tokens whose creation events commit readable reports. ⚠️ **Standalone, not caused by a
+  payment** — Own is cut. Gas is byte-identical to SM-07's 406,630; the whole cost difference is
+  relay price drift. ⚠️ It became a **second writer of `report_tokens`**, which made
+  `store/tokens.ts`'s header false for a day (corrected 2026-09-09).
+- **12 · `payments/server.ts` + `app/api/health/route.ts`.** Lazily constructed and memoized, never
+  at module scope — `initialize()` calls `process.exit` on a config mismatch and that is a cold-start
+  crash loop on Vercel. `NETWORKS` keys the facilitator, the feePayer and the asset by network name
+  so the wrong combination is unrepresentable. Health asserts both halves and reports the ATS
+  resolver's expiry beside them.
+- **13 · `payments/quotes.ts`.** ⚠️ **A live quote at the current price is REUSED, not duplicated** —
+  every unpaid request produces a 402 and every report is publicly linked, so a row per request would
+  let a crawler grow the table without bound. `expires_at` is computed by the database, not by this
+  process. ⚠️ **`state` is never written** — see the sweep below.
+- **14 · `payments/gate.ts` + `app/api/reports/[hash]/route.ts`.** Plain `withX402`, default
+  `authorization` flow. `payTo` resolves per-report through `analystByArcAddress`. Hooks attached
+  **once** behind a memo, because `onBeforeSettle` appends to a list and chaining per request would
+  write the `purchases` row N times on the Nth request. ⚠️ `extensions` is **keyed** by
+  `PAYMENT_IDENTIFIER`, not spread — caught by decoding a live challenge, not by reading types.
+- **15 · `payments/buyer.ts`.** ⚠️ **Three real paid requests have settled** against the deployment.
+  Spend controls opt HBAR in explicitly with its own cap rather than being disabled. The native
+  transaction id is recovered from the signed bytes and recorded **before** the paid request goes out.
+  ⚠️ Its daily ledger is a file under the OS temp directory — right for a CLI, and on Vercel it bounds
+  a burst on one warm instance rather than a day.
+- **C · `app/console/` + `app/api/console/`** *(not in any brief)*. A throwaway browser surface with a
+  button for every operation. It imports no `src/` module and is the lightest page in the app; every
+  route calls the same function its script calls. ⚠️ **It is deployed and unauthenticated** — the
+  session that wrote it believed otherwise, because `vercel deploy --prod` failed on login while the
+  repo link deployed it anyway. Its own banner says anyone who can reach the URL can spend from the
+  analyst account. `rm -r app/console app/api/console` is the whole removal.
+
 ### Traps — the things that will cost a session if not known
 
 1. ⚠️ **Do not edit the root `tsconfig.json`.** It is `module: NodeNext` / `moduleResolution: NodeNext`
@@ -176,28 +229,50 @@ found nine seams nobody owned. Ordered by what blocks the most; **three are clos
    character of `canonical_json` and restores it, with the restore inside a `try` whose `finally` only
    closes connections. It was the de-facto generator. It remains correct **as a proof** and is not to
    be used as a command.
-3. ⬜ **`report_tokens` is invisible to the app.** `list()` is `SELECT … FROM reports` with no join and
-   the report page imports only `load`. **A tokenized report renders identically to an untokenized
-   one** — the cross-chain commitment does not appear on the product surface. **6b closes this.**
-4. ⬜ **`Report.atsTokenAddress` is never populated.** `execute` sets `null`, `canonical()` strips it,
-   `load()` reattaches `null`, Unit 8 writes `report_tokens` without touching it. Needs a decision on
-   which is the source of truth — the column or the field — before both exist and disagree.
+3. ✅ **CLOSED by 6b — `report_tokens` was invisible to the app.** The index joins through
+   `tokensFor()` and the report page reads `tokenFor()`; a tokenized report shows its ISIN, its proxy
+   and a HashScan link.
+4. ⚠️ ⬜ **STILL OPEN — `Report.atsTokenAddress` is never populated.** `execute` sets `null`,
+   `canonical()` strips it, `load()` reattaches `null`, and Unit 8 writes `report_tokens` without
+   touching it. `report_tokens` is the de facto source of truth and nothing has ever said so.
+   **Needs a decision, not a fix** — the field or the column — before both exist and disagree.
 5. ✅ **CLOSED — `compose.ts` had no caller outside `scripts/demo/`.** The pipeline had no production
    entry point at all. `scripts/ops/report.ts` is it.
-6. ⬜ **Nothing produces a price.** `quotes.price_tinybars` is `NOT NULL CHECK > 0` and no constant,
-   config entry or function anywhere yields one. **Blocks Unit 13, and 14 and 15 behind it.**
-7. ⚠️ ⬜ **`HEDERA_SELLER_ID` resolves empty in Vercel Production.** The deployed probe's challenge
-   carries `payTo: ""`. **This is the empty-env-var trap on the route that will matter** — Unit 14's
-   gate would advertise nobody to pay. Fix before Unit 14 is demoed.
-8. ⬜ **The analyst-by-Arc-address lookup is inlined at `ats.ts:104`.** Units 12 and 13 both want it.
-   ~5 lines to hoist into `config/analysts.ts`; a duplication about to happen, not a break.
-9. ⬜ **`scripts/demo/skills.ts` is broken.** Reads `src/agent/skills/balance-overview.md`, at
-   `skills/unused/` since Phase 2. Blocks nothing.
+6. ✅ **CLOSED — nothing produced a price.** `config/pricing.ts` holds `REPORT_PRICE_TINYBARS =
+   '100000'`, the figure SM-05 settled a real payment with. ⚠️ It also carries `reportPrice()`, which
+   **nothing calls** — Unit 13 wrote `quoteAmount()` instead, correctly, because a challenge must
+   advertise the quote's frozen price rather than the constant. Two units, one problem.
+7. ✅ **CLOSED, and then made irrelevant — `HEDERA_SELLER_ID` resolved empty in Vercel Production.**
+   It now reads `set → 0.0.10387690` on the live `/api/health`. It also stopped mattering: Unit 14's
+   gate takes `payTo` from the report's own analyst row (`gate.ts:113`), never from env, so the
+   variable's only remaining reader is the throwaway probe. ⚠️ **`HEDERA_SELLER_KEY` was found EMPTY
+   in Production on 2026-09-09** — the same trap, fifth instance, on the variable tokenize and
+   transfer need. It has since been set. `/api/health` is what reports both.
+8. ✅ **CLOSED — the analyst-by-Arc-address lookup was inlined at `ats.ts:104`.** Hoisted to
+   `config/analysts.ts::analystByArcAddress`, case-insensitive, before it was copied. `ats.ts`,
+   `transfer.ts` and `gate.ts` all use it.
+9. ⚠️ ⬜ **STILL OPEN — `scripts/demo/skills.ts` is broken.** Reads
+   `src/agent/skills/balance-overview.md`, at `skills/unused/` since Phase 2. Fails immediately on a
+   missing file. Blocks nothing.
 
-**Also still open, from earlier sessions:** `ARC_WALLET` is set in `.env` and read by nothing;
-Vercel's Production env values have never been verified against local beyond `DATABASE_URL`, which is
-now set and confirmed working; and `app/api/probe/route.ts` is throwaway and stays until Unit 12
-replaces it (`rm app/api/probe/route.ts` is the whole removal).
+**Six of the nine are closed.** Four and nine remain, and neither blocks anything.
+
+**Also still open, from earlier sessions:** `ARC_WALLET` is set in `.env`, read by nothing, and absent
+from `.env.example` (`ARC_DEPLOYER_KEY` is in both and also unread — Phase 4's, presumably, and
+neither is labelled); and `app/api/probe/route.ts` is throwaway, its condition for removal is met —
+Unit 12 shipped — and it is still deployed and still answering 402 (`rm app/api/probe/route.ts` is
+the whole removal).
+
+**And two found by the 2026-09-09 review, which nothing had recorded:**
+
+- ⚠️ **`quotes.state` has no writer.** Every row is `'open'` forever. `quotes.ts` and Unit 13's brief
+  below both say Unit 14 moves a row to `'settled'`; `gate.ts`'s `onAfterSettle` updates `purchases`
+  and never touches `quotes`. No money consequence while Own is cut — two paid reads of one report
+  are both valid — but `isLive()`'s state test is always true, `quote()`'s reuse filter is always
+  true, and `quotes_report_state_idx` indexes a constant column. **Unit 17's territory.**
+- ⚠️ **`tokenize/ats.ts` leaks two `pooled()` clients** and closes neither, with a third in
+  `scripts/ops/tokenize.ts:108`. Documented at all three sites 2026-09-09; fixing it is a behaviour
+  change and belongs in its own commit.
 
 **Not gaps, for the record:** the app never generating a report is decision 2. `validate.ts`,
 `evidence.ts` and reconcile's tier 2 are parked. `loop.ts`/`tools.ts` are the `ask.ts` demo surface by
@@ -897,7 +972,7 @@ nothing in the purchase path moves it.
 | **H1.3** | A platform **or agent** consuming it, ≥1 real paid request end to end | Unit 15 |
 | **H2.1** | Use ATS (SDK, contracts, web app, or combination) | Unit 8 — contracts + ethers |
 | **H2.2** | Deploy and demonstrate on Hedera testnet | Unit 8 |
-| **H2.3** | Contracts verified on HashScan where applicable | ⚠️ **Already satisfied by SM-07's token.** Unit 8 re-satisfies it per report |
+| **H2.3** | Contracts verified on HashScan where applicable | ⚠️ **Satisfied by SM-07's token and by one of the four report tokens** (`XXCQBDTBC9X2`, `exact_match`). **The other three are unverified** — `tokenize.ts` only *prints* the verify command and nobody ran it. Byte-identical bytecode, so `verify-ats.ts` closes each in ~20 seconds and no gas. Checked 2026-09-09 |
 | **G2.3** | Meaningful work | Was closed in Phase 2. A paid, tokenized report strengthens it |
 
 ### Set up, not closed

@@ -11,10 +11,13 @@
 // gateway, which is what lets a figure in a report be traced to a query that actually happened —
 // the property §5.18 depends on when it says provenance is a record of what we did, never a cache
 // of what we got. A cache would be an easy speed win and it would quietly break that: two reports
-// could cite the same block and the same deployment hash while only one of them ever asked. The
-// retained window is roughly 500 blocks anyway, so a cache would mostly serve state the gateway
-// can no longer confirm. If a run is slow, the answer is fewer queries in the plan, not remembered
-// answers here.
+// could cite the same block and the same deployment hash while only one of them ever asked. A cache
+// would also mostly serve state the gateway can no longer confirm: retention is **per deployment**
+// and four of the five publishable ones retain 300–600 blocks, roughly an hour — see
+// `blockwindow.ts`'s `RETENTION_FLOOR` for the measured table. ⚠️ This sentence used to say "roughly
+// 500 blocks" flatly; aave-v3 retains **439,844** (61 days) and is the outlier the 2026-09-06 lesson
+// was written about. The argument is unchanged and the number now says which deployments it is about.
+// If a run is slow, the answer is fewer queries in the plan, not remembered answers here.
 
 import { PROTOCOLS } from '../config/protocols.js';
 

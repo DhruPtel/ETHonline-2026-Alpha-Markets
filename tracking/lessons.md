@@ -1241,3 +1241,58 @@ other wrapper, and Phase 3 does not need it. The plan was right and the note's s
 
 *Three of the nine seams are closed by `scripts/ops/report.ts`. The other six are recorded in
 `PHASE-3.md`.*
+
+## 2026-09-09 — The checklist existed, named four documents, and nobody ran it
+
+**Amends the 2026-09-08 entry**, *"The rule bound the file being changed, and the stale docs were all
+outside it"*, which ended with a checklist:
+
+> ⚠️ A change that moves a unit from unbuilt to built, or changes what a component does, is not
+> finished until every document that makes a **status claim** says so. There are four:
+> `README.md`, `docs/ARCHITECTURE.md`, `tracking/phases/PHASE-N-status.md`, and the phase task board.
+
+**What we expected.** Writing that down to be enough. It is a short, concrete list of named files,
+written the day after the same failure, by the session that had just paid for it.
+
+**What happened.** ⚠️ **The same two documents went stale again, in the same way, within a day.**
+`README.md` said *"Phase 3 ⬜ not built"* and *"Nothing is deployed. There is no web app yet"* while
+the app was deployed, serving eight reports, holding four ATS tokens and settling x402 payments.
+`docs/ARCHITECTURE.md` said *"What is not built: Phases 3 and 4 … everything runs from the command
+line."* Both were false for eleven units. And `PHASE-3.md`'s own status table had **six rows marked
+⬜ for finished work**, with Unit 12 still labelled **next** while Units 12–15 were live in production.
+
+**Why the checklist did not fire, and it is not that people ignored it.** Two of the four documents
+it names **do not exist for Phase 3**. There is no `PHASE-3-status.md` — Phase 2 had a separate status
+file and Phase 3 folded the status table *into* `PHASE-3.md`. There is no Phase 3 task board;
+`phase-2-tasks.md` had no successor. So two of four items were unfindable, and a checklist that is
+half unfindable reads as not applying rather than as partially applicable.
+
+⚠️ **The two that did exist are the two a judge opens first.** Same finding as last time, unchanged:
+documentation rots in proportion to how far it sits from the code that changed, which is exactly
+inverse to how early a stranger reads it.
+
+**A third failure mode, new this time: the table and the prose disagreed inside one file.**
+`PHASE-3.md`'s *"Where this actually stands"* section was accurate and thorough — it is how this
+session reconstructed what happened. The status table forty lines above it was a session behind. Both
+were written by the same people about the same work. **The prose got updated because writing it was
+the task; the table did not because updating it never was.** A reader who trusts the first table they
+see gets the wrong answer from a document that also contains the right one.
+
+**What changes.**
+
+- ⚠️ **The checklist names roles, not filenames.** *Every document that makes a status claim*: the
+  root `README.md`, `docs/ARCHITECTURE.md`, and **whatever file holds the current phase's status,
+  whether or not it is called `PHASE-N-status.md`.** A named file that does not exist should not be
+  able to make an item unfindable.
+- ⚠️ **A status table is a status claim and outranks the prose beneath it.** If a session updates the
+  narrative and not the table, it has made the file worse than before it started, because it has
+  added a second answer without removing the first. Update the table first.
+- **The fix was again almost never deletion.** *"Phase 3 ⬜ not built"* did not become silence; it
+  became a table of what is built, a named list of the four things that are not, and the admission
+  that three of four report tokens are unverified. **The stale claim marked the exact spot where the
+  interesting work had happened** — that is the third time this has held, and it is the reason the
+  correction is worth more than the original sentence was.
+- ⚠️ **Underclaiming is the safe direction and overclaiming is not.** The README had been *under*claiming
+  for eleven units, which cost us credit and nothing else. Had it been overclaiming — a paid read that
+  did not settle, a token that did not verify — a judge would have found it in one click. That
+  asymmetry is why every correction here that could have been softened was not.

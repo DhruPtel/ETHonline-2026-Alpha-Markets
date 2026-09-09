@@ -6,8 +6,16 @@
 // generated, and a token exists only if someone later paid 7.7 HBAR to mint one. Joining them inside
 // `reports.ts` would make every read of a report also a read about its token.
 //
-// ⚠️ **Read-only. `tokenize/ats.ts` is the only writer** — it inserts the row in the same call that
-// deploys the proxy, because a row written anywhere else could name an asset nobody minted.
+// ⚠️ **This module is read-only; the table has two writers, and neither is here.** `tokenize/ats.ts`
+// inserts the row in the same call that deploys the proxy, because a row written anywhere else could
+// name an asset nobody minted. `tokenize/transfer.ts` then UPDATEs `transfer_tx` after it has
+// asserted both balances moved. Both write through `db()` directly rather than through a writer on
+// this file.
+//
+// ⚠️ **This header used to say "`tokenize/ats.ts` is the only writer", and Unit 10 made that false**
+// on 2026-09-08 without touching this file — `transfer.ts` was the unit's scope and this was not.
+// Corrected 2026-09-09. If a writer is ever added here, it should take both paths, not just the one
+// a brief happens to name.
 
 import { closePool, db } from './db.js';
 

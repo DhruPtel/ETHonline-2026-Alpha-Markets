@@ -20,24 +20,32 @@ Deterministic code with one model call at each end: `compose.ts` → `execute.ts
 
 - **`compose.ts`** (234) — a directive becomes a plan. One model call, no data read. Picks documents
   from a registry and names deployments; never writes GraphQL, and never asks a question back.
-- **`execute.ts`** (359) — runs the plan. Resolves one block the set can share, fetches, runs the
+- **`execute.ts`** (392) — runs the plan. Resolves one block the set can share, fetches, runs the
   engine, assembles the `Report` object. **No model call.** The spine of the system. Takes an
   `analystId` and resolves it through `config/analysts.ts`; an unregistered analyst throws before any
   query.
-- **`narrate.ts`** (230) — the second model call. Returns one table and one paragraph in `{fact:ID}`
+- **`narrate.ts`** (246) — the second model call. Returns one table and one paragraph in `{fact:ID}`
   placeholders it *cannot fill itself*; `render()` substitutes the values, which is what makes an
   invented figure impossible rather than unlikely.
 - **`validate.ts`** (125) — the digit guard. Rejects any digit in narration text that is not inside a
   `{fact:ID}` placeholder, with an allowlist derived from the report's own facts, slugs and block
-  rather than hardcoded. ⚠️ **It warns; it does not block** — deliberately, and `tracking/DECISIONS.md`
-  ("The digit guard warns in Phase 2 and enforces in Phase 3") records what enforcement waits on.
-  Pure: a `Report` in, violations out, and it never repairs.
+  rather than hardcoded. ⚠️ **It warns; it does not block**, deliberately. `tracking/DECISIONS.md`'s
+  entry is titled *"The digit guard warns in Phase 2 and enforces in Phase 3"* — ⚠️ **enforcement did
+  not happen in Phase 3 and was moved again, to Phase 4**, gated on two missing fact ids and the
+  rank-ordinal question (`PHASE-3.md`, *What Phases 1 and 2 left*). Pure: a `Report` in, violations
+  out, and it never repairs.
+
+**How you run it.** `scripts/ops/report.ts` is the production entry point — compose → execute →
+narrate → validate → `save` — and `app/api/console/generate/route.ts` is the same sequence streamed to
+a browser. ⚠️ Until 2026-09-08 there was **no** non-demo caller of `compose`; `scripts/demo/narrate.ts`
+printed a report and exited, and the only `save()` caller was an assertion suite. See
+`tracking/lessons.md`, *"Nine units passed their own proofs and the product did not run"*.
 
 ## 2 · The interactive agent — the demo surface
 
 A different path, used only by `scripts/ask.ts` and two demos:
 
-- **`loop.ts`** (107) — `while (stop_reason === 'tool_use')`. Owns neither the conversation nor the
+- **`loop.ts`** (114) — `while (stop_reason === 'tool_use')`. Owns neither the conversation nor the
   tool list.
 - **`tools.ts`** (111) — the two tools it may call: `run_document` and `get_capabilities`.
 

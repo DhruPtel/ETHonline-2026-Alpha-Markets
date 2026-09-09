@@ -1,5 +1,13 @@
-// ⚠️ THROWAWAY. Delete this file once it has answered M1 and M2. Nothing imports it, nothing
-// depends on it, and `rm app/api/probe/route.ts` is the whole removal.
+// ⚠️ THROWAWAY, and **both questions are now answered** — M1 at 10.0 MB of 250 MB on 2026-09-08,
+// M2 by a live 402 from Vercel the same day. Nothing imports it, nothing depends on it, and
+// `rm app/api/probe/route.ts` is the whole removal.
+//
+// ⚠️ **It is still deployed and still returns a 402**, which is the honest state as of 2026-09-09.
+// PHASE-3.md said it "stays until Unit 12 replaces it"; Unit 12 shipped `src/payments/server.ts` and
+// `app/api/health/route.ts`, so the condition is met and the file has simply not been removed. It is
+// also the last reader of `HEDERA_SELLER_ID` with a fallback — the `?? '0.0.10387690'` below is the
+// exact shape that hid an empty variable for eleven units, and the gate stopped reading env for
+// `payTo` in Unit 14. Deleting it is a code change and belongs in its own commit.
 //
 // It measures two things and does no work:
 //

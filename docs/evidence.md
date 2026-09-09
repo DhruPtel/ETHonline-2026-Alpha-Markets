@@ -3,7 +3,72 @@
 What Alpha Markets has put on-chain so far, and where to see it. Every link below is live on a public
 network and can be checked without our involvement.
 
+⚠️ **Two eras, kept separate on purpose.** Phase 0's transactions proved each integration in
+isolation, against fixtures — the ATS token below carries `FAKE_REPORT_HASH`, and the x402 payment
+was against a hand-rolled test server. **Phase 3's transactions are against reports a stranger can
+read at a URL.** A judge should be shown the Phase 3 set; the Phase 0 set is what made it safe to
+build.
+
 ---
+
+# Phase 3 — against real reports
+
+## Report tokens on Hedera testnet
+
+Four reports issued as ATS security tokens, each with `maxSupply: 1`, `decimals: 0`, compliance off,
+and **its report's hash in the creation event** as `additionalSecurityData.info = "alpha:<hash>"`.
+
+| ISIN | proxy | report | transferred |
+|---|---|---|---|
+| `XXR0WXU28WL2` | [`0xF8c19cE9…`](https://hashscan.io/testnet/contract/0xF8c19cE93Dd2E23dA3bf5d68644d028d84b1E59f) | `348482a5…9b95` | ✅ |
+| `XXCTORZL97X8` | [`0x954A192a…`](https://hashscan.io/testnet/contract/0x954A192aC6b6Db2623De614F183e6BDb2cB8b2c2) | `60093501…30ed` | ✅ |
+| `XX5FVRD1TMD1` | [`0x1805A2de…`](https://hashscan.io/testnet/contract/0x1805A2de801032859780BacE8Ff04a13B68E76D2) | `c2649f05…7535` | ✅ |
+| `XXCQBDTBC9X2` | [`0xE7aaEFB1…`](https://hashscan.io/testnet/contract/0xE7aaEFB168F3E87975Fee1B0c932aE42776D8c6c) | `24041ca2…d3e5` | — |
+
+**What it proves:** the cross-chain commitment works in the direction that matters. Each token's
+creation event carries the same 32 bytes the report page displays, and the ISIN is derived from the
+hash rather than fixed — SM-07 minted everything under one hardcoded `XXALPHA00015`, which would have
+made two reports indistinguishable by the one field whose purpose is to distinguish securities.
+
+⚠️ **`XXCQBDTBC9X2` is verified on Sourcify (`exact_match`); the other three are not yet.** All four
+are byte-identical runtime bytecode — 390 bytes, same compiler, same sources, only the address
+differs — so `npx tsx scripts/ops/verify-ats.ts <proxy>` verifies any of them unchanged. It has
+simply not been run for three, and "contracts verified where applicable" is pass/fail on the Hedera
+track. Stated rather than left to be discovered.
+
+## Token transfers — the lifecycle operation, on real reports
+
+**Where:** [`0x3f283d64…`](https://hashscan.io/testnet/transaction/0x3f283d64f805a5c8b7160f1848622b5ff54e85289473a1b9e2acef7f8bac5736)
+· [`0xbc06e1dc…`](https://hashscan.io/testnet/transaction/0xbc06e1dc9d184b4eef915a5cc4b3754afb28dc67cb9eca36fd3f2f0bfadc8230)
+· [`0x3b92dc2f…`](https://hashscan.io/testnet/transaction/0x3b92dc2f7e0c614084b9d4f2df76743b06102832cd09a253c995690f50ad14c6)
+**What it proves:** `transfer(address,uint256)` moved a token whose creation event commits a report
+someone can read, amount 1, to `0.0.10387696`. **Balances asserted from the chain before and after**
+— 1 → 0 and 0 → 1 — never read off a receipt, because SM-07's own finding was that a status-1
+receipt is not a balance change. The report stayed readable at its URL and the creation event was
+unchanged, which is the property worth showing: the token moved and the report did not.
+⚠️ **Standalone, and not caused by a payment.** The Own tier is cut — a buyer pays to read and no
+token moves. H2.4 asks for issuance, configuration and ≥1 lifecycle operation; it does not ask for
+the operation to be caused by a purchase.
+**When:** 2026-09-08 / 09
+
+## x402 payments against the deployed gate
+
+**Where:** [`0.0.7162784@1788975334.949051888`](https://hashscan.io/testnet/transaction/0.0.7162784@1788975334.949051888)
+· [`0.0.7162784@1788936023.186244100`](https://hashscan.io/testnet/transaction/0.0.7162784@1788936023.186244100)
+· [`0.0.7162784@1788908586.639187830`](https://hashscan.io/testnet/transaction/0.0.7162784@1788908586.639187830)
+**What it proves:** three real paid requests end to end against
+<https://et-honline-2026-alpha-markets.vercel.app>, settled through Blocky402. The buyer
+(`0.0.10387696`) paid 0.001 HBAR and **zero gas**; the facilitator `0.0.7162784` covered the network
+fee. Each returned the market table the public preview withholds — checked by grepping the served
+HTML for a figure from the paid body and finding nothing, so the paywall is a real boundary and not
+a CSS one.
+**When:** 2026-09-08 / 09
+
+---
+
+# Phase 0 — the integrations, proved in isolation
+
+⚠️ Fixtures, not reports. Kept because they are what made Phase 3 safe to build.
 
 ## x402 payment on Hedera testnet
 
