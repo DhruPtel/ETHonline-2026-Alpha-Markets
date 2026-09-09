@@ -4885,3 +4885,129 @@ check digit read from source; `config/` confirmed to import nothing from `src/` 
 confirm markdown is ignored: 12 routes, unchanged, exit 0. `tsc` exits 0. No code changed.
 
 Nothing committed.
+
+## 2026-09-09 — Five Phase 4 questions investigated; one of them was my own mistake
+
+Read-only. `tracking/phases/PHASE-4-draft.md` is the only new file. No code, no contracts, no chain
+calls, no database writes, no dependencies. ⚠️ `smoke/08` was **read, not run**.
+
+### ⚠️ Question 1 was not a problem, and the error was mine
+
+My structural review called the retained window "the structural one Phase 4 will trip over" —
+settlement supposedly unable to re-read the block a report was written at. **That was wrong.** Given
+the market shape the user supplied — a threshold on a *future* observable, settled by reading that
+day's data — settlement never makes a pinned arbitrary-block read. It reads a daily snapshot.
+
+And daily snapshots survive pruning **completely**: SM-03 returned full windows at 6, 12, 18 and 24
+months, and aave-v3's oldest row is **2023-01-27, its launch day**. `RETENTION_FLOOR = 300` governs
+`commonBlock()` picking one block a *set* can share for a cross-protocol report — a different
+operation. PLAN-v4 §12 already records this as answered (U4) and §5.16's primitive table says
+snapshots are the balance-metric settlement primitive. **I applied the right constant to the wrong
+operation, and the plan had it right two weeks ago.**
+
+⚠️ **Verified from working callers rather than from the schema**, because "nullable therefore
+omittable" is exactly the kind of inference this project has been burned by. `client.ts:214` omits the
+variable entirely when no block is given, and both existing callers of the snapshots document —
+`ops/triage-protocols.ts` and `demo/documents.ts` — pass no block and run against the live gateway.
+
+**Revenue is narrower than "unsettleable" and worse than it looks.** Read from config across the 25
+live deployments: `usable` on **3** (aave-v2, compound-v2, compound-v3), `poisoned` on **2**
+(aave-v3, spark-lend), `not_tracked` on 1, and **`null` — never swept — on 19**. So it is sound
+somewhere, broken on the flagship and its fork, and *unknown* on three quarters of the set.
+Recommendation is to restrict market subjects to balance and flow metrics, which measured **0 bad
+days across 1,300+** against 38 for revenue on the same rows.
+
+### The other four
+
+**2 · Solidity — OPEN.** No `.sol`, no compile script, no hardhat, no foundry; `solc` and
+`@openzeppelin` are devDeps. Two precedents, unequal: `smoke/08` compiles a source *string* inline,
+which does not scale; **`verify-ats.ts` is already most of a build step** — it traces an import
+closure, compiles with pinned solc, and byte-compares against chain. Recommended layout: sources in
+`contracts/` at the root (outside `tsconfig`'s `src`/`scripts` include), one build script reusing that
+approach, and **a committed ABI artifact**, because nothing compiled can ship to Vercel. ⚠️ Flagged
+the obvious failure mode with it — a generated file that goes stale is the same shape as the verify
+command nobody ran, so the build step should check the artifact against the source and fail loudly.
+
+**3 · Signing — SETTLED on mechanism, OPEN on placement.** From the installed SDK, not a note:
+`createContractExecutionTransaction` returns `{id, state:'INITIATED'}` and **no transaction hash** —
+the hash appears part-way through a polled state machine. SM-08's 4.4s is explicitly *not* evidence a
+request can block on it. **Two signing paths, not one:** the analyst is an authenticated API call, the
+human is a browser wallet signing directly (Circle appears in SM-09 only as the faucet).
+⚠️ The genuinely open part is bigger than it looks: whether staking is unattended decides whether the
+job-progression apparatus Phase 3 deliberately removed has to come back.
+
+**4 · The spend ledger — SETTLED, and Phase 4 does not inherit it.** `buyer.ts` caps HBAR spent buying
+reports over x402 on Hedera; staking commits USDC to a market through Circle on Arc. Different actor,
+different rail, no shared code. It is a real Phase 3 debt and not a Phase 4 blocker. ⚠️ And question 3
+decides it — if a human runs the staking CLI, the staking path needs no cumulative cap at all.
+
+**5 · Decimals — SETTLED.** `amount: "2.50"` → `msg.value` `2500000000000000000`; `balanceOf` on the
+same holding reads 6-decimal. Exactly 10^12. ⚠️ The worse half: Arc mirrors native transfers as an
+ERC-20 `Transfer` from `0xffff…fffe` **at 18 decimals** while the token those logs look like they
+belong to reports 6 — an indexer doing the ordinary thing is wrong by a trillion. The conversion
+belongs at one boundary, and the four failure sites are ranked in the draft by how bad they are, with
+storing `msg.value` as a stake size first because it is on chain and not editable afterwards.
+
+### Shape of the document
+
+Written in PHASE-3.md's voice with every answer marked **SETTLED** or **OPEN**, and every
+recommendation carrying its cost and what it gives up. Three decisions are flagged as needing the
+user before unit briefs can be written: the contract build layout, whether staking is unattended, and
+whether to buy revenue back with a sweep.
+
+Nothing committed.
+
+## 2026-09-09 — Three Phase 4 decisions recorded, all provisional, all dated
+
+Documentation only. `tracking/phases/PHASE-4-draft.md` is the only file changed. No code, no
+contracts, no chain calls.
+
+**The draft now has three marks rather than two.** ✅ SETTLED means the evidence decided it and no
+judgement was required; 🟡 **DECIDED (provisional), 2026-09-09** means a judgement call; ⬜ OPEN means
+nothing has been decided. ⚠️ Every provisional mark is dated and says **what would overturn it**,
+because all three were taken *before* Phase 3 testing finished.
+
+**1 · No revenue sweep.** Market subjects are balance and flow metrics only. Nineteen unswept
+deployments is a measurement task four days out, and balance and flow already measure 0 bad days
+across 1,300+ against revenue's 38 on the same rows. ⚠️ Recorded with the asymmetry that makes it the
+right call: adding revenue later is additive — the settlement path does not change, only the set of
+legal subjects — while discovering mid-phase that a market was written against a poisoned accumulator
+is a settlement dispute.
+
+**2 · `contracts/` at the root, one build script, a committed ABI.** ⚠️ **The ABI requirement is
+recorded as a CONSTRAINT ON THE UNIT rather than a note**, which is what was asked for and is the
+load-bearing part. The unit is not done until the ABI cannot go stale without something failing
+loudly, and the write-up names the precedent: `tokenize.ts` *printed* the verify command and trusted
+a person to run it, and three of four tokens sat unverified against a pass/fail requirement. A
+committed ABI regenerated from memory is the same shape with a worse blast radius — a stale ABI
+decodes the wrong fields against a contract holding real USDC and nothing looks broken. Two
+requirements stated: the build writes it, and something refuses when it drifts from `contracts/`.
+⚠️ Explicitly not a warning — a check that fails soft is one people learn to scroll past, which is
+exactly what happened to the digit guard.
+
+**3 · Staking runs from the CLI, not unattended — and the reasoning is the record.** The Arc
+requirement is that the agent spends its *own* USDC autonomously: the decision and the funds are the
+agent's. It does not require that no human typed a command. That is the same relationship
+`scripts/ops/tokenize.ts` already has — a person runs it and the analyst's account pays — and nobody
+reads that as the human doing the spending. What it buys is that Circle's unbounded
+`INITIATED → COMPLETE` state machine becomes a script waiting, instead of bringing back the
+job-progression apparatus Phase 3 removed by decision and never rebuilt.
+
+⚠️ **Marked as the first decision to revisit, not as settled.** If the requirement is read as *no
+human may initiate*, this is wrong and the scheduler returns with it. It is the only one of the three
+that is upstream of anything else — 1 and 2 survive being reversed, this one does not.
+
+**The consequence, recorded where the question lives.** Decision 3 closes question 4: a human-run CLI
+needs no cumulative cap, because the human is the cap — the same reason `ops/tokenize.ts` has a
+solvency floor but no daily limit on the ~7.9 HBAR it spends. So **Phase 4 builds no ledger**, and
+`buyer.ts`'s temp-file ledger stays Phase 3 debt that Phase 4 does not inherit. ⚠️ What the durable
+version *would* have been is recorded anyway, so it does not have to be re-derived if decision 3 is
+reversed — and it is stated that in that case it comes back immediately and is not optional, because
+an agent spending unattended against a cap a cold start forgets has no cap.
+
+Question 5's decimals module shape was **not** decided and stays a recommendation; nothing turns on it
+until there is a contract to call. The closing section now separates settled-by-evidence from
+decided-provisionally, with a table of what would overturn each and the instruction to revisit 3
+first.
+
+Nothing committed.
