@@ -5577,3 +5577,122 @@ and was not**.
 is harmless; say the word and it can be removed.
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — Phase 4 orientation, read-only
+
+Read `PHASE-4-draft.md`, PLAN §1/§4/§5.2/§5.12/§5.16/§5.18/§9, `DECISIONS.md`, `lessons.md` and
+`PHASE-3.md`, then checked every load-bearing claim against the code rather than trusting it. Both
+gates pass: `tsc -p tsconfig.json --noEmit` exits 0, and `scripts/ops/migrate.ts` is a clean no-op
+over four migrations against the five live tables. Nothing was written, spent or deployed.
+
+**The draft is mostly accurate and one part of it is better than it says.** Verified true: no `.sol`
+or `contracts/` anywhere outside `node_modules`; `solc` and `@openzeppelin/contracts` pinned as
+devDependencies; 3 `usable` / 2 `poisoned` / 1 `not_tracked` / 19 unswept across exactly 25 live
+deployments; settlement reads unpinned because `client.ts:214` omits `$block` entirely when it is
+undefined; `RETENTION_FLOOR = 300` lives in `blockwindow.ts` and governs `commonBlock`, not
+settlement; viem 2.56.3 is installed transitively. The better-than-stated part is
+**`src/graph/evidence.ts`, which already implements §5.18's two-tier caller-picks evidence design** —
+`EvidenceTier`, the `raw` field, and a header that names Phase 4's resolver as the `record+raw`
+caller. It is built, not designed; only a demo script calls it today.
+
+**The finding that matters is decision 3 against A2.** The draft puts the analyst's staking call
+behind a CLI, reasoning that Arc asks for the agent's own funds and own decision rather than for no
+human typing a command. PLAN §4's A2 reads *"Agent's `commitPrediction` is payable and unattended"* —
+a PASS/FAIL row whose satisfied-by column commits to who pulls the trigger, not to whose money moves.
+The two are answering different questions and they come apart exactly at a CLI, so **the CLI reading
+does not survive A2 as written**. A4 is more tolerant — "conditional" and "multi-step" survive intact
+— but its "automated" lands on `resolve`, which decision 3 never scoped at all. That leaves the
+choice where CLAUDE.md says it belongs: amend the plan in the open, or reverse the decision and take
+the job machinery and the durable ledger back with it. Not decided here.
+
+**Four contradictions worth naming before a contract gets written.** §5.2 (*"the bug is mixing units,
+not storing `msg.value`"*) and the draft's decimals section (*storing `msg.value` is failure #1 and
+cannot be fixed after the fact*) give opposite instructions, and it is the one mistake that is
+unfixable once deployed. §5.18's *"serialize resolver txs through the job lease"* points at machinery
+that does not exist — no lease, no ticker, no `.github/`, no `/api/cron`. The draft closes the ledger
+question on reasoning that covers `commitPrediction` and not resolve or void.
+
+And the one nobody had written down: **Phase 4 inherits the digit-guard enforcement obligation, and
+both gaps it was gated on are still open.** `execute.ts:257` emits `market-population` as a *check*
+with the count inside a rationale string rather than as a `unit: 'count'` fact, and no utilization or
+ratio fact is emitted anywhere — `FIGURES` and `MARKET_FIGURES` are USD-only. `validate.ts` still
+warns; `scripts/ops/report.ts:104` prints violations and continues. §5.2's `specHash` binds a market
+to a report, which is the moment a figure a reader cannot trace stops being acceptable.
+
+Small correction to the draft: SM-09's `next build` half is already half closed. The ESM
+directory-import class it guarded against was hit and fixed in Phase 3 Unit 6 via
+`tsconfig.app.json` nodenext; what remains is the narrower question of a wallet interaction under a
+production build.
+
+**Also found, unrecorded anywhere:** there is no Arc RPC environment variable at all — SM-08
+hardcodes `https://rpc.testnet.arc.network`. `ARC_DEPLOYER_KEY` is read only by SM-08, and
+`ARC_WALLET` is read by nothing in the repo and is absent from `.env.example`.
+
+No planning and no units, by instruction. Nothing committed.
+
+---
+
+## 2026-09-09 — Decision 3 reversed, question 4 reopened, three things newly open
+
+Amended `tracking/phases/PHASE-4-draft.md` and nothing else. Documentation only — no code, no
+contracts, no chain calls, no database writes.
+
+**Decision 3 is reversed and the old text is still there.** It said the analyst's staking call sits
+behind a CLI, reasoning that Arc asks for the agent's own funds and own decision rather than for no
+human typing a command. The correction is recorded as *what it was wrong about* rather than just
+*that it was wrong*: PLAN §4's A2 is PASS/FAIL and its satisfied-by column reads *"Agent's
+`commitPrediction` is payable and unattended"* — decision 3 argued about whose money and whose
+decision, A2 commits to who pulls the trigger, and those are the same question everywhere except at
+a CLI, which is where the decision put the spend. The `tokenize.ts` precedent does not carry, because
+no Hedera requirement contains the word autonomous or unattended; it was precedent from a case where
+nothing was being claimed. A4's "automated" fails separately on `resolve`, a step the original never
+scoped at all. The superseded decision, its reasoning and its own (correct) prediction that it was
+the first thing to revisit are all left verbatim with the correction underneath — this record is
+worth more for showing reasoning that turned out mistaken than for the conclusions that held.
+
+**The replacement is smaller than §5.1 and was checked before it was written down.** One scheduled
+route that finds work past its due time and does it inline: no lease, no ticker, no queue. **Vercel's
+Hobby cron limits were read from Vercel's own documentation rather than from memory**, because a
+scheduler nobody checked would have been the sixth thing in this project that looked live and was
+not. Hobby is capped at **once per day** with **per-hour precision (±59 min)**; a more frequent
+expression **fails at deploy time** rather than silently, which is the one piece of luck. Also
+recorded: `CRON_SECRET` is sent automatically as a bearer token, Vercel **does not retry a failed
+invocation**, and delivery is best-effort in both directions — a run can silently not happen, and the
+same run can be delivered twice.
+
+**The shape is viable, and the reason is the market shape rather than the scheduler.** A daily
+snapshot is written once and never superseded, and §5.16's freshness rule is a lower bound rather
+than a window, so a read taken 40 minutes late returns the same number. The precision limit costs
+nothing here. What the daily limit *does* cost is recorded with numbers: one automatic attempt per
+day with no retry, so `resolveDeadline` must sit at least two days after `observationEnd` or a single
+`MISSING_OBSERVATION` voids a market for a transient reason; worst-case ~24h + 59min latency, which
+means the demo calendar needs at least one spare day before 2026-09-13; and a cron cannot be demoed
+live, so the video shows receipts rather than a trigger.
+
+**Question 4 is reopened and its old closure is marked as drawn too wide.** "The human is the cap" has
+no referent once nobody is watching, so the durable ledger returns and is not optional — the design
+the draft already held, one row per outflow keyed on actor/rail/asset/atomic amount/UTC day with the
+cap read as a `SUM` inside the same transaction that records the spend. The too-wide part is recorded
+separately: the closure covered `commitPrediction` and never mentioned `resolve` or `voidMarket`, and
+**on Arc gas is USDC** (SM-08's own words), so a resolve transaction stakes nothing and still spends.
+Any ledger has to cover gas, not only stakes.
+
+**Three things newly open, each with what it turns on and who decides** — recorded this way because
+Phase 3 left decisions implied and it cost real time. (1) The `msg.value` unit contradiction: §5.2
+says the bug is mixing units rather than storing it, question 5 says storing it is the worst case and
+unfixable once deployed. Both positions are quoted, the parimutuel arithmetic is written out, and the
+likely reconciliation — that the two are talking about different things — is named as a hypothesis
+and **deliberately not adopted**, because as written they still tell a contract author opposite
+things. (2) The digit guard, which PHASE-3 scheduled into this phase on a named trigger and the draft
+never carried forward; both gating gaps verified still open in the code. (3) Arc's environment
+variables — no RPC var exists, `ARC_WALLET` is read by nothing and missing from `.env.example`, and
+SM-08's finding that `deployContract` is not exposed on the Circle client means the market contract's
+deployer is necessarily a different identity from the analyst.
+
+**Said explicitly rather than left to inference:** decisions 1 and 2 are untouched. Neither was ever
+downstream of where the spend fires. Also flagged for PLAN: §5.18's *"serialize resolver txs through
+the job lease"* names machinery Phase 3 removed and this phase is not rebuilding.
+
+Nothing committed.
