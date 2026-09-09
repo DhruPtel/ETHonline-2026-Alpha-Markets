@@ -5357,3 +5357,223 @@ cap is the only bound, and its cumulative cap is a temp file a serverless cold s
 testnet at 0.001 HBAR; it is not a thing to point at mainnet.
 
 Nothing committed.
+
+## 2026-09-09 — What a generation timeout looks like: the plan is Hobby, and the 240s budget is unreachable
+
+Read-only investigation. No code changed, no generation run, no chain calls, no writes.
+
+### ⚠️ 1 · The plan is **hobby**, and it is not a guess
+
+The Vercel CLI turned out to be authenticated (`dhrupat3l-4967`) — an earlier log said it was not, and
+that was stale. A read-only `GET /v2/teams` returns:
+
+```
+  team: alpha-markets   billing.plan = hobby
+```
+
+**So the ceiling is 60 seconds, and `export const maxDuration = 300` on four console routes is
+clamped to it.** No project-level duration override exists (`v9/projects` has no duration key), the
+build does not warn, and the deployment is READY — Vercel **accepts the 300 and silently caps it**.
+Every comment in this repo reasoning about a 300-second ceiling is reasoning about a number this
+project does not have.
+
+⚠️ **And the tightest ceiling is on a route nobody set one for.** Only the four spending console
+routes declare `maxDuration`. `api/reports/[hash]` — the paid read — declares none, so it takes the
+platform default, which on Hobby is 10 seconds. Worth checking against a real settle; not measured
+here.
+
+### 2 · The budget is wired, and it is not the thing that saves you
+
+`execute(state, budget: Budget = DEFAULT_BUDGET)` — the default applies to **every** caller, and none
+of them pass one, so 240,000 ms is live on both the console route and `scripts/ops/report.ts`. Wired.
+
+⚠️ **But it only covers `execute`, which is the cheap stage.** Measured, twice:
+
+```
+  compose 7.7s   execute 0.65s (2 queries)    narrate 25.9s   → 34.3s
+  compose 17.2s  execute 2.4s  (11 queries)   narrate 27.1s   → 46.7s
+```
+
+**The two model calls are ~98% of a run and neither has any budget, wall clock or timeout.** The
+240,000 ms guard is around the one stage that finishes in seconds.
+
+⚠️ **Three gaps inside `execute` itself**, from reading the loop: the wall-clock check fires only at
+the *top of each deployment iteration*, so one iteration — a balance sheet, up to 10 pagination pages,
+and `corroborate(slug, 3)` — can overshoot without a check; `commonBlock()` runs *before* the loop and
+is unchecked, and can run **twice** when the furthest-behind deployment is dropped; and there is **no
+check after the loop** for the engine phase.
+
+### 3 · What a wide directive actually costs — and it is not the data layer
+
+Per-query cost derived from the two runs is ~0.2–0.4 s, so even the 100-query cap is ~20–40 s of
+fetching. The expensive read is corroboration: `corroborate(slug, 3)` samples three markets and each
+one runs `blockAtTimestamp`, a **binary search over a ≤1,400-block window** — about 11
+`eth_getBlockByNumber` calls — plus an `eth_call`. **≈39 RPC round trips per deployment.** Across 25
+deployments that is ~975 RPC calls, and it is the only path that could plausibly reach 240 s.
+
+⚠️ **The real risk is the narrator, and it is measured.** `narrate` runs with `max_tokens: 24000` and
+is streamed only because the SDK refuses a non-streaming request that large; `finalMessage()` waits
+for all of it and there is no timeout. Its own header records that **degeneration has already
+happened**: five narrations of one 140-fact draft at `max_tokens: 16000` produced **zero** usable
+reports and three of them exhausted the budget.
+
+The arithmetic from measurement: a good narration emitted roughly 2,600 characters in ~26 s. A run
+that degenerates and keeps emitting crosses **60 seconds at very roughly 2,000 output tokens — about
+8% of the 24,000 it is allowed**. It never approaches the 240,000 ms execute budget, because the
+budget is not around it.
+
+**The directive shape that does it** is market-level breadth, not deployment breadth. `execute.ts`
+notes a deployment with 1,700 markets puts **3,400 facts** in the narrator's prompt, and morpho-blue
+has 1,759 markets. A ranking across 25 deployments reads balance-sheet only and is cheap; *"list every
+market of morpho-blue with deposits and borrows"* is the one that makes the prompt enormous.
+
+### 4 · What the client sees — this part is good
+
+Read from `app/console/generate.tsx`. The reader tracks `sawDone`, and a stream that ends without the
+terminal event produces a red line:
+
+> the stream ended without a `done` event — the function was killed or the connection dropped.
+> Nothing was saved: save() is the last step, so the model tokens are spent and no report exists.
+
+⚠️ **It does not hang and it does not look finished.** Both failure shapes are covered: a killed
+socket that ends the reader falls through to the `sawDone` check, and one that throws is caught and
+logged. Because the route emits a `limits` event immediately, headers are already committed, so a
+mid-run kill truncates a 200 rather than returning a 504 — which is exactly the case the check exists
+for.
+
+### 5 · What a dead run leaves behind: **nothing**
+
+Confirmed from the code, not assumed. On the generate path `compose`, `execute`, `narrate` and
+`validate` contain **no `db()`, no `pooled()`, no INSERT/UPDATE/DELETE**, and none of them import
+`src/store/` at all. `save(report)` is the last call before `stage: done`. Quotes are created only by
+the gate on an unpaid GET of a report, never by generation. No chain call happens anywhere in the
+pipeline.
+
+**So a killed generation costs model tokens and leaves no row, no quote and nothing on chain.**
+
+### 6 · Does the budget fire first? No — and not by a small margin
+
+```
+  Hobby ceiling (actual)                60,000 ms
+  maxDuration configured                300,000 ms   ← clamped, silently
+  execute wall-clock budget             240,000 ms   ← 4× beyond the ceiling. Unreachable.
+  measured routine run                   34,000–46,700 ms   ← already 78% of the real ceiling
+```
+
+⚠️ **The budget can never fire on this plan.** The platform kills at 60 s; the budget waits for 240 s.
+And even on Pro it would rarely fire, because it does not cover the two stages that take the time.
+
+### The one clear statement
+
+⚠️ **A wide directive today fails as a dead stream, not as a clean stop.** The console reports the
+truncation honestly and the database is left clean — so it is a *legible* dead stream rather than a
+silent one — but nothing produces the `status: 'budget'` outcome that `ops/report.ts` and the console
+both have handling for. That path is unreachable in the deployed app. On the **CLI** there is no
+platform ceiling at all, so a long run there simply takes as long as it takes and the 240 s budget can
+genuinely fire.
+
+⚠️ **This contradicts Phase 3's decision 2 as written.** That decision removed the job-progression
+apparatus on the grounds that a 300-second invocation is enough; the invocation is 60 seconds, and a
+routine run already uses 78% of it. The decision may still be right — generation is a CLI job and the
+console is throwaway — but the *reason* recorded for it is not true of this project.
+
+**Not settled here, and only a real run would settle it:** the exact output-token rate at which
+narrate crosses 60 s. Estimated at ~2,000 tokens from one measured narration; a deliberate wide
+generation would pin it, and costs model tokens.
+
+Nothing committed.
+
+## 2026-09-09 — maxDuration on the paid read, and decision 2's reason corrected
+
+Three files: `app/api/reports/[hash]/route.ts`, `app/console/page.tsx`'s header, and
+`tracking/phases/PHASE-3.md`. ⚠️ **The four console routes are untouched** — confirmed with
+`git status`. `tsc` exits 0 on both configs; `next build` passes. No job machinery, no queue, no
+retry.
+
+### The change
+
+`export const maxDuration = 60` on the paid read, with the real ceiling explained at the site: this
+project is on **Hobby**, the cap is 60 seconds, a declared 300 is silently clamped, and a route that
+declares *nothing* takes the platform default of roughly 10 seconds. That default was what the route
+where money moves had been running under, against a measured **8.6-second** settle — a 1.4-second
+margin. Six times the headroom, and the comment says why a timeout here is worse than elsewhere: the
+`authorization` flow produces the body before settlement completes, so a kill in that window leaves
+the buyer with the report and the seller with an unsettled `purchases` row.
+
+### ⚠️ How I checked it takes effect — and the honest limit of that check
+
+This is the part the task was about, so here is exactly what was established and what was not.
+
+**Established:**
+
+- `.next/server/functions-config-manifest.json` — **the artifact Vercel consumes** — records
+  `/api/reports/[hash]  maxDuration=60`, beside the four console routes at 300. The declaration
+  reaches the handoff point rather than only the source.
+- A **preview deployment** built from this exact source reached **READY**
+  (`dpl_79TjkU4k9SeeDUpbZuNEg4QAjpei`), so the platform accepted that manifest. ⚠️ Preview, not
+  production — production was left alone.
+- The plan is **hobby** (`billing.plan = hobby`, read from the API). **60 ≤ 60, so this value cannot
+  be clamped down.** The failure mode this task exists to prevent is structurally absent for it,
+  which is the difference between 60 and the console's 300.
+
+⚠️ **Not established, and it turns out nobody could:** Vercel exposes **no read surface that echoes
+the applied per-function duration.** I tried the deployment record (`v13/deployments/{url}` — no
+`functions` key), the output API (`v7/deployments/{id}/output` — empty), and `vercel inspect`, which
+lists the lambdas and their sizes and no duration at all. Nor is it observable behaviourally without a
+contrived slow request: distinguishing 60 from the ~10-second default needs a request that takes
+between 10 and 60 seconds, and the gate has no way to be made slow without editing it.
+
+**That absence is the finding.** It is precisely why four routes have carried a fictional 300 for a
+week without anyone noticing: the platform accepts the number, the build says nothing, the deployment
+goes green, and there is no place to look it up afterwards. The manifest is the only checkable
+artifact, so it is the one to check.
+
+⚠️ **Production has NOT been promoted** — it still serves the previous build, where the paid read has
+no `maxDuration`. Promoting is a one-line `vercel deploy --prod` or a push, and it is outward-facing,
+so it is left for a decision rather than taken.
+
+### A real paid read after the change
+
+Run against `next start` on the new route code — same route, same gate, a real x402 settlement on
+Hedera testnet through Blocky402; only the hosting differs from production.
+
+```
+  unpaid GET /api/reports/<hash>   402
+  settled     0.0.7162784@1788992192.548150225
+  paid        0.00100000 HBAR   buyer 0.0.10387696 → analyst 0.0.10387690
+  network fee 0.00259638 HBAR paid by the facilitator 0.0.7162784, not by us
+  body        2,062 chars, hash matches the requested report
+  elapsed     5.28 s for the whole buyer round trip
+```
+
+⚠️ **5.28 s is the round trip, not the gate's own invocation** — it also contains the buyer's Mirror
+Node ingestion poll, the challenge decode and the signing, so the function's own clock is a subset of
+it. Against the 8.6-second reference settle it is comfortably inside; against a 60-second ceiling
+there is at least 11× headroom, where the old default gave roughly 2×.
+
+**Cost of this run: 0.00100000 HBAR from the buyer**, plus a 0.00259638 HBAR network fee that the
+facilitator paid.
+
+### Decision 2
+
+The decision stands and its reason has been rewritten. It used to rest on *"a 300-second Vercel
+invocation cannot hold a multi-deployment report generation"*, which implied 300 seconds of headroom
+this project does not have. It now says the true reason — **generation is a CLI job where no platform
+ceiling applies at all**, `scripts/ops/report.ts` runs in a local process where the 240,000 ms budget
+can genuinely fire, and the only in-app generator is throwaway — and carries the measured figures in
+a table: 60-second real ceiling, 34.0 s and 46.7 s routine runs, 57% and 78% of it, and the note that
+the two model calls are ~98% of a run while carrying no budget.
+
+It also now records **what would overturn it**: commissioning a report from the product, which on a
+60-second ceiling needs either the job apparatus this decision removed or a plan upgrade.
+
+**The Hobby plan is recorded as Trap 5** in PHASE-3.md's *Traps* section — the list a cold session
+reads first — including that an over-limit `maxDuration` is accepted and clamped without warning, that
+an absent one means ~10 seconds, and that this is **the fifth thing in this project that looked live
+and was not**.
+
+⚠️ **One preview deployment was created and left in place** as the evidence above. It has no
+`DATABASE_URL` (that variable is production-only, which is why the paid read could not run there) and
+is harmless; say the word and it can be removed.
+
+Nothing committed.

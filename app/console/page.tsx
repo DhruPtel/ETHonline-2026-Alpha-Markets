@@ -13,6 +13,25 @@
 // ⚠️ **Nothing here is `NEXT_PUBLIC_`.** `HEDERA_SELLER_KEY`, `CIRCLE_ENTITY_SECRET` and
 // `ARC_DEPLOYER_KEY` are in the same `.env` these routes read, and that prefix inlines a value into
 // the client bundle. Every operation runs server-side; the browser sends a hash and gets JSON back.
+//
+// ── ⚠️ THE `maxDuration = 300` IN THE ROUTES UNDER `app/api/console/` IS FICTION ─────────────────
+//
+// Four of those routes declare `export const maxDuration = 300` and **not one of them gets it.**
+// This project is on Vercel's **Hobby** plan — confirmed 2026-09-09 from the API, `billing.plan =
+// hobby`, not inferred — and Hobby caps a function at **60 seconds**. A larger declaration is
+// **silently clamped**: Vercel accepts it, the build does not warn, and the deployment goes READY
+// carrying 60.
+//
+// ⚠️ **`app/api/console/generate/route.ts` contains an arithmetic block reasoning from a 300-second
+// ceiling. That arithmetic is wrong on this plan.** Its conclusion — that `execute`'s 240,000 ms
+// budget fits inside the invocation — is false by a factor of four: the platform kills at 60 s and
+// the budget waits for 240 s, so the budget can never fire here. A routine generation measures
+// **34.0 s and 46.7 s**, already 57–78% of the real ceiling, and the two model calls are ~98% of it
+// while carrying no budget at all.
+//
+// The numbers are left in place because these files are deleted before submission and correcting
+// them would be editing throwaway code. ⚠️ **Do not reason from them, and do not copy the 300 into a
+// product route.** `app/api/reports/[hash]/route.ts` declares 60 and says why.
 
 import { Panel } from './panel.js';
 import './console.css';
