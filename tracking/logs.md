@@ -4651,3 +4651,165 @@ how a token is minted was touched.
 ⚠️ **Left undone deliberately, because it is outside this task's file scope:** `README.md`,
 `docs/evidence.md`, `tracking/phases/PHASE-3.md` and `scripts/README.md` all still say one of four
 tokens is verified. That was true this morning and is false now. Four documents to correct.
+
+## 2026-09-09 — MIRROR consolidated to one definition; the env helper stopped and referred back
+
+**MIRROR is done: one definition, seven importers.** `src/tokenize/hedera.ts` keeps the export and the
+four live copies are gone — `app/api/console/buy`, `scripts/ops/buy.ts`, `scripts/ops/verify-analyst.ts`
+and `scripts/ops/verify-ats.ts` now import it. `scripts/smoke/` keeps its own, untouched and correct
+as it ran.
+
+⚠️ **The objection to leaving it in `hedera.ts` turned out to be moot, and measuring is what settled
+it.** The concern was that a caller wanting a URL would have to import a tokenization module. But the
+two callers named — `app/api/console/buy` and `scripts/ops/buy.ts` — **already import `fetchJson`
+from that exact file**, so the edge existed and was already paid for; the change is strictly a
+deletion for them. Of the two that gained a genuinely new import, `verify-analyst.ts` and
+`verify-ats.ts` are network-bound CLIs where the **measured 951 ms** of eager `ethers` +
+ATS-contracts loading is noise against a 20-second verification or a live Circle round trip. And
+`hedera.ts` reads no `process.env` at import time, so `verify-ats.ts`'s stated credential-free
+property survives intact — checked rather than assumed.
+
+### ⚠️ The env helper is NOT consolidated, and it is not a judgement call I should have made alone
+
+Two blockers, either of which is the "stop and tell me" condition.
+
+**1 · The six copies are not six copies of one thing.** The guard logic is identical in all six —
+`process.env[name]?.trim()`, `if (!value) throw`, error names the variable — verified structurally
+and demonstrated live against `pooled()`, `direct()` and `network()` with the variable missing, `""`
+and `"   "`. All nine cases throw and name the variable. ⚠️ **But `store/db.ts` differs in its
+message**, and it is the copy three documents point at as "the pattern":
+
+```
+  five copies   `${name} is not set (or is set to an empty string).`
+  db.ts         …the same, plus: 'DATABASE_URL is Neon's POOLED endpoint (host contains
+                "-pooler") and DATABASE_URL_DIRECT is the direct one (host does not). They
+                are different endpoints and are not interchangeable.'
+```
+
+That sentence is the most useful error in the codebase — it is the one that would have saved Unit 4's
+first attempt, where both URLs pointed at the pooled host. Consolidating naively either **loses it**
+or **imposes Neon advice on `HEDERA_SELLER_KEY`**. It is fixable with an optional `hint` parameter,
+and that is a design decision rather than a move.
+
+**2 · There is no permitted home, and every candidate is worse than the duplication.** The scope for
+this task is the files holding the duplicates. Taking each in turn:
+
+| candidate | why not |
+|---|---|
+| `src/store/db.ts` | a store module is the wrong place for a general guard — stated in the brief, and right |
+| `src/payments/server.ts` | store and tokenize would then import payments for a string guard |
+| `src/tokenize/ats.ts` / `transfer.ts` | both import `src/store/`, so `db.ts` importing back is a **cycle** |
+| the two console routes | throwaway, deleted before submission — explicitly ruled out |
+
+**The right home is a new ~14-line module** — `src/config/env.ts`, beside `model.ts` and `pricing.ts`,
+which is where `config/` already puts one concern per file and which imports nothing. Creating it
+needs permission this task did not grant, so nothing was touched and the question goes back.
+
+⚠️ **Six copies of a guard that has already fired four times in production is a real risk and it is
+still open.** Not deferred on the merits — deferred for one file's worth of permission.
+
+### The four stale documents
+
+`README.md`, `docs/evidence.md`, `tracking/phases/PHASE-3.md` and `scripts/README.md` all said one of
+four report tokens was verified. All four are `exact_match`; H2.3 is marked **CLOSED** in PHASE-3.md,
+the README's *what is not built* list lost the entry entirely, and `evidence.md` and
+`scripts/README.md` now carry the `creationMatch: null` explanation and the console-cannot-verify
+caveat with the sweep command.
+
+### Proof
+
+```
+  tsc -p tsconfig.json --noEmit                 exit 0
+  next build                                    exit 0, 12 routes
+  ops/verify-analyst.ts (Mirror Node via the imported MIRROR)   PASS
+  next start → GET /                            200
+               GET /report/<hash>               200
+               GET /api/health                  200   ok:true, resolver read via MIRROR
+               GET /api/reports/<hash>          402   payTo 0.0.10387690, feePayer 0.0.7162784
+```
+
+Nothing committed.
+
+## 2026-09-09 — One env guard: `src/config/env.ts`, and the Neon sentence survives as a hint
+
+`src/config/env.ts` (58 lines, 6 of them code) now holds the only copy of the empty-is-missing guard.
+The six local copies — `store/db.ts`, `payments/server.ts`, `tokenize/ats.ts`, `tokenize/transfer.ts`
+and the two console routes — are gone, and all nine call sites read exactly as they did, because each
+file imports it under the name it already used (`requiredEnv as env`, `requiredEnv as required`).
+
+**The whole guard, and it is the whole point:**
+
+```ts
+export function requiredEnv(name: string, hint?: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is not set (or is set to an empty string).${hint ? ` ${hint}` : ''}`);
+  }
+  return value;
+}
+```
+
+⚠️ **`config/env.ts` imports nothing — not even a type.** That is the property that lets `store/`,
+`payments/`, `tokenize/` and two route handlers all import it with no possibility of a cycle, and it
+is why every other candidate home failed: `ats.ts` and `transfer.ts` both import `src/store/`, so
+`db.ts` importing back would have been one. Keep it importing nothing.
+
+### The hint, and why it is a parameter rather than a special case
+
+`db.ts`'s copy was the one that differed — it appended the Neon POOLED/DIRECT explanation, the
+sentence that would have saved Unit 4's first attempt when both connection strings pointed at the
+pooled host and the failure read like a bug in the `.sql` file. It now lives in `db.ts` as a
+`NEON_ENDPOINTS` constant passed as the hint: **the caller supplies the context, the guard supplies
+the mechanism.**
+
+⚠️ **The composed message is byte-identical to the old one** — checked by reconstructing the previous
+string from the pre-change source and comparing:
+
+```
+  before: "DATABASE_URL is not set (or is set to an empty string). DATABASE_URL is Neon's POOLED …"
+  after : "DATABASE_URL is not set (or is set to an empty string). DATABASE_URL is Neon's POOLED …"
+  byte-identical: ✅ YES
+```
+
+And the boundary holds in the other direction, which is the half that matters:
+
+```
+  DATABASE_URL          Neon hint present ✅      HEDERA_SELLER_KEY  hint absent ✅
+  DATABASE_URL_DIRECT   Neon hint present ✅      HEDERA_NETWORK     hint absent ✅
+                                                  ANTHROPIC_API_KEY  hint absent ✅
+                                                  HEDERA_BUYER_KEY   hint absent ✅
+```
+
+### Proof
+
+Nine cases — three real entry points × missing, `""`, whitespace-only — all throw and all name the
+variable. ⚠️ Whitespace-only is not a contrived case: `"   "` is what a copy-paste into a dashboard
+field produces, and `.trim()` is what makes it fail rather than become a connection string.
+
+```
+  store/db.ts → pooled()          MISSING · EMPTY "" · WHITESPACE "   "   ✅ ✅ ✅
+  store/db.ts → direct()          MISSING · EMPTY "" · WHITESPACE "   "   ✅ ✅ ✅
+  payments/server.ts → network()  MISSING · EMPTY "" · WHITESPACE "   "   ✅ ✅ ✅
+  9/9 throw and name the variable
+
+  tsc -p tsconfig.json --noEmit                exit 0
+  next build                                   exit 0, 12 routes
+  ops/verify-analyst.ts                        PASS  (Circle + Mirror Node)
+  next start → /  200 · /report/<hash> 200 · /api/health 200 (ok:true) · /api/reports/<hash> 402
+               402 names payTo 0.0.10387690, feePayer 0.0.7162784
+```
+
+The diff across the six files is nothing but the consolidation: six definitions deleted, six imports
+added, one constant hoisted. No call site changed shape.
+
+⚠️ **`scripts/smoke/` keeps its own copies, deliberately.** Those are frozen Phase 0 tests and are
+correct as they ran; rewriting a passing test to import a module written after it would make the test
+describe today rather than what it proved.
+
+**That closes both consolidations from the review.** MIRROR went to one definition on the previous
+run; the env guard is now one definition with five call sites that used to be five copies. The
+remaining duplication the review found is the kind that should stay: `RESOLVER_ID` and `hbar()` are
+duplicated into console files that get deleted, and `TxCost` is deliberate with the reasoning recorded
+at both sites.
+
+Nothing committed.

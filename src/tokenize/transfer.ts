@@ -17,6 +17,8 @@
 import { ethers } from 'ethers';
 import { IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
 import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
+// ⚠️ Empty is missing — `??` never falls back on `""`. One guard, shared; was a local copy until 2026-09-09.
+import { requiredEnv as env } from '../config/env.js';
 import { load } from '../store/reports.js';
 import { tokenFor, type ReportToken } from '../store/tokens.js';
 import { db } from '../store/db.js';
@@ -56,13 +58,6 @@ export interface TransferResult {
   readonly fromAfter: bigint;
   readonly toAfter: bigint;
   readonly receipt: TxCost;
-}
-
-/** Empty is missing — `??` falls back on `undefined` and never on `""`. */
-function env(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set (or is set to an empty string).`);
-  return value;
 }
 
 /**

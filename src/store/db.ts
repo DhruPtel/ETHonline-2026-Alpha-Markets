@@ -21,23 +21,31 @@
 // read as a facilitator error and was a config one. `required()` below treats empty as absent.
 
 import postgres from 'postgres';
+import { requiredEnv } from '../config/env.js';
+
+/**
+ * ⚠️ **The sentence that would have saved Unit 4's first attempt**, when `DATABASE_URL` and
+ * `DATABASE_URL_DIRECT` were byte-identical and both pointed at the pooled host — a failure that
+ * reads like a bug in the `.sql` file rather than a wrong connection.
+ *
+ * It lives here, at the call site, rather than inside the guard: it is correct for exactly these two
+ * variables and wrong for every other one in the project. ⚠️ Neon advice must never appear on
+ * `HEDERA_SELLER_KEY`. `config/env.ts` supplies the mechanism; this supplies the context.
+ */
+const NEON_ENDPOINTS =
+  'DATABASE_URL is Neon\'s POOLED endpoint (host contains "-pooler") and DATABASE_URL_DIRECT is ' +
+  'the direct one (host does not). They are different endpoints and are not interchangeable.';
 
 /**
  * ⚠️ Throws at the point of use rather than returning a default. A connection string is not
  * something to guess at: a wrong-but-present value connects to something, and the failure surfaces
  * as missing rows rather than as a bad configuration.
+ *
+ * ⚠️ **This used to be a local copy of the guard, and five other files had their own.** Consolidated
+ * into `config/env.ts` on 2026-09-09 — three documents had pointed at this copy as "the pattern"
+ * while nothing imported it. The message is unchanged: the base sentence plus `NEON_ENDPOINTS`.
  */
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(
-      `${name} is not set (or is set to an empty string). ` +
-      'DATABASE_URL is Neon\'s POOLED endpoint (host contains "-pooler") and DATABASE_URL_DIRECT is ' +
-      'the direct one (host does not). They are different endpoints and are not interchangeable.',
-    );
-  }
-  return value;
-}
+const required = (name: string): string => requiredEnv(name, NEON_ENDPOINTS);
 
 /**
  * ⚠️ **Lazy, not module scope.** Constructing a client at import time means a missing env var

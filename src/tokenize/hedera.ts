@@ -14,6 +14,23 @@
 import { ethers } from 'ethers';
 import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
 
+/**
+ * ⚠️ **The one definition of the Mirror Node host.** Consolidated 2026-09-09 — there were five, and
+ * this is a URL that flips *wholesale* at the mainnet/USDC cutover (R12), so every extra copy was a
+ * place to miss it. Importers: `ats.ts`, `transfer.ts`, `app/api/health`, `app/api/console/buy`,
+ * `scripts/ops/buy.ts`, `scripts/ops/verify-analyst.ts`, `scripts/ops/verify-ats.ts`.
+ *
+ * ⚠️ **It stayed here rather than moving, and the objection to that turned out to be moot.** The
+ * concern was that a caller wanting only a URL would have to import a tokenization module — but the
+ * two callers named, `app/api/console/buy` and `scripts/ops/buy.ts`, **already import `fetchJson`
+ * from this file**, so for them the edge existed and was already paid for. The two that gained a new
+ * import, `verify-analyst.ts` and `verify-ats.ts`, are network-bound CLIs where the measured ~950 ms
+ * of eager `ethers` + ATS-contracts loading is noise against a 20-second run. ⚠️ Nothing here reads
+ * `process.env` at import time, so `verify-ats.ts`'s credential-free property survives untouched.
+ *
+ * ⚠️ `scripts/smoke/` keeps its own copy on purpose — those are frozen Phase 0 tests and their
+ * constants are correct as they ran.
+ */
 export const MIRROR = 'https://testnet.mirrornode.hedera.com';
 export const HEDERA_TESTNET_CHAIN_ID = 296n;
 

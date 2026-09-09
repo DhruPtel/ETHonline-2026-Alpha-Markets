@@ -30,11 +30,17 @@ creation event carries the same 32 bytes the report page displays, and the ISIN 
 hash rather than fixed — SM-07 minted everything under one hardcoded `XXALPHA00015`, which would have
 made two reports indistinguishable by the one field whose purpose is to distinguish securities.
 
-⚠️ **`XXCQBDTBC9X2` is verified on Sourcify (`exact_match`); the other three are not yet.** All four
-are byte-identical runtime bytecode — 390 bytes, same compiler, same sources, only the address
-differs — so `npx tsx scripts/ops/verify-ats.ts <proxy>` verifies any of them unchanged. It has
-simply not been run for three, and "contracts verified where applicable" is pass/fail on the Hedera
-track. Stated rather than left to be discovered.
+✅ **All four are verified on Sourcify, `exact_match`** — checked 2026-09-09. They are byte-identical
+runtime bytecode (390 bytes, same compiler, same sources, only the address differs), so one script
+verifies any of them unchanged. `creationMatch` is `null` on all four and that is expected: the proxy
+is created by `new ResolverProxy(...)` **inside** the factory's `deployEquity` call, so there is no
+top-level creation transaction for Sourcify to fetch. The runtime match is what makes HashScan render
+source and decode events, and it is what H2.3 asks for.
+
+⚠️ **Three of these sat unverified for a day**, because `tokenize.ts` printed the verify command
+instead of running it. It now verifies as its final step, and
+`npx tsx --env-file=.env scripts/ops/verify-ats.ts --all` sweeps anything minted through the console,
+which has no compiler and cannot verify.
 
 ## Token transfers — the lifecycle operation, on real reports
 

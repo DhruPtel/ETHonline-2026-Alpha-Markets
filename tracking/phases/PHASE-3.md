@@ -972,7 +972,7 @@ nothing in the purchase path moves it.
 | **H1.3** | A platform **or agent** consuming it, ≥1 real paid request end to end | Unit 15 |
 | **H2.1** | Use ATS (SDK, contracts, web app, or combination) | Unit 8 — contracts + ethers |
 | **H2.2** | Deploy and demonstrate on Hedera testnet | Unit 8 |
-| **H2.3** | Contracts verified on HashScan where applicable | ⚠️ **Satisfied by SM-07's token and by one of the four report tokens** (`XXCQBDTBC9X2`, `exact_match`). **The other three are unverified** — `tokenize.ts` only *prints* the verify command and nobody ran it. Byte-identical bytecode, so `verify-ats.ts` closes each in ~20 seconds and no gas. Checked 2026-09-09 |
+| **H2.3** | Contracts verified on HashScan where applicable | ✅ **CLOSED — all four report tokens are `exact_match`**, plus SM-07's. Three were verified on 2026-09-09; the cause was structural rather than an oversight, so `tokenize.ts` now **verifies as its final step** instead of printing a command, and `verify-ats.ts --all` sweeps console-minted tokens, which cannot verify themselves — no compiler in a Vercel function |
 | **G2.3** | Meaningful work | Was closed in Phase 2. A paid, tokenized report strengthens it |
 
 ### Set up, not closed

@@ -26,7 +26,9 @@
 
 import { NextResponse } from 'next/server.js';
 import { buy, spent, vet, DEFAULT_LIMITS, SpendRefused, type BuyOptions } from '../../../../src/payments/buyer.js';
-import { fetchJson } from '../../../../src/tokenize/hedera.js';
+import { fetchJson, MIRROR } from '../../../../src/tokenize/hedera.js';
+// ⚠️ Empty is missing. One guard, shared; was a local copy until 2026-09-09.
+import { requiredEnv as env } from '../../../../src/config/env.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,16 +38,8 @@ export const maxDuration = 300;
 const DEFAULT_SITE = 'https://et-honline-2026-alpha-markets.vercel.app';
 const NETWORK = 'hedera:testnet';
 const HBAR = '0.0.0';
-const MIRROR = 'https://testnet.mirrornode.hedera.com';
 
 const hbar = (t: string | bigint | number) => (Number(t) / 1e8).toFixed(8);
-
-/** Empty is missing. */
-const env = (name: string): string => {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set (or is set to an empty string).`);
-  return value;
-};
 
 type Tx = { result: string; charged_tx_fee: number; transfers: { account: string; amount: number }[] };
 

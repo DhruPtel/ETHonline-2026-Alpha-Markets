@@ -44,9 +44,6 @@ Said plainly, because a README that overclaims is worse than one that admits a g
 - **`payments/auth.ts`** — letting a human prove which address they control. The declared cut point.
 - **Two deliberate break-it-on-purpose test passes**, folded into end-stage testing.
 - **All of Phase 4.** The Arc prediction market is unstarted — no contract, no client, no settlement.
-- **Three of the four report tokens are not yet verified on Sourcify.** The fourth is, `exact_match`.
-  All four are byte-identical runtime bytecode and `scripts/ops/verify-ats.ts` verifies any of them
-  unchanged; it has simply not been run for three.
 - **Known internal gaps:** `quotes.state` is never written, so every quote row reads `'open'` forever;
   `tokenize/ats.ts` leaks two database clients; `app/api/probe/` and `app/console/` are throwaway
   surfaces that are still deployed. Each is recorded at the code, not only here.
@@ -220,7 +217,8 @@ Real transactions on public testnets. Every one is verifiable without us.
 - **Three x402 payments settled** through Blocky402 against the deployed gate, most recently
   `0.0.7162784@1788975334.949051888`. The buyer paid 0.001 HBAR and zero gas; the facilitator covered
   the network fee, which is the whole point of the pattern.
-- ⚠️ **One of the four tokens is verified on Sourcify** (`exact_match`); the other three are not yet.
+- **All four verified on Sourcify**, `exact_match` each. `tokenize.ts` now verifies as its final
+  step rather than printing a command, so a new token arrives verified without a second command.
 
 **Phase 0 — the integrations, proved in isolation before anything was built on them:**
 

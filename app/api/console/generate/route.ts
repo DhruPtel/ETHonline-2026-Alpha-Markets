@@ -36,6 +36,8 @@ import { narrate, render } from '../../../../src/agent/narrate.js';
 import { validate } from '../../../../src/agent/validate.js';
 import { reportHash } from '../../../../src/domain/canonical.js';
 import { save } from '../../../../src/store/reports.js';
+// ⚠️ Empty is missing. One guard, shared; was a local copy until 2026-09-09.
+import { requiredEnv as env } from '../../../../src/config/env.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,13 +46,6 @@ export const maxDuration = 300;
 
 /** The analyst this console publishes as — the same one line `scripts/ops/report.ts` carries. */
 const ANALYST_ID = 'alpha-1';
-
-/** Empty is missing. `??` falls back on `undefined` and never on `""`. */
-const env = (name: string): string => {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set (or is set to an empty string).`);
-  return value;
-};
 
 export async function POST(request: Request): Promise<Response> {
   const { directive } = (await request.json().catch(() => ({}))) as { directive?: string };

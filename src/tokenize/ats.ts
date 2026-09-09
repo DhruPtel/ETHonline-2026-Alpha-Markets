@@ -37,6 +37,8 @@ import { ethers } from 'ethers';
 import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
 import type { Report } from '../types/report.js';
 import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
+// ⚠️ Empty is missing — `??` never falls back on `""`. One guard, shared; was a local copy until 2026-09-09.
+import { requiredEnv as env } from '../config/env.js';
 import { load } from '../store/reports.js';
 import { pooled } from '../store/db.js';
 import { isinFor } from './isin.js';
@@ -101,13 +103,6 @@ export interface TxCost {
   readonly hash: string;
   readonly gasUsed: bigint;
   readonly gasPrice: bigint;
-}
-
-/** Empty is missing — `??` falls back on `undefined` and never on `""`, which shipped an empty payTo. */
-function env(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set (or is set to an empty string).`);
-  return value;
 }
 
 /**

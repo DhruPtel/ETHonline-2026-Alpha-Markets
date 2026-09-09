@@ -11,6 +11,7 @@ import { HTTPFacilitatorClient } from '@x402/core/http';
 import { x402ResourceServer } from '@x402/core/server';
 import { HBAR_ASSET_ID } from '@x402/hedera';
 import { ExactHederaScheme } from '@x402/hedera/exact/server';
+import { requiredEnv as required } from '../config/env.js';
 
 /**
  * ⚠️ **R12's atomic switch, expressed so the wrong combination cannot be written down.**
@@ -41,17 +42,13 @@ const NETWORKS = {
 export type NetworkName = keyof typeof NETWORKS;
 export type NetworkConfig = (typeof NETWORKS)[NetworkName] & { readonly network: NetworkName };
 
-/**
- * ⚠️ **An empty env var is a missing env var.** `??` falls back on `undefined` and never on `""`,
- * which is how this project shipped a live 402 carrying `payTo: ""`. There is no fallback anywhere
- * in this file: a wrong-but-present value connects to something, and the failure then surfaces as a
- * payment that will not settle rather than as the configuration error it is.
- */
-function required(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) throw new Error(`${name} is not set (or is set to an empty string).`);
-  return value;
-}
+// ⚠️ **An empty env var is a missing env var.** `??` falls back on `undefined` and never on `""`,
+// which is how this project shipped a live 402 carrying `payTo: ""`. There is no fallback anywhere
+// in this file: a wrong-but-present value connects to something, and the failure then surfaces as a
+// payment that will not settle rather than as the configuration error it is.
+//
+// ⚠️ The guard was a local copy until 2026-09-09; it is now `config/env.ts`, shared by all six
+// former copies. No hint here — the Neon explanation belongs to the database variables alone.
 
 /** The network this deployment settles on, with everything that must move with it. */
 export function network(): NetworkConfig {

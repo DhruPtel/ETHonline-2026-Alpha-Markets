@@ -45,6 +45,9 @@ import { createRequire } from "node:module";
 import { dirname, join, normalize } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+// ⚠️ MIRROR only. One definition of the Mirror Node host, and it flips wholesale at the mainnet
+// cutover — see the note on the export in that file.
+import { MIRROR } from "../../src/tokenize/hedera.js";
 
 const require = createRequire(import.meta.url);
 
@@ -56,7 +59,6 @@ const require = createRequire(import.meta.url);
 const loadSolc = () => require("solc");
 
 const CHAIN_ID = 296; // Hedera testnet
-const MIRROR = "https://testnet.mirrornode.hedera.com";
 // HashScan's own verifier host 308-redirects here, so this one submission covers both.
 const SOURCIFY = "https://sourcify.dev/server";
 

@@ -38,10 +38,18 @@ the preflight runs, prints its plan, and sends nothing.
 `migrate.ts` uses `DATABASE_URL_DIRECT` and refuses to run if that URL contains `-pooler`; the two
 Neon endpoints are not interchangeable (`src/store/db.ts`).
 
-⚠️ **`verify-ats.ts` is not automatic.** `tokenize.ts` only *prints* the command. As of 2026-09-09
-**one of the four report tokens is verified on Sourcify** and three are not, which matters because
-"contracts verified where applicable" is pass/fail on the Hedera track. Every report token is
-byte-identical runtime bytecode, so the script verifies any of them unchanged.
+✅ **`verify-ats.ts` is now automatic.** `tokenize.ts` calls it as its final step rather than printing
+the command, and a verification failure is reported without failing a tokenization that already
+succeeded — by then the asset exists and the gas is spent. **All four report tokens are `exact_match`**
+as of 2026-09-09.
+
+⚠️ **A token minted through the console is NOT verified.** That route has no compiler — `solc` and
+`@openzeppelin/contracts` are devDependencies and are not in a Vercel function — so run the sweep
+after any console session. It is idempotent and free when there is nothing to do:
+
+```bash
+npx tsx --env-file=.env scripts/ops/verify-ats.ts --all
+```
 
 ---
 

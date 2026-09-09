@@ -20,8 +20,8 @@
 
 import { initiateDeveloperControlledWalletsClient } from '@circle-fin/developer-controlled-wallets';
 import { ANALYSTS } from '../../src/config/analysts.js';
+import { MIRROR } from '../../src/tokenize/hedera.js';
 
-const MIRROR = 'https://testnet.mirrornode.hedera.com';
 
 const env = (name: string): string => {
   const value = process.env[name]?.trim();

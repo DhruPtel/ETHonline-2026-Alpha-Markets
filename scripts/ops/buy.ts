@@ -10,12 +10,11 @@
 // without spending is checked and printed first, and `--confirm` is a separate human decision.
 
 import { buy, spent, vet, DEFAULT_LIMITS, SpendRefused, type BuyOptions } from '../../src/payments/buyer.js';
-import { fetchJson } from '../../src/tokenize/hedera.js';
+import { fetchJson, MIRROR } from '../../src/tokenize/hedera.js';
 
 const SITE = 'https://et-honline-2026-alpha-markets.vercel.app';
 const NETWORK = 'hedera:testnet';
 const HBAR = '0.0.0';
-const MIRROR = 'https://testnet.mirrornode.hedera.com';
 
 const env = (name: string): string => {
   const value = process.env[name]?.trim();
