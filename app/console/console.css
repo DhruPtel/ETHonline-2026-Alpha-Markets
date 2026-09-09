@@ -1,0 +1,232 @@
+/* The console's own styles. Scoped to /console — imported by its page and nothing else.
+   ⚠️ THROWAWAY, like the rest of app/console/.
+
+   Extends globals.css rather than restating it: --ink, --muted, --rule, --bg, --panel, --link and
+   the .mono / .masthead / .lede rules all come from there. What is added below is a sunken surface
+   for the terminal, three status colours (status is content in a terminal, not decoration), and one
+   accent used on exactly one thing — the button that spends. */
+
+:root {
+  --term: #f3f4f6;
+  --good: #1d6b3f;
+  --warn: #8a5a08;
+  --bad: #a3241f;
+  --spend: #8a3a12;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --term: #101216;
+    --good: #6fbf8b;
+    --warn: #d9a441;
+    --bad: #e08a83;
+    --spend: #e0895a;
+  }
+}
+
+/* A control panel is not a memo — it gets width. The reading measure is kept narrow inside it. */
+main.console { max-width: 74rem; padding-bottom: 4rem; }
+
+.throwaway {
+  margin: 0 0 2rem;
+  padding: 0.85rem 1rem;
+  border: 1px dashed var(--rule);
+  border-left: 3px solid var(--spend);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.875rem;
+  max-width: 46rem;
+}
+.throwaway strong { color: var(--ink); }
+
+.console-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 29rem) minmax(0, 1fr);
+  gap: 3rem;
+  align-items: start;
+}
+
+/* ── Controls ──────────────────────────────────────────────────────────────────────────────────
+   Weight carries importance, not colour: generation is the entry point and gets a panel and the
+   largest heading; the target is a quiet strip; the three spenders sit under a rule that names what
+   they have in common. */
+
+.ops { display: grid; gap: 1.75rem; min-width: 0; }
+
+.op h2 { font-size: 1rem; margin: 0 0 0.35rem; letter-spacing: -0.005em; }
+.op-note { margin: 0 0 1rem; color: var(--muted); font-size: 0.8125rem; line-height: 1.55; }
+.op-note strong { color: var(--ink); font-weight: 600; }
+
+.op-primary {
+  padding: 1.35rem 1.4rem 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+.op-primary h2 { font-size: 1.1875rem; margin-bottom: 0.5rem; }
+
+.op-target { padding: 0 0 0.25rem; }
+
+.band {
+  margin: 0.75rem 0 -0.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.op-spend {
+  padding: 0 0 0 1.1rem;
+  border-left: 2px solid var(--rule);
+}
+
+.field { display: grid; gap: 0.3rem; margin: 0 0 0.9rem; }
+.field span { font-size: 0.8125rem; color: var(--muted); }
+.field input, .field textarea {
+  font: inherit;
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  resize: vertical;
+}
+.field input.mono, .field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; }
+.field input:focus, .field textarea:focus { outline: 2px solid var(--link); outline-offset: -1px; }
+.field input:disabled, .field textarea:disabled { opacity: 0.55; }
+
+button { font: inherit; cursor: pointer; border-radius: 4px; }
+button:disabled { cursor: not-allowed; }
+
+.go {
+  padding: 0.55rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+}
+.go:disabled { color: var(--muted); background: transparent; border-color: var(--rule); }
+.go.spend:not(:disabled) { background: var(--spend); border-color: var(--spend); color: #fff; }
+
+.plan {
+  padding: 0.55rem 1.1rem;
+  font-size: 0.875rem;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--rule);
+}
+.plan:disabled { color: var(--muted); }
+
+.quiet {
+  padding: 0.25rem 0.5rem;
+  margin-left: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--link);
+  background: none;
+  border: 0;
+}
+.quiet:disabled { color: var(--muted); }
+
+.two-step { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+.bad-line { margin: 0.25rem 0 0.75rem; color: var(--bad); font-size: 0.8125rem; }
+
+/* ── The terminal ──────────────────────────────────────────────────────────────────────────────
+   A sunken pane with a real gutter: elapsed, stage, message. Not a JSON blob in a <pre>. */
+
+.term-wrap {
+  position: sticky;
+  top: 1.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--term);
+  min-width: 0;
+}
+
+.term-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.6rem 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.term {
+  height: calc(100vh - 9rem);
+  min-height: 26rem;
+  overflow: auto;
+  padding: 0.85rem 0.9rem 1.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+.term-empty { margin: 0; color: var(--muted); }
+
+.term-line { display: grid; grid-template-columns: 3.2rem 5.2rem minmax(0, 1fr); gap: 0.75rem; }
+.term-at { color: var(--muted); text-align: right; }
+.term-stage { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.term-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.term-rule { height: 0; margin: 0.65rem 0; border: 0; border-top: 1px solid var(--rule); }
+
+.tone-good .term-text { color: var(--good); }
+.tone-warn .term-text { color: var(--warn); }
+.tone-bad  .term-text { color: var(--bad); }
+.tone-note .term-text { color: var(--muted); }
+
+/* ── State ─────────────────────────────────────────────────────────────────────────────────────
+   Dense, hairline-ruled, and quiet. These are readings, not actions. */
+
+.state { margin-top: 3.5rem; border-top: 1px solid var(--rule); padding-top: 1.25rem; }
+.state-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.state-head h2 { font-size: 1rem; margin: 0; }
+.state h3 {
+  margin: 2rem 0 0.6rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.state h3 .count { color: var(--muted); font-weight: 400; }
+.state h3 .op-note { display: inline; margin: 0; }
+
+.table-scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); }
+table.grid { border-collapse: collapse; width: 100%; font-size: 0.8125rem; }
+table.grid th, table.grid td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+table.grid th {
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+table.grid td.num { text-align: right; }
+table.grid td.directive {
+  max-width: 26rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+table.grid tbody tr:last-child td { border-bottom: 0; }
+/* Only the reports table is a picker; the other two are readings and must not look clickable. */
+table.pick tbody tr { cursor: pointer; }
+table.pick tbody tr:hover td { background: var(--term); }
+table.pick tbody tr.picked td { background: var(--term); box-shadow: inset 2px 0 0 var(--spend); }
+
+@media (max-width: 62rem) {
+  .console-grid { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+  .term-wrap { position: static; }
+  .term { height: 24rem; min-height: 0; }
+}

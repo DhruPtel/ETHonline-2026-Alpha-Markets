@@ -4134,3 +4134,283 @@ whenever a brief touches that file.
 reason to be in the file.
 
 `tsc -p tsconfig.json --noEmit` exits 0.
+
+## 2026-09-08 — Investigation: why the ATS dApp will not display our second report token
+
+Read-only. No transactions, no verification submissions, no code changed. Public APIs only —
+Mirror Node testnet and Hashio — because the point was to check the chain rather than re-read our own
+scripts' assertions.
+
+**The premise in the question was wrong, and that is the finding.** The dApp fails on
+**`0.0.10425387`**, and that entity **does not exist on Hedera**. Not as a contract, not as an
+account, not as a token, on none of the three networks:
+
+```
+  GET testnet.mirrornode /api/v1/contracts/0.0.10425387    404 Not found
+  GET testnet.mirrornode /api/v1/accounts/0.0.10425387     404 Not found
+  GET testnet.mirrornode /api/v1/tokens/0.0.10425387       404 Not found
+  GET mainnet / previewnet /api/v1/contracts/0.0.10425387  404 / 404
+  transactions?account.id=0.0.10425387                     []   (empty)
+  eth_getCode 0x…009f142b (its long-zero address)          0x   (no code)
+  eth_call    name() at the same address                   0x   (empty return)
+```
+
+⚠️ **An `eth_call` that returns `0x` is exactly the shape that produces that error message.** A
+decoder handed empty bytes for a `string`/array return yields `undefined`, and the next line reads
+`.length` off it. The dApp is not failing on a transferred security — it is failing on an address
+where nothing is deployed, and reporting it as a query error rather than "not found". That is a
+missing not-found branch in their client, not a limitation about issuer balances.
+
+**Listing the neighbourhood confirms it is not an ingestion lag.** Every contract id between
+`0.0.10425200` and `0.0.10425500` is enumerable — eleven of them, created either side of the gap —
+and `…387` is not among them.
+
+**Our two report tokens are `0.0.10425231` and `0.0.10426245`**, read from `report_tokens`:
+
+```
+  A  0.0.10425231  0xE7aaEFB168F3E87975Fee1B0c932aE42776D8c6c  XXCQBDTBC9X2  report 24041ca2…dd3e5
+  B  0.0.10426245  0x1805A2de801032859780BacE8Ff04a13B68E76D2  XX5FVRD1TMD1  report c2649f05…b7535
+```
+
+B is the one Unit 10 transferred. Both were read anyway, in full, so the answer holds whichever id
+was meant.
+
+### The side-by-side, from chain data
+
+| | A · 0.0.10425231 | B · 0.0.10426245 |
+|---|---|---|
+| `name` / `symbol` / `decimals` | Alpha Markets Report / ALPHA / 0 | **identical** |
+| `totalSupply` | 1 | **1** |
+| ISIN (`getERC20Metadata`) | XXCQBDTBC9X2 | XX5FVRD1TMD1 |
+| `balanceOf` analyst `0x32838fe9…` | **1** | **0** |
+| `balanceOf` buyer `0x683ee842…` | 0 | **1** |
+| `getTotalSecurityHolders` | 1 | 1 |
+| `getSecurityHolders(0,10)` | `[analyst]` | `[buyer]` |
+| DEFAULT_ADMIN members | `[analyst]` | **`[analyst]`** |
+| ISSUER members | `[analyst]` | **`[analyst]`** |
+| `getRoleCountFor(analyst)` | 2 | **2** |
+| `getRoleCountFor(buyer)` | 0 | **0** |
+| runtime bytecode | `de8fd26f…` (782 chars) | **byte-identical** |
+| init bytecode | `d60a06a5…` (4218 chars) | **byte-identical** |
+| Sourcify chain 296 | `exact_match`, matchId 47581803 | ⚠️ **404 — never submitted** |
+
+⚠️ **The analyst did NOT lose its admin role in the transfer, and the buyer never gained one.** The
+question assumed the transfer stripped the issuer; it did not. `grantRole`/`revokeRole` appear
+nowhere after creation on either token. A transfer of an ATS security moves the balance and nothing
+else — the RBAC table is untouched, and the issuer that holds zero units is still DEFAULT_ADMIN and
+ISSUER. So the "issuer holds zero **and** has no admin role" story is half true at most, and the half
+that is true is only the balance.
+
+**Every zero-argument view on `IAsset` was swept — 72 of them — and 70 return byte-identical values
+on both tokens.** The two that differ are `getERC20Metadata` (the ISIN, by design) and
+`DOMAIN_SEPARATOR` (which mixes in the contract's own address, so it cannot match). There is no third
+difference. Pause state, control list, KYC flag, max supply, partitions, holders count, dividends,
+regulation data — all equal.
+
+### The creation events, word by word
+
+Both proxies came out of the same factory `0.0.9213391` (`0xd1f118a4…`) called by the same sender,
+same selector `0x837b37b6`, same 62-word calldata length, both `SUCCESS`, both emitting **96 logs**.
+
+```
+  differing calldata words: 4 of 62   → word 41 = the ISIN, words 59-61 = "alpha:<report hash>"
+  logs identical after normalising the proxy address: 94 of 96
+    log[3]   differs in 1 word of 13   → the ISIN
+    log[95]  differs in 5 words of 63  → the new proxy address, the ISIN, and the info string
+  gas_used   6,714,755 (A)  vs  6,714,420 (B)   ← 335 gas, and it is calldata byte cost:
+                                                   the two ISIN/hash strings carry different
+                                                   counts of zero bytes. Nothing structural.
+```
+
+**Same factory, same resolver, same configuration.** Nothing about how B was created differs from A
+except the two values that are *supposed* to differ. Lifetime log counts agree too — A has 100 logs
+(95 deploy + 1 grantRole + 4 issue), B has 102, the extra two being the ERC-20 `Transfer` and the
+ERC-1400 partition transfer from Unit 10. The transfer itself was a plain `transfer(address,uint256)`
+(`0xa9059cbb`), one recipient, amount 1.
+
+### Two things worth recording
+
+⚠️ **B is not verified on Sourcify and A is.** Not a code difference — the runtime bytecode is
+byte-identical, so `scripts/ops/verify-ats.ts` would verify B unchanged. Verification is a manual
+follow-up: `tokenize.ts` only *prints* the command, and for B nobody ran it. "Contracts verified on
+HashScan where applicable" is pass/fail on the Hedera track, so a second tokenized report currently
+sits unverified. **Not submitted here — this run was read-only.**
+
+⚠️ **The dApp limitation we set out to confirm was not demonstrated.** We cannot say "the ATS dApp
+cannot display a security whose issuer holds zero", because the id that failed is not a security at
+all. To find out, the dApp has to be pointed at `0.0.10426245` — the real transferred token — and
+that has not been done. If it renders, the whole question dissolves; if it fails there too, then the
+limitation is real and this side-by-side is the evidence for what it is reacting to, since holder
+identity is the *only* semantic difference between the two.
+
+### Checks
+
+```
+  npx tsc -p tsconfig.json --noEmit                     exit 0
+  npx tsx --env-file=.env scripts/ops/migrate.ts        PASS, clean no-op
+                                                        (001, 002, 003 all re-applied as skips;
+                                                         tables: purchases, quotes, report_tokens, reports)
+```
+
+## 2026-09-09 — A test console: every operation this build can perform, with a button on it
+
+`app/console/` (6 files, 588 lines incl. CSS) and `app/api/console/` (4 routes, 565 lines).
+**Testing stops meaning CLI plus HashScan.** ⚠️ **Throwaway, and it says so on itself** — the page
+carries a banner reading *not product, not gated, deleted before submission*, because it exposes
+spending operations behind no authentication. `rm -r app/console app/api/console` is the whole
+removal.
+
+**The seam, named before writing.** A shell page that imports **no `src/` module at all**, a client
+panel split four ways, and one route per operation:
+
+```
+  app/console/page.tsx      shell           app/api/console/state/route.ts      GET  reads
+  app/console/panel.tsx     wiring          app/api/console/generate/route.ts   POST compose→…→save
+  app/console/generate.tsx  stream reader   app/api/console/tokenize/route.ts   POST prepare/tokenize
+  app/console/spend.tsx     the 3 spenders  app/api/console/transfer/route.ts   POST prepare/send
+  app/console/state.tsx     the tables      app/api/console/buy/route.ts        POST buy
+  app/console/terminal.tsx  output pane
+```
+
+`/api/health` already existed and gained no wrapper — the console just fetches it.
+
+⚠️ **Nothing is reimplemented.** Every route calls the same function its script calls: `compose` →
+`execute` → `narrate` → `validate` → `save`, `ats.prepare`/`tokenize`, `transfer.prepare`/`send`,
+`buyer.buy`. The three not-a-report outcomes of `execute` and compose's `clarification` stop the
+route exactly as they stop `report.ts`, and nothing is saved on any of them.
+
+⚠️ **The one place raw SQL is used, and why.** `store/tokens.ts` deliberately omits the transaction
+hashes ("the tx hashes are ours") and there is **no reader at all for `quotes` or `purchases`**. The
+console is the ours-side: it needs `transfer_tx` to answer "has this token ever moved". Writing those
+readers would mean modifying `src/`, which the brief forbids, so `/api/console/state` reads those
+three tables through the exported `db()` — the same thing `tokenize.ts` and `move-token.ts` already
+do. `list()` is used unchanged for reports.
+
+### The confirm step is on the server, and it was proved by trying to walk past it
+
+⚠️ **`{ confirm: true }` is the `--confirm`.** Without it `prepare()` runs, the plan comes back and
+nothing is sent. The browser's disabled button is the convenience half; the control is the route.
+Four attempts, all with `confirm: true` set, all refused before a single tinybar moved:
+
+```
+  ✅ tokenize an already-tokenized report   409  "already tokenized: … holds ISIN XXCQBDTBC9X2 …"
+  ✅ transfer a token the analyst holds 0 of 409  "holds 0 of XX5FVRD1TMD1, not 1. It has already
+                                                   been transferred — check report_tokens.transfer_tx."
+  ✅ transfer to "0xnope"                    409  "not a 20-byte EVM address"
+  ✅ tokenize/buy with no confirm            200  mode "dry", spent false
+
+  analyst balance before   107363626397 tinybars
+  analyst balance after    107363626397 tinybars   ← byte-identical across all four
+```
+
+⚠️ **The arming disarms.** Any change to the target hash, the recipient or the gate URL revokes it, so
+a plan drawn for one report is not permission to spend on another.
+
+### Every control driven in a real browser, and what each one cost
+
+Chromium via Playwright against `next dev`, clicking the actual page. ⚠️ Playwright was installed
+**into the scratchpad only** — `package.json` and `node_modules` are untouched, no dependency added.
+
+```
+  generate   47s   0 HBAR (model tokens only)   "Balance overview for Spark Lend on Ethereum"
+                   compose 17.2s · execute 2.4s (11 queries, block 25937957) · narrate 27.1s
+                   46 facts · digit guard 2 violations, saved anyway (warns, never blocks)
+                   hash 600935014c4c3159f59a1a2b0e73ec85e74ee4aafd2bfa534662395b6d7630ed
+
+  tokenize   19s   7.85965397 HBAR  = $0.6241 at $0.079405/HBAR
+                   deployEquity 6,714,606 gas 7.18462842   SM-07 7.04954250  +0.13508592
+                   grantRole      179,949 gas 0.19254543   SM-07 0.18894645  +0.00359898
+                   issue          450,916 gas 0.48248012   SM-07 0.47346180  +0.00901832
+                   proxy 0x954A192aC6b6Db2623De614F183e6BDb2cB8b2c2   ISIN XXCTORZL97X8
+                   ✅ EquityDeployed carries alpha:<hash>, byte-identical   ✅ balanceOf == 1   ✅ row written
+
+  transfer    8s   0.43509410 HBAR  = $0.0345
+                   406,630 gas — IDENTICAL to Unit 10's and to SM-07's; the +0.00813260 over SM-07
+                   is relay price drift and nothing else
+                   ✅ sender 1 → 0   ✅ recipient 0 → 1   ✅ transfer_tx written
+
+  buy        10s   0.00100000 HBAR from the BUYER (0.0.10387696), not the analyst
+                   network fee 0.00251872 paid by 0.0.7162784, the facilitator, as designed
+                   quoted 100000 tinybars · payTo 0.0.10387690 · feePayer 0.0.7162784 · 120s
+                   settled 0.0.7162784@1788936023.186244100  payment pay_8e8bb24992eb407896742e255b0069bd
+
+  ─────────  analyst 1073.63626397 → 1065.34151590 HBAR   (−8.29474807, $0.659)
+             buyer   −0.00100000 HBAR
+```
+
+⚠️ **The purchase returned the table the preview withholds**, and the figure is checkable:
+
+```
+  | Market (reserve) | Deposits (USD) | Borrows (USD) |
+  | Spark WETH       | $1.27B         | $1.04B        |
+
+  occurrences of "$1.27B" in /report/<hash> — localhost  0
+  occurrences of "$1.27B" in /report/<hash> — deployed   0     ← the paywall still holds
+  ISIN XXCTORZL97X8 present on both                            ← the public half still public
+```
+
+Existing surfaces unchanged: `/` 200, `/report/[hash]` 200, `/api/health` 200, and an unpaid
+`GET /api/reports/[hash]` still returns **402** with a `payment-required` header.
+
+### Bundle: the shell strategy worked, measurably
+
+⚠️ **`/console` is the LIGHTEST page in the app** — lighter than `/`, because it imports no `src/`
+module and every figure arrives from a route at runtime. It is ~20 KB above the framework floor.
+
+```
+  route                          traced   files      vs the brief's baseline
+  api/reports/[hash]              4.28M     223      ← the figure to compare against
+  ──
+  console/page                    1.68M     111      lightest page in the app
+  _not-found (framework floor)    1.66M     109      ← /console is +0.02M over an empty page
+  page (/)                        1.71M     111
+  api/console/state               1.75M     102      store + pricing
+  api/console/generate            1.97M     111      + Anthropic SDK and the agent
+  api/console/transfer            7.57M     106      + ethers and the ATS contracts package
+  api/console/tokenize            7.58M     106      same
+  api/console/buy                 9.61M     218      + @x402 → @hiero-ledger/sdk, grpc-js, pino
+```
+
+⚠️ **The buy route is 9.61 MB and that is the Unit 6b weight arriving where it belongs.** It is the
+same gRPC-client-and-logging-framework tax `config/pricing.ts` was split to keep off the pages — it
+is unavoidable for a route that actually signs a Hedera payment, and it is now isolated in the one
+route that needs it. Largest new route is 3.8% of the 250 MB limit.
+
+### Two bugs the browser found that curl would not have
+
+⚠️ **The elapsed gutter went blank on the last two lines of every run.** `write` computed the stamp
+*inside* the `setLines` updater, and React flushes updaters after the synchronous `finally { end() }`
+that zeroes the clock — so `save` and `done` printed with no time. Measured on the first real
+generation, fixed by computing the stamp eagerly. Re-verified: 0 unstamped lines.
+
+⚠️ **`reportHash` printed twice, indistinguishably.** The request body and the returned plan share
+keys. Request lines now carry a `→` prefix, so "what was sent" and "what came back" are separable —
+which was the requirement, and it was silently not met.
+
+### What is not done, and one thing to check before it is
+
+⚠️ **The deployed half is NOT proved. `vercel deploy --prod` returns `Not authorized`** — the CLI on
+this machine is not logged in and `vercel login` is interactive. Everything above is localhost, with
+the one exception that **the buy crossed the network to the deployed gate** and settled there, so the
+deployed app is proved unchanged even though `/console` is not proved on it. To finish: `vercel login`,
+then re-run the four controls against the deployment.
+
+⚠️ **`maxDuration = 300` is a Pro-plan number and this must be checked on deploy.** On Hobby the
+ceiling is 60s and generation takes ~50s at best — a slightly wider directive would be killed
+mid-stream. The route already reports that case honestly (the client detects a stream that ends with
+no `done` event and says nothing was saved, because `save()` is last), but a 60s ceiling would make it
+the normal outcome rather than the edge one.
+
+⚠️ **`next dev` appended a `<!-- BEGIN:nextjs-agent-rules -->` block to `CLAUDE.md`.** Not our edit;
+Next writes it on every `dev` run and re-creates it if removed. Left in place, flagged here so it is
+not a mystery in the diff.
+
+⚠️ **The buy route's daily cap is weaker on Vercel than on a CLI.** `buyer.ts` keeps its ledger in a
+temp file, and a serverless instance does not keep that file between cold starts — so the cumulative
+cap bounds a burst on one warm instance rather than a day. The per-payment cap is unaffected. Not
+fixed: fixing it means a `purchases`-backed ledger inside `src/payments/buyer.ts`, which this unit may
+not touch. Stated because "we had a daily cap" should not be load-bearing without knowing where it
+lived.
+
+`tsc -p tsconfig.json --noEmit` exits 0. `next build` passes. No dependencies added, no existing page
+or route changed, nothing in `src/` touched.
