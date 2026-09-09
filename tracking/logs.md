@@ -5696,3 +5696,133 @@ downstream of where the spend fires. Also flagged for PLAN: §5.18's *"serialize
 the job lease"* names machinery Phase 3 removed and this phase is not rebuilding.
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — Where Phase 4 attaches: a seam sweep done before the building
+
+Wrote `tracking/phases/PHASE-4-attachment.md` (632 lines) and added a one-line pointer to it from
+`PHASE-4-draft.md`. Read-only investigation otherwise — no code, no contracts, no chain calls, no
+database writes, and `scripts/smoke/08` was read rather than run.
+
+**A sibling file rather than a section of the draft.** The draft is a decision record; this is a
+structural survey, and the two get read at different moments — the draft when deciding, this when
+writing a unit brief. Folding 600 lines of attachment detail into the draft would have buried the
+decisions it exists to hold. `PHASE-3.md` set the precedent. Each file now points at the other,
+because a document nobody can find from the one they opened is how this project has already lost
+information three times.
+
+**Most of the attachment surface is genuinely clean, and it is worth saying so plainly.** `load()`
+re-derives the report hash and throws rather than warning, so a market binding to a report gets its
+identity guarantee for free. `canonical()` takes `unknown` on purpose, so `specHash` and
+`evidenceHash` need no new code — its own header forbids writing a second hasher. `querySubgraph`
+names Phase 4's settlement as an intended caller. `analystByArcAddress` is already the pattern both
+tokenize modules open with. And `evidence.ts` already implements §5.18's two-tier caller-picks design
+in full, which is better than the draft claims.
+
+**Two findings came out of `node_modules/` and both contradict something this project currently
+believes.** First: the installed Circle SDK 10.8.0 polls for you — `getTransaction` takes
+`waitForState` / `waitForTxHash`, a `pollingInterval` and an **`AbortSignal`**, so SM-08's hand-rolled
+loop is no longer the shape to copy, and the signal is what bounds a wait against the 60-second
+ceiling. The typing also says an EOA has its hash at `SENT`, so waiting for `COMPLETE` waits for
+nothing. Second, and worse: **idempotency is opt-in and the default is not idempotent** — the shipped
+bundle reads `idempotencyKey: t ?? ee()`, so two identical calls with no key are two transactions.
+And **`generateIdempotencyKey`, which the typings export from the main entry, appears zero times in
+both shipped bundles and is `undefined` at runtime under ESM and CJS alike.** Importing it
+typechecks and fails at call time. That is the sixth instance of this project's recurring failure and
+the first one caught before it cost anything.
+
+**Six seams that would each pass their own proof and still not complete a cycle.** Evidence has a
+correct builder and no destination — its only caller is a demo, and reports persist `Provenance`,
+which has no response hash and no raw bytes. `evidenceHash` therefore commits 32 bytes on chain to
+bytes nothing stores, and three units each assume another owns it. `claimId` is a return value, which
+is not readable from a receipt, and Circle returns no logs at all — verified against every field of
+the `Transaction` type — so getting it back needs a separate Arc RPC receipt fetch and the committed
+ABI. The market subject cannot be rebuilt from a `FactId` because `Fact` carries slug, deployment and
+unit but not the snapshot field name, and adding one would change `Report` and invalidate every
+stored hash. The analyst's Arc identity has no in-path guard — `verify-analyst.ts` is a CLI a cron
+never runs. And the ledger's cap must be a `SUM` inside the writing transaction, which means the first
+`sql.begin` this codebase has ever opened: verified, there are none.
+
+**One schema finding the draft does not mention and should.** 001_init's rule is BIGINT for atomic
+money. **An 18-decimal USDC amount overflows BIGINT at about 9.22 USDC.** So the open `msg.value`
+question reaches into the schema, not only into the contract: 6-dp storage keeps BIGINT, 18-dp needs
+NUMERIC(78,0), and TEXT is not viable because the cap has to sum and order.
+
+**Also surfaced: a to-do written on 2026-09-06 whose trigger condition just fired.** SM-08's
+smoke-results entry says to set a spend cap on the Circle wallet set *"before the agent commits on Arc
+unattended (Phase 4)"*, status open — Circle's limits are server-side console policy, not a client
+option, and that run spent 2.5 USDC with nothing standing in its way. It is a console action rather
+than a unit, so nothing in the unit plan will ever remind anyone.
+
+**The one thing to decide first: what a market's subject and threshold are and where they come
+from.** Not the `msg.value` units, which are already flagged and correctly waiting. This one is
+recorded nowhere and is upstream of `spec.ts`, the markets table, the commit cron's find-work query,
+the `FactId` seam, and whether A1's "decision logic" is arithmetic or a model call.
+
+Nothing committed.
+
+---
+
+## 2026-09-09 — Phase 4 planned, in four passes
+
+Two new files: `tracking/phases/PHASE-4.md` (849 lines, sixteen units) and
+`docs/research/prediction-markets.md` (226 lines). The research earned its own file — it is about how
+parimutuel markets work rather than about this repo, and it will be read by whoever writes the
+contract rather than by whoever plans the phase. No code, no contracts, no chain calls, no database
+writes, nothing committed.
+
+**Pass 1 found five conflicts and the most useful one dissolved rather than resolved.** §5.2 said the
+bug is mixing units rather than storing `msg.value`; the draft said storing it was the worst case and
+unfixable once deployed. The parimutuel payout is `stake + (stake * losingPool) / winningPool`, and
+that ratio is two quantities in the same unit — **dimensionless, so the scale cancels.** §5.2 was
+right about the arithmetic and the draft was right about the boundaries, and they were never
+describing the same thing. That closes draft §6.1, which had been the phase's most dangerous open
+item. The other four: §5.18's job lease names machinery Phase 3 removed and nobody is rebuilding —
+made moot by scale rather than satisfied, and the plan needs amending; §9's "+ tests" implies a
+dependency this calendar cannot afford, so the contract's proof is a play gap on testnet instead;
+"a human directs the analyst" and A2's "unattended" turned out compatible once separated into who
+directs and who spends; and R6's "never hold a request open" survives in spirit while its mechanism
+changes, because the installed SDK bounds the wait with an `AbortSignal`.
+
+**Pass 3 was real research and it changed the contract brief in seven places.** The one that matters
+most: **`winningPool == 0` is not an edge case here, it is the expected case** — one analyst and a
+handful of stakers will routinely leave a side empty. Unguarded it is division by zero and the pool
+is stuck forever; naively guarded the house silently keeps everything, which is a real audit finding
+against ScorePlay. Also: always truncate and leave the dust to nobody, because a "last claimer gets
+the remainder" rule is a claim-order race that an SBET audit actually found. Void means refund at
+parity, which is what Augur's Invalid, Polymarket's Unknown/50-50 and UMA's `unresolvable` all do.
+And the betting window must close before the observed day begins, not merely before it ends —
+past-posting is what every totalizator on earth is built to prevent, and it costs us a day of
+calendar. The most valuable finding was structural: Augur and Polymarket accept free-text questions
+and pay for it with an oracle and a dispute system, so **constraining the subject to five machine
+values is what lets us skip both honestly rather than by omission.**
+
+**The calendar is the real constraint and it sizes the phase.** Working backwards from Sunday: the
+video needs Sunday, so resolution must land Saturday, so the observed day is Friday, so stakes close
+Friday 00:00, so the analyst must commit Thursday — which means **the contract deployed and the
+commit path working by Thursday, about a day and a half from now.** Units 1–7 plus a play gap in that
+window; everything after runs while the market is already live. Recorded a rehearsal market over an
+already-closed day to drive resolve, void and the empty-pool path immediately, and said plainly that
+its commit is after the fact so it is machinery proof and must never be shown as a forecast.
+
+**Sixteen units do not fit four days, so the cut order is the real plan** — six steps, each with what
+it costs, ending at "the analyst is no longer forecasting, take this only to avoid shipping nothing."
+Never cut: the contract, Unit 8's evidence persistence, both crons, the void path, live Graph data at
+settlement.
+
+**Two findings worth carrying forward.** A6 — Arc mainnet readiness — **has no unit in this phase**,
+and per the brief a requirement with no unit is the finding: it is Phase 5 or it does not happen.
+And Unit 15 is the only unit serving the loop the product is built on, which puts the reason anyone
+should pay for the next report at position 3 in the cut order. Both stated rather than left implied.
+
+Also recorded the two things that are not units: the Circle wallet-set console cap, whose trigger
+decision 3R already fired and which no unit will ever remind anyone about, and the digit guard's
+inherited obligation with both gaps verified still open — accepted as debt, in writing, because
+closing them is two `execute.ts` changes this calendar does not have.
+
+⚠️ One correction during the write: the plan quoted a day-window as `[1757548800, 1757635199]`, which
+is 2025 rather than 2026. Checked against `date -u` and fixed to `[1789084800, 1789171199]`. It was a
+proof criterion, so it would have been checked against.
+
+Nothing committed.

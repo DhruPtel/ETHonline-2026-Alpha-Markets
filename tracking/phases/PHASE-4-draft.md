@@ -21,6 +21,8 @@ this record is worth keeping because it shows reasoning that turned out mistaken
 conclusions that held. **Decisions 1 and 2 are untouched by the reversal**; question 5 is unchanged.
 Three things the reversal opened are recorded in a new question 6.
 
+⚠️ **A sibling document holds the structural half: `PHASE-4-attachment.md`** *(2026-09-09)* — which existing export each new caller reaches for, what it returns, where a shape does not fit, the seams nobody owns, the table shapes, and the two cron entry points. **This file decides; that file attaches.** Neither is complete without the other.
+
 ⚠️ **Read the market shape first, because it decides question 1 and constrains the rest.**
 
 ## The market's shape
