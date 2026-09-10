@@ -6360,3 +6360,79 @@ this project's own configuration and exactly the one someone reaches for when th
 analyst's Arc wallet". The analyst is `0x1b70…16a7`. **`ARC_WALLET` wants renaming to
 `ARC_DEPLOYER_ADDRESS`**; not done here, because it is Unit 11b's file and this unit touches
 `arc.ts` only.
+
+---
+
+## 2026-09-10 — Phase 4 Unit 5: `005_markets.sql` and `src/store/markets.ts`
+
+The seven tables and the read-only module beside them, following PHASE-3 Unit 4's precedent where
+`db.ts` and `001_init.sql` landed together. `005_markets.sql` (296 lines, 104 of DDL),
+`src/store/markets.ts` (264 lines, 177 of logic) and `scripts/demo/markets-schema.ts`. `migrate.ts`
+applied it and then ran again as a clean no-op with five migrations; the proof passes 30 assertions;
+`npx tsc -p tsconfig.json --noEmit` exits 0. Twelve tables now exist and 001–004's four are untouched.
+
+⚠️ **`markets.ts` is 177 lines of logic, well past the ~120 guideline, and unlike Unit 4 the seam
+here is real rather than notional.** Seven tables' worth of row types, mappers and reads is more than
+one thing — `tokens.ts` is 75 lines for one table. The natural split is **the two cron find-work
+queries into their own module**, since they are the only reads with logic in them rather than a
+SELECT and a mapper. Not taken unasked; the brief said this file.
+
+**What the proof actually checks, and why it reads the catalogue rather than the file.** A migration
+file says what was *intended*; `information_schema` says what is *there*. The two differ whenever
+`IF NOT EXISTS` skipped a statement against an object that already existed in a different shape —
+which is precisely the case a proof reading the `.sql` back would be blind to. So every assertion
+queries the database: seven tables present, all seven amount-shaped columns reporting
+`numeric(78,0)`, all four landmarks reporting `is_nullable = YES`, the three canonical-bytes columns
+reporting `text`, `stakes.tx_hash` and `claims (market_id, author)` unique, and all eleven foreign
+keys reporting `NO ACTION` rather than `CASCADE`.
+
+⚠️ **The NUMERIC round-trip assertion was wrong in the first draft and the correction is worth
+keeping.** I asserted that `Number()` would visibly mangle `2500000000000000000` — and it does not:
+2.5×10^18 lands exactly on a representable float, so `String(Number(x))` returns it unchanged and the
+assertion failed. **Being past `Number.MAX_SAFE_INTEGER` does not mean a value prints wrong; it means
+values near it stop being distinguishable.** The honest demonstration, which is what the script now
+makes, is that `Number()` cannot tell `2500000000000000000` from `2500000000000000001` — both become
+the former — while `BigInt` can, and only one of those two is a legal stake under
+`_checkAmount`'s `% 1e12` rule. `uint256` max is the case where `Number()` fails visibly
+(`1.157920892373162e+77`), and it is in the script beside the subtle one. The driver returns NUMERIC
+as a JavaScript **string**, all 78 digits survive, and `SUM` stays exact — which is the whole
+justification for the column type over both BIGINT and TEXT.
+
+**Two decisions inside the schema that were not in the brief.**
+
+`spend_ledger` is UNIQUE on **`(tx_hash, kind)`**, not on `tx_hash` alone, and partial on
+`tx_hash IS NOT NULL`. One Arc transaction spends a stake *and* its gas, so it is legitimately two
+rows; two rows of the same kind for one hash would be one spend counted twice.
+
+There is deliberately **no `decimals` column** on `spend_ledger`. Arc USDC is 18-dp and Hedera HBAR
+is 8-dp tinybars, so a per-row scale would be a second source of truth about a number's units —
+the exact bug this project keeps finding. The scale is a fact about `(rail, asset)` and lives beside
+the conversion site in `arc.ts`. Summing across rails or assets is meaningless and the cap never
+does it.
+
+⚠️ **`rail`, `asset` and `kind` are CHECK-constrained and that is not a repeat of `quotes.state`.**
+That column failed because it was a *mutable* value that had to be moved later by someone and never
+was; these are written once at insert and describe what a row already is. Every genuinely mutable
+fact in this migration is a nullable landmark instead.
+
+### ⚠️ Three things a later Phase 4 unit may not be able to express, said now
+
+⚠️ **`005` has already run against the live database, so per this project's own rule it must not be
+edited** — a `CREATE TABLE IF NOT EXISTS` would skip on re-run and a fresh database would then
+disagree with this one. These are reported rather than fixed, and the fix for any of them is a
+decision about `006` or about dropping seven empty tables and re-applying.
+
+1. **`markets` has `resolve_tx` and no `void_tx` or `voided_by`.** `voidMarket` is **permissionless**
+   after `resolveDeadline` — anyone may call it — so the interesting facts are *who* voided a market
+   and *which transaction did it*, and neither has a column. `voided_at` records that it happened
+   and not the evidence for it. **Unit 9's, and the clearest of the three.**
+2. **A human staker's payout has nowhere to go.** `claim(marketId, recipient)` is pull-based and
+   emits `Claimed`, but `stakes` has no `claimed_at`, `payout` or `claim_tx`. This may be deliberate
+   — the chain is the record and a market page can read `payoutOf` live — but Unit 6 drives `claim`
+   by hand and Unit 14 puts humans on it, so it is inside this phase either way.
+3. ⚠️ **`scores` is keyed per claim; the contract pays out per ADDRESS.** `claimed[marketId][msg.sender]`
+   and `payoutOf(marketId, account)` aggregate an address's whole position in a market. If one
+   address both commits a claim and stakes on another, its single payout does not decompose into
+   "this claim's return", so `scores.returned` could not be filled from the chain. **It holds for
+   Phase 4** because the analyst only commits — but it is an assumption the schema is resting on
+   rather than a property it enforces, and it is worth knowing before Unit 15 writes to it.
