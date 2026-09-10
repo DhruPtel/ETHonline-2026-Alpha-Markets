@@ -6127,3 +6127,61 @@ owed by Unit 6, and the timestamp trade as taken.
 `SPDX-License-Identifier: MIT` and this repo has no LICENSE file.**
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — Phase 4 Unit 3: the contract build and its drift gate
+
+`scripts/ops/build-contract.ts` (285 lines), its output `src/arc/abi.ts` (823 lines, generated), and
+three lines added to `package.json`'s scripts. `contracts/AlphaMarket.sol` is byte-identical to what
+Unit 2 committed — `git diff` on it is empty. `npx tsc -p tsconfig.json --noEmit` exits 0 and a full
+`npm run build` completes.
+
+**What was added to package.json**, and nothing else: `build:contract`, `check:contract`, and
+`prebuild` which runs `check:contract`. `prebuild` fires automatically before `npm run build`, which
+is what Vercel invokes for this project. ⚠️ The first attempt rewrote package.json through
+`json.dumps`, which escaped an em-dash in the unrelated `smoke:09` script to `—`. Reverted and
+redone as a text edit, so the diff is three added lines and nothing else.
+
+**The artifact records what produced it and nothing that changes on its own.** Source hash, compiler
+version with commit, the settings, the deployed bytecode length, then the ABI and both bytecodes.
+⚠️ **No timestamp and no build id, deliberately** — a generated file that rewrites itself every run
+produces a diff for every build, and a diff nobody reads is how a real change gets waved through.
+4,783 deployed bytes, the cancun figure, so the target is right.
+
+**Drift is detected in two tiers, because the compiler is not guaranteed to be present and a check
+that silently passes without one is worse than no check.** Tier 1 needs no compiler: the artifact's
+recorded source hash against a fresh sha256 of the `.sol`. Tier 2 recompiles and compares the ABI and
+both bytecodes byte for byte, which catches what tier 1 cannot — a hand-edited artifact, a changed
+compiler, changed settings, none of which move the source hash.
+
+**All four cases were run rather than argued.** Editing one constant in the contract made
+`npm run build` refuse at prebuild with exit 1 and `next build` never started. Restoring it passed
+both tiers. Flipping a single nibble of the deployed bytecode in the artifact passed tier 1 and was
+caught by tier 2 — the useful case, since the source was untouched. And with `node_modules/solc`
+moved aside, tier 2 reported itself SKIPPED in the output rather than quietly passing, while a
+drifted contract in that same state still refused with exit 1. ⚠️ **The no-compiler path is not a
+bypass**, which was the property worth demonstrating rather than claiming.
+
+**One instruction I did not follow literally, and the reason is mechanical.** The brief said to reuse
+`verify-ats.ts`'s trace-and-compile machinery rather than reimplement it. I reused it as a pattern —
+the lazy `createRequire` + `require("solc")`, the Standard JSON Input shape, the version assertion,
+and the compile-then-compare-and-refuse gate — but did **not import the module**. `verify-ats.ts`
+resolves `@hashgraph/asset-tokenization-contracts` and `@openzeppelin/contracts` at **module scope**
+(its lines 69–70) and imports `MIRROR`, which pulls in `ethers` and the ATS typechain. Importing it
+would execute two `require.resolve` calls on contract packages — one a devDependency — inside the one
+code path that has to keep working when the compiler is missing. A prebuild check that dies on an
+unrelated missing package is worse than the drift it exists to catch. The trace half is moot anyway:
+`AlphaMarket.sol` has zero imports, so the closure is one file. **`verify-ats.ts` is unmodified.**
+
+**And the settings are deliberately not shared with it.** `verify-ats.ts`'s settings are a
+*reproduction* of ATS's upstream hardhat config, reverse-engineered from a CBOR trailer because the
+package ships no build-info. Ours are an *original choice* about our own contract. They coincide
+today. Coupling them would mean a third party changing their build config silently changing the
+bytecode we deploy — recorded at the top of the new file so nobody "fixes" the duplication later.
+
+⚠️ **The pinned solc is asserted, not reported.** The script refuses if `solc.version()` is not
+`0.8.28+commit.7893614a`, because a different compiler build produces different bytes and this
+artifact is what gets deployed.
+
+Nothing committed. Nothing deployed.
