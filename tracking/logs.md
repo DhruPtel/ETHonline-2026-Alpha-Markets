@@ -5963,3 +5963,56 @@ polish, then operational, then the loop, then requirements, with requirements la
 eligibility is binary. 6c joins never-cut: without it the product's central sentence is not true.
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — Phase 4 Unit 1: `src/arc/spec.ts`
+
+Two new files: `src/arc/spec.ts` (345 lines, ~130 of real logic) and `scripts/demo/spec.ts`, its
+proof. 38 assertions, all passing; `npx tsc -p tsconfig.json --noEmit` exits 0. Nothing else in the
+repo was touched — no contract, no migration, no store code, no dependency, and `canonical.ts`,
+`types/` and `protocols.ts` are all unchanged. The proof needs no `--env-file` because the unit is
+pure, and that is the property worth keeping: if it ever needs a credential, it has grown an I/O path
+it must not have.
+
+**What it holds.** The five machine values, `specHash` through the existing canonicalizer, the day
+window, the freshness rule, the `FactId` mapping, and `holds()` — which defines what the comparison
+means, including that a tie resolves false. That last one was not in the brief and it belongs here:
+leaving equality undefined is exactly the ambiguity that makes a market unresolvable, and defining it
+in the resolver would mean the settlement code inventing the question.
+
+**One decision that goes past the brief, and it wants a look.** The brief said balance and flow are
+legal and revenue is refused by name. I refused more than revenue, because the repo's own record says
+two other classes are not safe. Lifetime accumulators are refused for the same class of reason as
+revenue — morpho-blue's `cumulativeDepositUSD` reads $3.78e23, about $378 sextillion, and nobody has
+swept the other 24 deployments. And `totalValueLockedUSD`, `dailyWithdrawUSD`, `dailyRepayUSD` and
+`dailyLiquidateUSD` are refused as **not individually swept**: the measurement that cleared balance
+and flow covered exactly four fields — deposits and borrows, balance and daily — across 1,300+ days.
+So the legal set is those four. ⚠️ **The three refusal reasons are kept distinct in the messages**
+rather than collapsed into "not legal": measured-broken, measured-absurd, and no-evidence-either-way
+are different claims, and only the third is a one-line change to reverse once a sweep exists.
+Widening this is deliberately cheap and deliberately requires evidence.
+
+**Two things the code had to encode that the brief did not mention, both found by reading.**
+`figureRef` in `src/engine/invariants.ts` is the canonical minter of fact ids, so the parser rebuilds
+with it and compares rather than trusting its own split — if a slug ever contained a dot, the round
+trip fails loudly instead of mis-splitting silently. And `compose.ts:224` mints a **sentinel slug
+`metric`** when a report's headline is about a metric across deployments with no single one leading.
+A report like that names no deployment to settle against, so it cannot back a market, and it now gets
+its own refusal saying so instead of falling through to "no such deployment".
+
+**A third: per-market fact ids cannot be market subjects.** `execute.ts:271` mints
+`{slug}.{marketId}.{field}` for per-market figures, and settlement reads `financialsDailySnapshots`,
+which is one row per *deployment* per day. There is no daily snapshot per market, so nothing could
+settle one. Refused by name with that reason.
+
+**The window numbers were taken from `date -u` and not derived.** `[1789084800, 1789171199]` for
+2026-09-11, and the proof asserts both, plus that the next day's window starts at exactly `end + 1`
+so no snapshot can belong to two days. The proof script carries the `date -u` commands in its header
+because the first draft of this line in the plan was a year out and was caught only by checking.
+
+**One failure during the run, and it was the test rather than the code.** The `closeTime` inside the
+observed day was correctly refused; my assertion looked for the word "past" and the message says
+"inside or after the observed day". Corrected the assertion.
+
+Nothing committed.
