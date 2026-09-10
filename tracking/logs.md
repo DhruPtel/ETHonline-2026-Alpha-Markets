@@ -6016,3 +6016,67 @@ observed day was correctly refused; my assertion looked for the word "past" and 
 "inside or after the observed day". Corrected the assertion.
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — Phase 4 Unit 2: `contracts/AlphaMarket.sol`
+
+One file, 381 lines, and the commit carries nothing else — no build script, no ABI, no TypeScript, no
+migration. The seam was named in the plan and it is kept where it matters: the file is over 120 lines
+and it is alone.
+
+**It compiles under the pinned `solc 0.8.28+commit.7893614a` with zero errors and zero warnings**,
+optimizer on at runs 100, the same settings `verify-ats.ts` uses. Deployed bytecode is 4,783 bytes
+against EIP-170's 24,576. 43 ABI entries: seven externals plus the public getters, six events,
+nineteen custom errors. The compile ran from a scratchpad script outside the repo, so nothing was
+added to the project to produce it.
+
+⚠️ **Nothing about behaviour is proved and this entry does not claim otherwise.** It compiles. Every
+path — the empty winning pool, the void, the refund, a single staker, a double claim — is Unit 6's to
+drive on Arc testnet, by decision, because a test framework is a dependency decision and a fixture
+suite contradicts three phases of live-networks-only.
+
+**The decision the plan routed here: who may call `resolve`.** Chosen: **an immutable `resolver`
+address set in the constructor, and nothing else in the contract has access control.** §5.2 as
+written would let anyone settle any market with any outcome and take the pool. The resolver is the
+analyst's Circle wallet, because it is the only party that runs the Graph read and can produce a
+matching `evidenceHash`. Immutable with no setter, deliberately — a mutable resolver is a key worth
+stealing and an admin function worth abusing, and if the analyst's wallet changes the answer is a new
+contract, which is how this project already treats analyst identity. **A restricted resolve cannot
+lock funds up** because `voidMarket` is permissionless after `resolveDeadline` and `claim` is
+pull-based: if the resolver never fires, anyone voids and everyone takes their own stake back. ⚠️ The
+residual is written into the contract's own comments rather than left implied — a *dishonest*
+resolver can settle wrongly before the deadline, nothing on chain contradicts it, and what exists
+instead is `evidenceHash` over a reproducible read. Detectable by anyone, correctable by no one.
+
+**No OpenZeppelin. Zero imports, and that is a decision rather than an omission.** The only thing it
+would have supplied is `ReentrancyGuard` on `claim`, and checks-effects-interactions is genuinely
+sufficient here: `claimed` is set before any value moves, so a reentrant recipient finds its own flag
+set, and every other entry point is already closed because staking requires
+`block.timestamp < closeTime` which cannot hold once a market is settled. Keeping the compile input
+to a single file with no dependency also keeps Unit 3's trace-and-compile trivial and the
+verification surface minimal.
+
+**One trade taken inside the contract that was not in the brief, and it is stated in the file.**
+`createMarket` enforces only the *ordering* of the timestamps, not their relation to now. The obvious
+guard — `observationEnd > block.timestamp` — is deliberately absent, because it would make a
+rehearsal market over an already-closed day impossible, and that is how resolve, void and the
+empty-pool path get exercised without waiting a calendar day the calendar does not have. ⚠️ **The cost
+is real: a market can be created about a day already observed and the contract cannot tell.** Policy
+about `closeTime` versus the observed day lives in `spec.ts`, which is the only place that knows which
+day the question names.
+
+**An extra compile that cost nothing and de-risks Unit 6.** It also compiles clean under `shanghai`
+and `paris`. ⚠️ **The cancun and paris builds differ — 4,783 against 4,871 deployed bytes — so the
+cancun build does use cancun-era codegen**, and deploying it to a pre-cancun chain would be a live
+revert rather than a compile error. **Unit 6 must confirm Arc's supported EVM version before
+deploying**; the setting itself belongs to Unit 3. ⚠️ I first tried to test this by grepping the
+bytecode for an `MCOPY` opcode byte, which is meaningless — any byte pair matches — and discarded it.
+The size difference is the real evidence.
+
+⚠️ **One thing to confirm: the file declares `SPDX-License-Identifier: MIT` and the repo has no
+LICENSE file.** solc warns without an SPDX line, so one had to be chosen. If the project's licence
+ends up as something else, this line changes with it — and E3/E5 want the repo's licensing to be
+explicit anyway.
+
+Nothing committed. Nothing deployed.
