@@ -5826,3 +5826,140 @@ is 2025 rather than 2026. Checked against `date -u` and fixed to `[1789084800, 1
 proof criterion, so it would have been checked against.
 
 Nothing committed.
+
+---
+
+## 2026-09-09 — A6 placed as Unit 11b
+
+Edited `tracking/phases/PHASE-4.md` only. Documentation — no code, no contracts, no chain calls.
+991 lines now, seventeen units.
+
+**Lettered rather than renumbered.** PHASE-3 inserted `6b`, `8b` and `C` after the fact rather than
+shifting everything below them, because a unit number that moves breaks every reference already
+written in `logs.md` and `DECISIONS.md`. Followed that. Nothing else in the sequence changed.
+
+**Placed at 11b — after both crons, before the watched cycle — and the placement is the argument.**
+It cannot come earlier because a manifest for an undeployed contract describes nothing: it needs an
+address from Unit 6, the committed ABI from Unit 3, a working commit path from Unit 7 and the cron
+entries from Units 10–11. It should not come later because **Unit 12 is a waiting unit** — hours
+between a market being created and the crons firing — and this is exactly what to write in that dead
+time.
+
+**It assembles rather than builds.** `.env.example`, the migration runner, `config/analysts.ts` and
+`verify-analyst.ts`, `provision-circle.ts` and SM-08's already-walked Circle setup, the ABI artifact,
+the deployed address, the cron entries and `/api/health`. The brief said not to invent scope, so the
+unit carries its own tripwire: if it finds itself writing a deploy script it has left its scope.
+
+**Permissions and recovery are written as facts, not gestures.** Four identities with what each can
+and cannot do — including that the Circle entity secret **cannot be rotated** without re-provisioning
+every wallet, which `provision-circle.ts` states outright, and that the deployer is necessarily a
+different identity because `deployContract` is not exposed on the DCW client. Recovery has two
+answers worth having: **the analyst's identity cannot be recovered and is not meant to be** — its
+address is inside every report hash, so a replacement wallet is a different analyst and old reports
+keep their attribution to an address nobody controls, which is correct; and **funds are never
+stranded**, because permissionless void plus pull-based claim means a staker can get out even if the
+analyst disappears. The unrecoverable thing is a lost `reports` row, since narration is inside the
+hash and the model call is not deterministic.
+
+**The mainnet table is mostly blanks on purpose.** chainId, RPC host, the USDC predeploy address and
+Circle's `blockchain` enum are all left as named blanks with the source to fill them from, rather
+than guessed. This project has been wrong six times about a value that looked live and was not, and a
+manifest that invents a mainnet chainId to look complete would be the seventh.
+
+**Writing the permissions table surfaced a real gap in §5.2: nothing says who may call `resolve`.**
+The interface shows `require(!resolved)` and a timestamp check and no access control, which as
+written would let anyone settle any market with any outcome. That is Unit 2's decision and it is
+unfixable after deployment, so it went into the decision-ownership table as a new row pointing at
+Unit 2 — surfaced by 11b, taken in 2. That is the one addition outside the unit itself.
+
+**In the cut order it went to *never cut*, and the reasoning is that it is a different kind of cost.**
+Everything in the numbered cut list sacrifices product surface; this sacrifices eligibility on all
+three Arc prizes. It is also the cheapest unit in the phase, so cutting it saves almost nothing and
+risks almost everything. Recorded a degradation path instead of a cut: drop the from-scratch clone
+first, then the mainnet table, and never drop permissions and recovery — the two things PLAN §4 names
+by name.
+
+**Its proof admits its own weakness.** The bar is that someone else could stand it up without asking
+questions and nobody else is available. Three checks: a from-scratch clone followed literally, where
+every moment you look outside the manifest is a defect; a symmetric env-var audit by grep in both
+directions; and every address checked against the live network and against what Unit 12 actually
+produced. The clone check is weaker than a second person because you cannot un-know things — said
+plainly, with the note that the other two do not depend on the walker being naive, and that the
+residual risk is prose that reads clearly to its author and ambiguously to a stranger.
+
+It also closes attachment 6.3: a manifest listing what a fresh operator must set cannot leave
+`ARC_WALLET` set-but-read-by-nothing and missing from `.env.example`.
+
+Nothing committed.
+
+---
+
+## 2026-09-09 — The token-to-stake binding, and the loop that was missing its second half
+
+Amended `tracking/phases/PHASE-4.md` (1,226 lines, twenty-one units) and wrote
+`docs/research/cross-chain-binding.md`. Four new lettered units: **6b, 6c, 13b, 15b**. No code, no
+contracts, no chain calls.
+
+**The most useful thing the investigation found is that three of the four facts are already public,
+and only one is not.** That a token carries `alpha:<hash>`, that the analyst issued it, and that an
+Arc address committed that hash are all readable by anyone from two public chains — we do not make
+them true, we only check them before spending. **The single link that is not publicly checkable is
+that the Arc committer and the Hedera issuer are the same party**, and today that rests on
+`config/analysts.ts`, our file on our repo. That gap is the whole problem, and framing it that way
+changed what the answer should be.
+
+**So the instinct was right and incomplete.** The admission check is worth building — it stops the
+analyst spending on a claim it cannot back — but on its own it does not make anything more provable
+to a sceptic, because the facts it checks were already public. What closes the real gap is a one-time
+**two-way key attestation**: the Hedera key and the Circle wallet each sign a sentence naming both
+addresses, and anyone can `ecrecover` them. ⚠️ Read from the installed SDK rather than assumed —
+`client.signMessage({walletId, message, ...})` exists on
+`@circle-fin/developer-controlled-wallets@10.8.0`, alongside `signTypedData`. That is Unit 6b, and it
+turns the config file from an assertion into a claim backed by two signatures.
+
+**And testing the instinct found a real bug in it.** Requiring the analyst to *hold* the token would
+refuse most of our own reports — `004_token_transfers.sql` says *"Three tokens sit with the buyer
+today"*, because Unit 10 moved them on purpose to satisfy H2.4's lifecycle operation. **The act that
+satisfies H2.4 would break an admission check built on holding.** Bind to **issuance** instead: who
+issued a token sits in the deploy transaction forever, and one receipt fetch yields both the
+`alpha:<hash>` and `receipt.from`. Also recorded: do not check the ISIN, because `isinFor()` is a pure
+function of the report hash and checking it checks our own arithmetic.
+
+**Cross-chain messaging was investigated properly and rejected on two grounds, only one of which is
+the deadline.** LayerZero's own deployed-contracts list has **Hedera testnet at eid 40285 and no Arc
+entry at all**; Circle's Arc launch release names LayerZero as a developer-tool partner and
+Across/Stargate/Wormhole as the bridges — a partner logo is not a deployed endpoint, and this project
+has been wrong six times about that distinction. The second ground matters more: a message proves a
+fact at send time, so enforcing "the analyst holds it" would need a message per commit, while the
+identity link is permanent and needs no bridge at all. What a messaging layer would actually buy is
+**enforcement instead of verification**, and that is worth days we do not have for a gap two
+signatures close.
+
+**The feedback half was genuinely absent — the plan produced scores and stopped.** Unit 15b decides
+what reaches the prompt: the last five resolved claims, one line each — directive, subject, side,
+outcome, the report's own confidence. Rejected a right/wrong count as meaningless at n=1 and the full
+reasoning of a wrong report on size rather than value. Said plainly that this is **not model
+training** — no weights, no fine-tuning, no pipeline. Stated the consequence rather than leaving it to
+be found: `compose` gains a third argument, so a report's plan now depends on the analyst's record at
+the moment it was written, and two runs of one directive at one block can plan differently. The full
+hash was already non-deterministic because narration is inside it; what is new is that the plan varies
+with state outside the directive and the block. Recorded a `context_digest` column **outside the
+hash**, since putting it inside would invalidate four hashes already committed in ATS creation events.
+And said in the plan that the first resolution lands about a day before the deadline, so this is a
+demonstrable shape rather than a turning loop, and the video should say so in those words.
+
+**Unit 13b shows one report across both ledgers** — the same 32 bytes printed twice, side by side,
+with links out to both explorers. Written as *show the hash in both places* rather than a green tick,
+because a tick asserts what the two strings demonstrate.
+
+⚠️ **The reorder the user asked to hear about: 6b and 6c both sit BEFORE Unit 7**, because the binding
+is checked at commit time and cannot be bolted on beside the staking page. 6c is `LOGIC ★★` and lands
+in the run to Thursday that already holds Units 1–7 and a play gap — the one addition that costs spine
+time rather than tail time.
+
+**The cut order was wrong and is fixed.** Unit 15 sat at #3 while being the only unit serving the
+loop, so the first thing to go was the reason anyone would use this. Now ordered by kind of loss —
+polish, then operational, then the loop, then requirements, with requirements last because
+eligibility is binary. 6c joins never-cut: without it the product's central sentence is not true.
+
+Nothing committed.

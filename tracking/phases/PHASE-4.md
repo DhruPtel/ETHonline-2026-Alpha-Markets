@@ -28,20 +28,43 @@ measured. Where this document and §9 disagree, *Where the plan is now wrong* na
 | **4** | `src/arc/arc.ts` | LOGIC ★ | ⬜ |
 | **5** | `005_markets.sql` + `src/store/markets.ts` | SCAFFOLD ★ | ⬜ ⚠️ **six tables — seam named** |
 | **6** | **PLAY GAP — deploy it and drive it by hand** | **PLAY** | ⬜ |
+| **6b** | `src/arc/identity.ts` — the two-way key attestation | LOGIC | ⬜ ⚠️ **NEW — must precede Unit 7** |
+| **6c** | `src/arc/admission.ts` — the binding check before a commit | LOGIC ★★ | ⬜ ⚠️ **NEW — must precede Unit 7** |
 | **7** | `src/arc/market.ts` — create + commit | LOGIC ★★ | ⬜ |
 | **8** | `src/arc/settle.ts` — the read and its evidence | LOGIC ★★ | ⬜ **owns the irreversible seam** |
 | **9** | `src/arc/resolve.ts` — outcome onto the chain | LOGIC ★ | ⬜ |
 | **10** | `app/api/cron/commit/route.ts` | SCAFFOLD | ⬜ **closes A2** |
 | **11** | `app/api/cron/resolve/route.ts` | SCAFFOLD | ⬜ **closes A4** |
+| **11b** | `docs/arc-deployment.md` | **DOC** | ⬜ ⚠️ **closes A6 — pass/fail on all three Arc prizes** |
 | **12** | **PLAY GAP — the first unattended cycle, watched** | **PLAY** | ⬜ |
 | **13** | `app/markets/` + `app/api/markets/` | SCAFFOLD | ⬜ |
+| **13b** | `app/report/[hash]/ledgers.tsx` — one report, two chains | SCAFFOLD | ⬜ ⚠️ **NEW** |
 | **14** | `app/markets/[id]/stake.tsx` | LOGIC ★★ | ⬜ **first browser-signed tx in the project** |
 | **15** | `src/arc/score.ts` + the record surface | LOGIC | ⬜ **the loop** |
+| **15b** | `src/agent/context.ts` — prior outcomes reach `compose` | LOGIC | ⬜ ⚠️ **NEW — closes the loop** |
 | **16** | **PLAY GAP — one real cycle with receipts** | **PLAY** | ⬜ |
 
-**Sixteen units, four days.** ⚠️ **That does not fit and the cut order at the end is the real plan.**
-Units 1–12 are the spine; 13–16 are the product and the proof. Read *The calendar* before starting,
-not after.
+**Twenty-one units, four days.** ⚠️ **That does not fit and the cut order at the end is the real
+plan.** Units 1–12 are the spine — **11b included, because it is pass/fail on three prizes and costs
+a day's writing at most**; 13–16 are the product, the loop and the proof. Read *The calendar* before
+starting, not after.
+
+## ⚠️ The binding work reorders the phase, and you asked to know now
+
+**Units 6b and 6c are new and both sit BEFORE Unit 7.** The binding between a report token and a
+stake is checked *at commit time*, so the check has to exist before the first commit does — it cannot
+be bolted on beside the staking page. **That is a real reordering of the spine, not an append.**
+
+⚠️ **6c is `LOGIC ★★` and lands in the tightest part of the calendar** — the run to Thursday that
+already holds Units 1–7 and play gap 6. It is the one addition here that costs spine time rather than
+tail time. **6b is small** (two signing calls, once) and 13b and 15b are in the tail.
+
+Full reasoning: `docs/research/cross-chain-binding.md`.
+
+⚠️ **11b is lettered rather than numbered, following this project's own convention for an insertion.**
+PHASE-3 added `6b`, `8b` and `C` after the fact rather than renumbering, because a unit number that
+moves breaks every reference to it already written in `logs.md` and `DECISIONS.md`. Nothing else in
+the sequence changed.
 
 ---
 
@@ -223,7 +246,7 @@ deployment hash, named document, named day, hash of the response bytes — so be
 | **A3** | Agent Stack connecting agents to wallets and onchain actions | **4** — Circle DCW EOA, the only named Circle component on Arc |
 | **A4** | programmable money flows — conditional, automated, multi-step | **2 + 8 + 9 + 11** — commit → conditional resolution from Graph data → parimutuel payout → void/refund |
 | **A5** | meaningful use of Arc and USDC | **2 + 14** — all market value on Arc in native USDC, with humans staking |
-| **A6** | deployed or deployment-ready on Arc mainnet | ⚠️ **no unit in this phase.** §9 puts it in Phase 5 and it is only demonstrable once the contract exists. **This is the finding**: a portable manifest, provisioning, permissions and recovery — explicitly *not* an env var and a README line |
+| **A6** | deployed or deployment-ready on Arc mainnet | **11b** — ⚠️ **added 2026-09-09; this section previously read "no unit in this phase" and that was the finding.** A portable manifest, provisioning, permissions and recovery — explicitly *not* an env var and a README line. ⚠️ **Nothing deploys to Arc mainnet**, which launches 2026-09-16, after the deadline; A6 asks for demonstrated readiness |
 | **G2.3** | meaningful work — the fifth step | **7 + 10** — directive → plan → reconciliation → verdict → **on-chain prediction backed by the agent's own USDC** |
 | **G1.2 · G2.1** | live Graph data, load-bearing | **8** — re-closed at settlement, which is what makes it end-to-end rather than a fetch at the start |
 
@@ -235,9 +258,12 @@ record of being right is what makes its reports worth paying for.*
 | step | unit |
 |---|---|
 | publishes research | ✅ **already built** — Phases 1–3 |
+| tokenizes it as a security uniquely its own | ✅ **already built** — Phase 3 Unit 8 |
+| ⚠️ **stakes with that token identifying the work** | **6b, 6c** — the binding. ⚠️ **Previously nothing served this step**; the hash was a parameter and no more |
 | stakes its own money on its conclusion | **7, 10** |
 | settlement scores it | **8, 9, 11, 15** |
-| the record makes reports worth paying for | **15** — and ⚠️ **only 15**. Without it the loop is a demo of a market, not a reason to buy a report |
+| ⚠️ **a reward or a penalty feeds back so the agent learns** | **15b** — ⚠️ **previously nothing served this step either.** The plan produced scores and stopped |
+| the record makes reports worth paying for | **15, 13b** |
 
 ⚠️ **Unit 13 serves the product and no requirement directly.** A market page is how a stranger sees
 any of this; it closes nothing on its own and it is named as such. It is the cheapest unit on the
@@ -467,7 +493,12 @@ site turns SM-08's measured `2500000000000000000` into `2.50` and back.
 share foreign keys and a half-applied set is worse than a large one — the runner has no version
 table, only idempotent DDL. **Accepted, and the module beside it stays read-only.**
 
-**Tables:** `markets` · `claims` · `stakes` · `scores` · `settlement_evidence` · `spend_ledger`.
+**Tables:** `markets` · `claims` · `stakes` · `scores` · `settlement_evidence` · **`binding_evidence`**
+· `spend_ledger`.
+
+⚠️ **`binding_evidence` is Unit 6c's** — what the admission check saw before a commit: the proxy, the
+deploy tx, the issuer address, the report hash and the Arc transaction. Same TEXT-not-jsonb rule as
+`settlement_evidence`, and for the same reason.
 
 ⚠️ **`NUMERIC(78,0)` for every amount, never `BIGINT`.** 001_init's rule was BIGINT for atomic money,
 and that reasoning was about a value that fits. **An 18-dp USDC amount overflows BIGINT at about 9.22
@@ -531,6 +562,93 @@ refund returns every staker exactly their stake**, and the sum of payouts on a n
 
 ---
 
+## Unit 6b · `src/arc/identity.ts` — the two-way key attestation
+
+**LOGIC. Small — two signing calls, produced once, forever.** ⚠️ **Must precede Unit 7.**
+
+⚠️ **This exists because exactly one link in the binding is not publicly checkable.** That a token
+carries `alpha:<hash>`, that the analyst issued it, and that an Arc address committed that hash are
+**all already public facts on two public chains** — a sceptic can read every one without us. The one
+thing joining the Arc address to the Hedera issuer is `config/analysts.ts`, **our file, on our repo.**
+
+**In it:** one sentence naming the analyst, its `arcAddress` and its `hederaEvmAddress`, signed
+**twice** — once by the Hedera key, once by the Circle wallet — and both signatures published.
+Anyone can `ecrecover` each and check it recovers the address it claims.
+
+⚠️ **The Circle wallet can sign, and this was read from the installed SDK rather than assumed.**
+`@circle-fin/developer-controlled-wallets@10.8.0` exposes
+`client.signMessage({ walletId, message, encodedByHex, memo })` returning `response.data?.signature`,
+with `signTypedData` and `signTransaction` beside it. The Hedera half is an ordinary `ethers.Wallet`
+whose derivation `ats.ts:132` already asserts against the analyst row.
+
+⚠️ **This is verification, not enforcement, and that is the honest limit.** The Arc contract never
+sees these signatures, so a commit remains possible without them. **A verifier must choose to
+check.** What it buys is that `config/analysts.ts` stops being an assertion and becomes a claim
+backed by two recoverable signatures.
+
+⚠️ **No cross-chain messaging.** Investigated properly: **Hedera testnet has a LayerZero endpoint
+(eid `40285`) and Arc is not on LayerZero's deployed-contracts list at all.** Circle's Arc testnet
+announcement names LayerZero as a developer-tool partner and Across/Stargate/Wormhole as the bridges —
+⚠️ **a partner logo is not a deployed endpoint**, and this project has been wrong six times about that
+exact distinction. Even if it existed: a message proves a fact *at send time*, so enforcing "the
+analyst holds it" would need a message per commit, while the identity link is permanent and needs no
+bridge at all. See `docs/research/cross-chain-binding.md`.
+
+**Proof:** both signatures recover their claimed addresses under an independent `ecrecover` — ⚠️ run
+the recovery with plain `ethers.verifyMessage` rather than any helper this unit writes, so the check
+is not the thing being checked.
+
+---
+
+## Unit 6c · `src/arc/admission.ts` — the binding check before a commit
+
+**LOGIC ★★. ⚠️ Must precede Unit 7, which calls it from `prepare()`.**
+
+**The rule: the analyst may not commit unless the server has verified that a token exists, that its
+creation event carries this report's hash, and that this analyst issued it.** The check runs before
+any money moves, and what it saw is recorded as evidence.
+
+**Four reads, all free, none of them spending:**
+
+| # | read | how |
+|---|---|---|
+| 1 | the proxy exists and is not deleted | Mirror Node `GET /api/v1/contracts/{id}` — `fetchJson` + `MIRROR` already exist |
+| 2 | ⚠️ **the creation event carries `alpha:<hash>`** | re-fetch the receipt for `report_tokens.deploy_tx`, re-parse `EquityDeployed` with `Factory__factory.createInterface()` |
+| 3 | ⚠️ **the analyst issued it** | `receipt.from` on that same transaction — **one fetch serves 2 and 3** |
+| 4 | the Arc committer is the analyst's own wallet | Unit 4's identity guard, already there |
+
+### ⚠️ Bind to issuance, never to current holding — and this is the finding
+
+**"Held by the analyst" is the wrong criterion and would refuse most of our own reports.**
+`004_token_transfers.sql` records it plainly: *"Three tokens sit with the buyer today."* Unit 10 moved
+them **on purpose**, because H2.4 asks for a lifecycle operation on camera.
+
+⚠️ **So the act that satisfies H2.4 would break an admission check built on holding.** Two
+requirements pulling opposite ways through one column. **Who issued a token is permanent and sits in
+the deploy transaction forever; who holds it is a lifecycle fact that is supposed to change.**
+
+⚠️ **Do not check the ISIN.** `isinFor()` is `BigInt(hash) % 36⁹` in base-36 — **a pure function of
+the report hash.** Checking it against the hash checks our own arithmetic, not the chain. It is an
+identifier for a human and it is not evidence.
+
+⚠️ **What the evidence record is for, stated precisely, because it is easy to overclaim.** It does
+**not** prove the check ran — a reader has to trust us for that. **Its value is that it names exactly
+what to re-check**: the proxy, the deploy tx, the issuer address, the hash and the Arc transaction.
+Every one is independently readable from two public chains. ⚠️ **Detectable by anyone, enforced by no
+one** — the same shape as the settlement evidence, and the same honest answer.
+
+⚠️ **The contract cannot help here and never will.** To it, `reportHash` is 32 arbitrary bytes; an
+analyst could commit the hash of a report that does not exist, was never tokenized, or was written by
+someone else, and it would accept all three. **This unit is what stops that, and it stops it for us
+rather than for everyone.**
+
+**Proof:** against live Hedera and Arc — a real tokenized report passes and the evidence row names all
+five identifiers · ⚠️ **a report that was never tokenized is refused**, with a sentence saying so ·
+⚠️ **a report whose token now sits with the buyer still PASSES**, which is the test that would have
+caught the holding-versus-issuance mistake · a hash the creation event does not carry is refused.
+
+---
+
 ## Unit 7 · `src/arc/market.ts` — create and commit
 
 **LOGIC ★★.** `tokenize/ats.ts`'s prepare/spend split, which matters more here because a reverted Arc
@@ -539,6 +657,10 @@ call spends USDC.
 **In it:** `prepare()` — every read-only check that can stop the run: the report loads and passes its
 hash check, the spec validates, the analyst row resolves and matches the Circle wallet, the market is
 not already committed, the balance covers it. `create()` and `commit()` — the only things that spend.
+
+⚠️ **`prepare()` calls Unit 6c's admission check and refuses on it.** That is why 6c precedes this
+unit: a commit that is not bound to a tokenized report is the thing the product claims it never
+makes, and the check has to run before the money does.
 
 ⚠️ **It owns how the analyst picks a side** (A1, and nothing in the plan ever specified it).
 **Deterministic, from the report's own figure against the threshold** — the report is the
@@ -663,6 +785,125 @@ recoverable.
 
 ---
 
+## Unit 11b · `docs/arc-deployment.md` — Arc mainnet readiness
+
+**DOC. ⚠️ Closes A6, which is pass/fail on all three Arc prizes.** One file, and it is the cheapest
+unit in the phase.
+
+⚠️ **Placed here and not earlier because a manifest for an undeployed contract describes nothing.**
+It needs an address (Unit 6), the committed ABI (Unit 3), a commit path that works (Unit 7) and the
+cron entries (Units 10–11). ⚠️ **And placed here rather than later because it runs in Unit 12's dead
+time** — Unit 12 is a *waiting* unit, hours between a market being created and the crons firing.
+This is what to write while waiting.
+
+⚠️ **Nothing deploys to Arc mainnet.** It launches 2026-09-16, after the deadline. A6 asks for
+demonstrated readiness, and PLAN §4 is explicit that an env var and a README line do not satisfy it.
+
+**What it assembles. ⚠️ It builds no deployment system — if this unit finds itself writing a deploy
+script it has left its scope.**
+
+| draws on | what it contributes |
+|---|---|
+| `.env.example` | the variable list — ⚠️ **made true**, see below |
+| `scripts/ops/migrate.ts` + `src/store/migrations/` | schema provisioning: idempotent, DDL through the DIRECT url and never the pooled one |
+| `config/analysts.ts` + `scripts/ops/verify-analyst.ts` | identity, asserted against live services rather than against a constant |
+| `scripts/ops/provision-circle.ts` + SM-08 | entity-secret registration, wallet set, one EOA wallet — already walked once, on the record |
+| `src/arc/abi.ts` (Unit 3) | the ABI and bytecode a fresh operator deploys from |
+| the deployed address (Unit 6) | what testnet actually runs |
+| `vercel.json` crons + `CRON_SECRET` (Units 10–11) | the unattended half |
+| `app/api/health` | the readiness probe that already exists |
+
+### Permissions — who holds what
+
+| identity | credential | can | ⚠️ cannot |
+|---|---|---|---|
+| **Circle console owner** | `CIRCLE_API_KEY` + `CIRCLE_ENTITY_SECRET` | create wallets, sign as the analyst, set the wallet-set spend cap | ⚠️ **rotate the entity secret.** `provision-circle.ts` says it outright: *"a registered secret can never be rotated without re-provisioning every wallet"* |
+| **the analyst** | `CIRCLE_WALLET_ID` → `arcAddress` | `createMarket`, `commitPrediction`, `resolve` | be swapped — its address is **inside every report hash** |
+| **the deployer** | `ARC_DEPLOYER_KEY`, a plain EOA | deploy the contract | commit or resolve. ⚠️ **A different identity by necessity**: `deployContract` ships in the Circle typings and is **not exposed on the client** (SM-08) |
+| **any staker** | their own wallet | `stake`, `claim`, and `voidMarket` after `resolveDeadline` | resolve |
+
+⚠️ **Writing that table surfaces a question §5.2 does not answer: who may call `resolve`?** The
+interface shows `require(!resolved); require(block.timestamp >= observationEnd)` and **no access
+control**. Permissionless `resolve` means anyone can settle any market with any outcome. **That is
+Unit 2's decision and it must be taken before deployment; this unit is where it becomes visible, not
+where it is taken.** Added to the decision table.
+
+### Recovery — what actually happens
+
+- ⚠️ **The analyst's identity cannot be recovered, and it is not meant to be.** Lose the entity secret
+  and every wallet derived from it is orphaned. The `arcAddress` is inside every report hash, so a
+  replacement wallet is a **different analyst** — old reports keep their attribution to an address
+  nobody controls, which is correct: the record of who said what does not change because a key was
+  lost. **Recovery is adding a new analyst row, not restoring the old one.**
+- ⚠️ **Funds are never stranded, and that is a property of the contract rather than of operations.**
+  `voidMarket` is permissionless after `resolveDeadline` and `claim` is pull-based, so if the analyst
+  disappears mid-market any staker can void it and pull their own stake out. §5.2 carries this
+  because the v3 interface *"couldn't void, so funds were lockable forever."*
+- **The database.** Migrations are idempotent, so the schema is a re-run. ⚠️ **Reports are not** —
+  `store/reports.ts`: *"A report is stored once and never regenerated"*, because narration is inside
+  the hash and the model call is not deterministic. **A lost `reports` row is unrecoverable.** The
+  on-chain hash is what proves a restored copy is the same bytes, and `load()`'s own assertion is the
+  check.
+- **The contract.** A redeploy is a new address; old markets stay settleable at the old one, because
+  permissionless void plus pull claim means an abandoned deployment still lets people out.
+- **The deployment.** Vercel is repo-linked, so it is a push.
+
+### What a fresh operator provisions
+
+Circle account with the entity secret registered, a wallet set, one **EOA** wallet on the Arc network,
+funded · a Graph API key · a Neon database and **both** urls, pooled and direct · the Hedera accounts
+the rest of the system needs · an Anthropic key · an Arc RPC url · `CRON_SECRET` · `ARC_DEPLOYER_KEY`
+with a balance. Then: deploy, run the build and commit the artifact, run `migrate.ts`, run
+`verify-analyst.ts`, and confirm `/api/health`.
+
+### What differs on mainnet — and what is deliberately left blank
+
+| | testnet today | mainnet |
+|---|---|---|
+| chainId | `5042002` | ⚠️ **unknown until 2026-09-16 — a blank to fill, not a guess** |
+| RPC | `https://rpc.testnet.arc.network` | a different host, ⚠️ **read from Arc's own documentation at the time** |
+| native USDC | `0x3600…0000`, `decimals() = 6`, 18-dp for value | ⚠️ **verify the address; never assume the same predeploy** |
+| Circle `blockchain` | `ARC-TESTNET` | ⚠️ **read from the SDK's own `Blockchain` union at the time** |
+| funding | `requestTestnetTokens` | **no faucet. Real USDC.** ⚠️ SM-08 already found the testnet faucet API rate-limiting independently of its web form |
+| the wallet-set spend cap | advisable | ⚠️ **mandatory** |
+
+⚠️ **The blanks are the point, not an omission.** This project has been wrong six times about a value
+that looked live and was not. **A named blank with the source to fill it from is a stronger artifact
+than a filled-in guess**, and a manifest that invents a mainnet chainId to look complete would be the
+seventh.
+
+### ⚠️ It closes attachment 6.3
+
+`ARC_WALLET` is set in `.env`, **read by nothing anywhere in the repo**, and absent from
+`.env.example`. `ARC_DEPLOYER_KEY` is in both and read only by SM-08. **A manifest listing what a
+fresh operator must set cannot leave those unresolved** — each is either read by something and
+documented, or deleted. This unit is where that stops being open.
+
+**Proof — and its weakness is stated rather than papered over.**
+
+The bar is *"someone else could stand this up without asking us questions"*, and **nobody else is
+available to try.** Three checks, in decreasing strength:
+
+1. ⚠️ **A from-scratch clone, followed literally.** `git clone` into a new directory, `cp .env.example
+   .env`, and follow the manifest **only** — no other file open, no memory used. ⚠️ **Every moment
+   you have to look outside the manifest is a defect in it**, written down and fixed before the walk
+   continues. Stop at the step that costs money: the goal is that nothing is *unanswerable*, not that
+   a second deployment exists.
+2. **A mechanical env-var audit**, which is objective and cannot be fooled by knowing too much: every
+   variable the manifest lists is read by something (`grep`), and every variable something reads is
+   listed. Symmetric, both directions.
+3. **Every address and hash checked against the live network** — the contract against the Arc RPC, the
+   analyst against Circle, using `verify-analyst.ts`'s existing read-only pattern. ⚠️ **And against
+   what Unit 12 actually produced**, so the manifest describes the system that ran rather than the one
+   that was planned.
+
+⚠️ **Check 1 is weaker than a second person, and the reason is worth saying: you cannot un-know
+things.** The mitigation is that checks 2 and 3 do not depend on the walker being naive — one is a
+grep and the other is the network. **The residual risk is prose that reads clearly to its author and
+ambiguously to a stranger, and nothing available to this project closes it.**
+
+---
+
 ## Unit 12 · PLAY GAP — the first unattended cycle, watched
 
 **PLAY.** Create the **demo market** for *D* = Friday 11, direct the analyst at it, and then **do
@@ -693,6 +934,36 @@ one site.
 indexer-supplied and reach reports (§5.18).
 
 **Proof:** deployed, and a stranger can read what the market asks, what the analyst said, and why.
+
+---
+
+## Unit 13b · `app/report/[hash]/ledgers.tsx` — one report, two chains
+
+**SCAFFOLD. ⚠️ Presentation of one identifier in two places, and nothing more than that.**
+
+One panel on the report page showing the whole chain of custody of a single claim:
+
+| | |
+|---|---|
+| the report | its hash, the directive, the analyst |
+| **on Hedera** | the ISIN, the proxy, **the `alpha:<hash>` string read back out of the creation event**, a HashScan link |
+| **on Arc** | the market and its question, the side the analyst took, the stake, the Arc transaction, and after resolution the outcome and the payout |
+| ⚠️ **the tie** | **the same 32 bytes, shown twice, side by side** — plus the two attestation signatures from Unit 6b and the addresses they recover to |
+
+⚠️ **Show the hash in both places literally rather than saying "verified".** The point a reader has to
+be able to reach on their own is *those are the same bytes and I just checked* — a green tick asserts
+what the two strings demonstrate. `domain/canonical.ts` puts it exactly right: *"Anyone can check that
+both refer to the same bytes."*
+
+⚠️ **Link out to both explorers.** HashScan for the proxy and the creation transaction, Arc's explorer
+for the commit. A reader who does not trust the page can leave it and confirm every value.
+
+⚠️ **No new reads at request time.** Everything here is already in `report_tokens`, the market tables
+and Unit 6c's `binding_evidence`. If this page finds itself calling a chain, it has become Unit 13's
+API route instead.
+
+**Proof:** open a report that has been tokenized and staked, and read the same 64 hex characters in
+the Hedera panel and the Arc panel without leaving the page.
 
 ---
 
@@ -739,6 +1010,69 @@ which is exactly why it is at risk — **see the cut order.**
 
 **Proof:** after the demo market resolves, the analyst's page shows a real record: one prediction,
 its outcome, and what it earned or lost.
+
+---
+
+## Unit 15b · `src/agent/context.ts` — the reward comes back
+
+**LOGIC. ⚠️ This is the unit that closes the loop, and the plan previously stopped one step short.**
+
+**Two things come back from a resolved market, and they are different in kind.**
+
+**The reward is the parimutuel payout and the contract already handles it** — `claim` is pull-based,
+the money lands in the analyst's Arc wallet, and nothing in this unit touches it.
+
+**The learning is prior outcomes reaching `compose` as context.** ⚠️ **Not model training. No weights,
+no fine-tuning, no pipeline** — say that plainly so nobody plans one. It is text in a prompt, and it
+is deleted the moment the request ends.
+
+### ⚠️ DECISION — what actually reaches the prompt
+
+**The last five resolved claims, one compact line each: the directive, the market's subject, the side
+taken, the outcome, and the report's own `assessment.confidence`.** Bounded, and nothing else.
+
+**Why not the alternatives**, since all three were on the table:
+
+- **A right/wrong count** is meaningless at n=1 or 2 and reads as theatre. "1 correct of 1" teaches a
+  model nothing it can act on.
+- **Per-metric accuracy** is thinner still — with two markets there is at most one observation per
+  metric.
+- ⚠️ **The full reasoning of a report that got it wrong** is the richest signal and it is the one that
+  works at n=1 — but a report is ~71 KB canonical and 140 facts, and the planner's prompt already
+  carries every live deployment's capabilities. **Rejected on size, not on value.**
+
+**What the chosen shape costs, stated:** the model sees **what** it got wrong, not **why**. It can
+become more or less bold about a metric it has been wrong on; it cannot diagnose its own reasoning.
+⚠️ **That is a real limitation and the honest upgrade path is the full assessment of one wrong
+report, once there is more than one to choose from.**
+
+### ⚠️ It makes a report a function of history, and that must be said rather than discovered
+
+`compose(directive, client)` gains a third argument. **A report's plan now depends on the analyst's
+record at the moment it was written**, so two runs of one directive at one block can plan
+differently — and the plan is inside the report, which is inside the hash.
+
+⚠️ **Desirable, and it is the point: an analyst that has learned something should plan differently.**
+But state the consequence: the full report hash was **already** non-deterministic, because narration
+is inside it and the model call is not deterministic (`store/reports.ts`: *"A report is stored once
+and never regenerated"*). What changes is that the plan now varies with **state outside the directive
+and the block**, which it did not before.
+
+⚠️ **So record what the analyst knew, outside the hash.** A `context_digest` column beside the report
+row — a hash of the context block that was supplied — so a reader can tell what history the plan saw.
+**Outside the hash deliberately**: putting it inside would change `Report` and invalidate four hashes
+already committed in ATS creation events on chain.
+
+### ⚠️ Be honest about the timescale
+
+**The first resolution lands about a day before the deadline.** With one analyst and two markets there
+is no meaningful history for the loop to turn on. **This is a demonstrable shape, not a turning
+loop**, and the video should say so in those words rather than implying an agent that has been
+learning for weeks. ⚠️ **Claiming otherwise is the kind of thing a judge checks.**
+
+**Proof:** generate a report before any market resolves and again after one has, at the same pinned
+block, and show the context block reaching the prompt — ⚠️ **and show that the two plans may differ,
+which is the loop working rather than a bug.** The `context_digest` differs between the two rows.
 
 ---
 
@@ -798,17 +1132,55 @@ have them. **Recorded as accepted debt**: a staked report may carry a figure a r
 
 # ⚠️ If the calendar slips — cut in this order
 
-| # | cut | costs | still true after |
+⚠️ **REORDERED 2026-09-09, and the reason is the one that was wrong before.** Unit 15 sat at #3 while
+being the only unit serving the loop — so the first thing to go was the reason anyone would use this,
+and the last things to go were conveniences. **That is backwards.** Adding 15b would have made it
+worse: the whole feedback half would have been cut before a single page.
+
+⚠️ **Two kinds of loss, and they are not comparable on one scale.** A cut that loses a **pass/fail
+requirement** loses a prize outright — eligibility is binary. A cut that loses **the reason anyone
+would use this** keeps every prize and ships something nobody would come back to. **Polish goes
+first, then operational guards, then the loop, then requirements** — requirements last precisely
+because they are the only ones that cannot be argued about afterwards.
+
+| # | cut | ⚠️ kind of loss | costs |
 |---|---|---|---|
-| 1 | **Unit 16** — fold into Unit 12 | one rehearsal. ⚠️ Do not cut both play gaps | every requirement |
-| 2 | **Unit 13's list page** — one market page, linked from the report | discoverability | every requirement |
-| 3 | **Unit 15** → the report page shows the raw claim and outcome, no scores | ⚠️ **the loop stops being visible.** A working market, and no reason a reader should pay more for the next report | A1–A6; §5.12 unclosed |
-| 4 | **the spend ledger** → the Circle console cap alone | ⚠️ no in-code guard; draft question 4 stays open into Phase 5 | every requirement |
-| 5 | **Unit 14** → agent-only staking, second Circle wallet (**R28**, §11 #9) | ⚠️ **weakens A5** and breaks §5.3's definition of done — *"a stranger can browse, read previews, stake"*. Arc still sees value move | A1–A4, A6 weakened |
-| 6 | **the demo market's forward cycle** → rehearsal market only | ⚠️ **the analyst is no longer forecasting**, and that is the product. Take this only to avoid shipping nothing | mechanically A2/A4; not honestly |
+| 1 | **Unit 16** — fold into Unit 12 | polish | one rehearsal. ⚠️ Do not cut both play gaps |
+| 2 | **Unit 13's list page** — one market page, linked from the report | polish | discoverability |
+| 3 | **Unit 13b's panel** → a link to the market instead of the two-ledger view | polish | the two-chain story gets **told in words instead of shown**. ⚠️ Weakest cut on this list per unit of time saved |
+| 4 | **the spend ledger** → the Circle console cap alone | operational | ⚠️ no in-code guard; draft question 4 stays open into Phase 5 |
+| 5 | **Unit 6b** — the attestation, keep 6c | ⚠️ **integrity** | the binding's last link goes back to being *"our config file says so"*. **6c stays either way** |
+| 6 | **Unit 15b** → scores are visible, nothing feeds back | ⚠️ **the loop** | the analyst stops learning. ⚠️ **The product becomes a market with a scoreboard**, which is a different and smaller claim |
+| 7 | **Unit 15** → the report page shows the raw claim and outcome, no scores | ⚠️ **the loop** | ⚠️ **no reason a reader should pay more for the next report.** §5.12 unclosed |
+| 8 | **Unit 14** → agent-only staking, second Circle wallet (**R28**, §11 #9) | ⚠️ **a requirement** | **weakens A5** and breaks §5.3's definition of done — *"a stranger can browse, read previews, stake"*. Arc still sees value move |
+| 9 | **the demo market's forward cycle** → rehearsal market only | ⚠️ **a requirement, dishonestly** | **the analyst is no longer forecasting**, and that is the product. Take this only to avoid shipping nothing |
+
+⚠️ **6 and 7 are adjacent on purpose and should be taken together or not at all.** Scores with no
+feedback is a scoreboard; feedback with no visible scores is a claim nobody can check. Cutting one and
+keeping the other costs almost the same time and leaves a worse story than cutting both.
 
 **Never cut:** the contract · **Unit 8's evidence persistence** (irreversible) · the commit cron (A2) ·
-the resolve cron (A4) · the void path · **live Graph data at settlement** (G1.2/G2.1).
+the resolve cron (A4) · the void path · **live Graph data at settlement** (G1.2/G2.1) ·
+**Unit 11b (A6)** · ⚠️ **Unit 6c (the admission check)**.
+
+⚠️ **6c is never-cut because without it the product's central sentence is not true.** *"The analyst
+stakes on a market with that token identifying the work"* — cut 6c and the token identifies nothing;
+the hash is a parameter the contract accepts without knowing what it means, and an analyst could
+commit against a report that was never written. It is also the difference between a demo and a claim
+somebody could check.
+
+⚠️ **Why 11b is in *never cut* rather than at position 7, and it is a different kind of cost.**
+Everything in the numbered list above sacrifices **product surface** — discoverability, the visible
+loop, a human staking. 11b sacrifices **eligibility**: A6 is pass/fail on *all three* Arc prizes, and
+those three are the majority of the remaining prize surface. It is also the cheapest unit in the
+phase — a document assembling material that already exists — so cutting it saves close to nothing
+and risks close to everything. **That ratio is what puts it here rather than in the list.**
+
+⚠️ **If the calendar is genuinely gone, degrade it rather than cut it**, in this order: drop proof
+check 1 (the from-scratch clone) and keep checks 2 and 3, which are mechanical · then drop the
+mainnet-differences table, which is the part a judge is least able to verify · **never drop
+permissions and recovery**, which are the two things PLAN §4 names by name and the two an env var and
+a README line cannot fake.
 
 ⚠️ **§11 #10 — "Circle DCW → raw ethers" — is not on this list and should not be taken.** It sacrifices
 A3, which is the strongest Agent Stack evidence in the project, to save work that Unit 4 has already
@@ -824,12 +1196,16 @@ done.
 | the `FactId` → subject mapping | **Unit 1** | before Unit 7 reads a report's figure |
 | `msg.value` scale on chain | **Unit 2** | ✅ **already resolved** — conflict 1 |
 | whether `commitPrediction` emits `claimId` | **Unit 2** | ⚠️ **before it is deployed.** Unfixable after |
+| **who may call `resolve`** | **Unit 2** | ⚠️ **before it is deployed.** §5.2 shows no access control, so as written anyone could settle any market with any outcome. **Surfaced by Unit 11b's permissions table, taken in Unit 2** |
 | where the ABI drift check runs | **Unit 3** | with the unit |
 | the idempotency key's shape and storage | **Unit 4** | before Unit 10 can be idempotent |
 | the one conversion site | **Unit 4** | before Unit 13 displays anything |
 | `NUMERIC(78,0)` vs `BIGINT` | **Unit 5** | ✅ **already decided** — NUMERIC, never BIGINT |
 | landmark timestamps vs a state enum | **Unit 5** | before either cron's find-work query |
 | how the analyst picks a side | **Unit 7** | ⚠️ **A1 depends on it.** Deterministic, recorded |
+| ⚠️ **issuance or current holding** as the binding criterion | **Unit 6c** | ✅ **decided — issuance.** Holding would refuse reports whose tokens moved for H2.4 |
+| server verification or on-chain enforcement | **Unit 6b** | ✅ **decided — verification.** No LayerZero endpoint on Arc, and identity is permanent so it needs no bridge |
+| what history reaches `compose` | **Unit 15b** | ✅ **decided — the last five resolved claims, one line each.** Not a count, not a full report |
 | where an `EvidenceRecord` is stored | **Units 5 and 8** | ⚠️ **before any `resolve` lands on chain** |
 | whether a human can create a market in the product | **Unit 13** | can slip; the contract is already permissionless |
 
@@ -847,4 +1223,4 @@ done.
 | **R6** | poll as a job step, never a held-open request | ⚠️ the installed SDK bounds the wait with an `AbortSignal`. The rule survives; the mechanism changes |
 | **R19** | advance since the last completed cursor, with leases | reconciliation queries, no cursor. Vercel's delivery is best-effort both ways |
 | **§9 Phase 5** | *"calendar the demo market so one real cycle completes"* | ⚠️ **not a polish step on this calendar** — it is Unit 12 and it sets Thursday's deadline |
-| **§4 A6** | Arc mainnet readiness | ⚠️ **no unit in this phase, and that is the finding.** Only demonstrable once the contract exists; Phase 5 or it does not happen |
+| **§4 A6** | Arc mainnet readiness | ⚠️ **Corrected 2026-09-09.** This row read *"no unit in this phase, and that is the finding"*. **A6 is now Unit 11b**, placed after the contract has an address and the commit path works, because a manifest for an undeployed contract describes nothing. §9 Phase 5 still lists it; **§9 should be amended** — it is closed in Phase 4 |
