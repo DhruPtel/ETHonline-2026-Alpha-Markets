@@ -1,4 +1,5 @@
-// Unit 5's proof. `005_markets.sql` and `src/store/markets.ts` in, PASS or FAIL out.
+// Unit 5's proof, extended by Unit 6's migration. `005_markets.sql` + `006_market_landmarks.sql`
+// and `src/store/markets.ts` in, PASS or FAIL out.
 //
 //   npx tsx --env-file=.env scripts/ops/migrate.ts     ← run this first
 //   npx tsx --env-file=.env scripts/demo/markets-schema.ts
@@ -23,11 +24,13 @@
 // ⚠️ **Writes to a temporary table and drops it.** The seven real tables are not touched: this proof
 // must not leave a market row behind that a cron would later find as work.
 
-import { closePool, db } from '../../src/store/db.js';
+import { closePool, db, pooledClientsCreated } from '../../src/store/db.js';
 import {
-  claimsFor, marketById, marketsAwaitingCommit, marketsAwaitingResolve, settlementEvidenceFor,
-  spentSince, stakesFor,
+  claimsFor, marketById, payoutFor, payoutsFor, settlementEvidenceFor, spentSince, stakesFor,
 } from '../../src/store/markets.js';
+// ⚠️ The two reconciliation queries moved here from `markets.ts`. This import line is the whole
+// caller-side cost of that split, and it is the reason this script is in the split's scope at all.
+import { marketsAwaitingCommit, marketsAwaitingResolve } from '../../src/store/outstanding.js';
 
 let failures = 0;
 const ok = (label: string, condition: boolean, detail = ''): void => {
@@ -36,9 +39,11 @@ const ok = (label: string, condition: boolean, detail = ''): void => {
 };
 
 const sql = db();
+/** 005's seven, plus 006's `payouts`. ⚠️ The amount-column sweep below is keyed off this list. */
 const TABLES = [
   'markets', 'claims', 'stakes', 'scores',
   'settlement_evidence', 'binding_evidence', 'spend_ledger',
+  'payouts',
 ] as const;
 
 try {
@@ -76,10 +81,10 @@ try {
     SELECT table_name, column_name, is_nullable
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND column_name IN ('committed_at', 'resolved_at', 'voided_at', 'landed_at')
+      AND column_name IN ('committed_at', 'resolved_at', 'voided_at', 'landed_at', 'claimed_at')
     ORDER BY table_name, column_name`;
   console.log(`\n  landmarks: ${landmarks.map((c) => `${c.table_name}.${c.column_name}=${c.is_nullable}`).join(' ')}`);
-  ok('every landmark is nullable', landmarks.length >= 4 && landmarks.every((c) => c.is_nullable === 'YES'));
+  ok('every landmark is nullable', landmarks.length >= 5 && landmarks.every((c) => c.is_nullable === 'YES'));
 
   // ⚠️ TEXT and never jsonb, on the three columns a hash is taken over.
   const canonical = await sql<{ table_name: string; column_name: string; data_type: string }[]>`
@@ -158,7 +163,7 @@ try {
   // ⚠️ Empty is the honest state — nothing has been committed yet and this script must not write a
   // market row a cron would later find as work. What is proved here is that every query PARSES and
   // RUNS against the schema as migrated: a column typo would fail right here.
-  console.log('\n── 3 · every read in markets.ts runs against the migrated schema');
+  console.log('\n── 3 · every read in markets.ts and outstanding.ts runs against the migrated schema');
 
   ok('marketById returns null for an unknown id', (await marketById('no-such-market')) === null);
   ok('marketsAwaitingCommit runs (the LEFT JOIN)', (await marketsAwaitingCommit('0x0')).length === 0);
@@ -169,8 +174,66 @@ try {
 
   const spent = await spentSince('0x0', 'arc', 'USDC', new Date(0));
   ok('spentSince returns "0", not null, over no rows', spent === '0', `"${spent}" (${typeof spent})`);
+  ok('payoutsFor runs', (await payoutsFor('no-such-market')).length === 0);
+  ok('payoutFor returns null', (await payoutFor('no-such-market', '0x0')) === null);
 
-  console.log(failures === 0 ? '\nPASS  005_markets.sql + markets.ts.\n' : `\nFAIL  ${failures} assertion(s).\n`);
+  // ─── 4 · 006's two fixes, as the database reports them ────────────────────────────────────────
+  console.log('\n── 4 · 006 — the void\'s evidence, and where a payout lands');
+
+  const voidCols = await sql<{ column_name: string; data_type: string; is_nullable: string }[]>`
+    SELECT column_name, data_type, is_nullable FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'markets'
+      AND column_name IN ('void_tx', 'voided_by', 'voided_at') ORDER BY column_name`;
+  console.log(`  markets: ${voidCols.map((c) => `${c.column_name}=${c.data_type}/${c.is_nullable}`).join(' ')}`);
+  ok('markets gained void_tx and voided_by', voidCols.length === 3);
+  ok('all three void columns are nullable', voidCols.every((c) => c.is_nullable === 'YES'));
+
+  // ⚠️ The PK is the contract's own key: `claimed[marketId][msg.sender]` is a bool per
+  // (market, address), and this is that statement in a database.
+  const pk = await sql<{ column_name: string }[]>`
+    SELECT kcu.column_name
+    FROM information_schema.table_constraints tc
+    JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = tc.constraint_name
+    WHERE tc.table_schema = 'public' AND tc.table_name = 'payouts' AND tc.constraint_type = 'PRIMARY KEY'
+    ORDER BY kcu.ordinal_position`;
+  console.log(`  payouts PK: (${pk.map((c) => c.column_name).join(', ')})`);
+  ok('payouts is keyed (market_id, account) — the grain the contract pays at',
+    pk.map((c) => c.column_name).join(',') === 'market_id,account');
+  ok('payouts.tx_hash is UNIQUE — and here it is meaningful', await uniqueOn('payouts', 'tx_hash'));
+
+  // ⚠️ The assertion that stops someone copying the stake rule onto a payout. A stake must be a
+  // whole 6-dp USDC unit because `_checkAmount` reverts otherwise; a payout is
+  // `mine + (mine * losingPool) / winningPool` and is under no such constraint.
+  const checks = await sql<{ table_name: string; def: string }[]>`
+    SELECT rel.relname AS table_name, pg_get_constraintdef(con.oid) AS def
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace ns ON ns.oid = rel.relnamespace
+    WHERE ns.nspname = 'public' AND con.contype = 'c'
+      AND rel.relname IN ('claims', 'stakes', 'payouts')
+      AND pg_get_constraintdef(con.oid) LIKE '%1000000000000%'`;
+  console.log(`  %1e12 checks on: ${checks.map((c) => c.table_name).sort().join(', ') || '(none)'}`);
+  ok('claims and stakes require whole 6-dp USDC units',
+    ['claims', 'stakes'].every((t) => checks.some((c) => c.table_name === t)));
+  ok('payouts does NOT — a payout is a ratio, not a unit',
+    !checks.some((c) => c.table_name === 'payouts'));
+
+  // ─── 5 · one pooled client, across a run that touched both modules ────────────────────────────
+  // ⚠️ **Demonstrated with the counter, not argued from the code shape.** `db.ts` has kept
+  // `pooledClientsCreated()` since the Phase 3 consolidation — three modules each memoized their own
+  // client, so a request touching all three opened three — and its own comment recorded that nothing
+  // read it. Splitting one store module into two is exactly the change that would quietly undo that
+  // work, and "I imported `db()` rather than `pooled()`" is a claim about code, not a measurement.
+  //
+  // ⚠️ Every read above has already run: sections 1–4 touched `markets.ts`, `outstanding.ts` and
+  // this script's own `sql` handle. If any of the three had constructed its own, the count would be
+  // above one by now.
+  console.log('\n── 5 · one pooled client for the whole run');
+  const clients = pooledClientsCreated();
+  console.log(`  modules touched: db.ts (this script), markets.ts, outstanding.ts`);
+  ok('exactly one pooled client was ever constructed', clients === 1, `pooledClientsCreated() = ${clients}`);
+
+  console.log(failures === 0 ? '\nPASS  005 + 006 + markets.ts + outstanding.ts.\n' : `\nFAIL  ${failures} assertion(s).\n`);
 } finally {
   await closePool();
 }

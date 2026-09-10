@@ -6436,3 +6436,102 @@ decision about `006` or about dropping seven empty tables and re-applying.
    "this claim's return", so `scores.returned` could not be filled from the chain. **It holds for
    Phase 4** because the analyst only commits — but it is an assumption the schema is resting on
    rather than a property it enforces, and it is worth knowing before Unit 15 writes to it.
+
+---
+
+## 2026-09-10 — Phase 4 Unit 5b: `006_market_landmarks.sql` — the void's evidence, and payouts
+
+Two of the three gaps Unit 5 reported, fixed before Unit 6 drives those paths by hand.
+`006_market_landmarks.sql` (103 lines, 13 of DDL), `src/store/markets.ts` updated to read the new
+columns, and Unit 5's proof extended. `migrate.ts` applied it and then ran again as a clean no-op
+with **six** migrations, every statement reporting skipped. The proof passes **39 assertions**;
+`npx tsc -p tsconfig.json --noEmit` exits 0. ⚠️ **005 was not edited** — it has run against the live
+database, and 002's header already settles what that means.
+
+⚠️ **The payout does not go on `stakes`, and asking first was the right call.** The brief said to put
+a staker's payout on `stakes`; reading the contract first showed that would have been wrong.
+`claim(marketId, recipient)` pays `payoutOf(marketId, msg.sender)`, which returns
+`staked[marketId][true][account] + staked[marketId][false][account]` — an address's **whole position
+in a market**, including its committed prediction, because `commitPrediction` and `stake` both run
+through the same `_add`. So an address with three stakes has three `stakes` rows and receives **one**
+transfer. Columns on `stakes` would have meant either the aggregate repeated on all three rows —
+making `SUM(stakes.payout)` three times the money that actually moved, in the one place an accounting
+query would look — or a pro-rata split, which invents an apportionment the chain never made.
+
+⚠️ **And the brief's own UNIQUE instruction would have backfired there.** `stakes.claim_tx` could not
+take a UNIQUE: three legitimate rows share one claim transaction and the constraint would reject two
+of them. **A `payouts` table keyed `(market_id, account)` is where that UNIQUE becomes true again** —
+one `claim()` call is exactly one row, so `tx_hash UNIQUE` means what it says and a re-record is a
+no-op. The primary key is the contract's own key: `claimed[marketId][msg.sender]` is a bool per
+(market, address), and `PRIMARY KEY (market_id, account)` is the same statement in a database.
+
+**The operator chose the payouts table** from three options put to them.
+
+⚠️ **`payouts.amount` deliberately carries no `% 1e12` check**, and the proof asserts its absence
+rather than leaving it to be noticed. `claims.amount` and `stakes.amount` must be whole 6-dp USDC
+units because `_checkAmount` reverts otherwise; a payout is
+`mine + (mine * losingPool) / winningPool` — integer division on a ratio — and is under no such
+constraint. Copying the check across would have rejected legitimate payouts, and it is exactly the
+kind of thing that gets copied.
+
+**`void_tx` and `voided_by` took no UNIQUE, and that is not an oversight.** They sit on `markets`,
+one row per market, and the contract reverts `AlreadySettled` on a second void — so re-recording is
+an UPDATE of the same row, idempotent by construction. `stakes.tx_hash` needs UNIQUE because a
+re-record there would INSERT a second row; there is no second row to insert here.
+
+**The third gap stays open, recorded as a stated assumption in 006's header rather than built
+around.** `scores` is keyed per claim while payouts are per address, so `scores.returned` is fillable
+only while an address holds exactly one position in a market — true for Phase 4, since the analyst
+commits and does not also stake. Enforcing it would mean the database refusing a transaction the
+chain would accept, which makes the record disagree with the ledger it describes. ⚠️ **`payouts` is
+now the honest source for that number**, and Unit 15 should derive `scores.returned` from it rather
+than measure it a second way.
+
+⚠️ **`markets.ts` is now 215 lines of logic against a ~120 guideline** — it was 177 after Unit 5 and
+this added a table. Flagged then, worse now. The same seam still applies: the two cron find-work
+queries are the only reads with logic in them rather than a SELECT and a mapper, and they would move
+cleanly. Still not taken unasked.
+
+---
+
+## 2026-09-10 — Phase 4: the store seam, taken
+
+The two reconciliation queries moved out of `src/store/markets.ts` into a new
+`src/store/outstanding.ts` (70 lines, 26 of logic). `scripts/demo/markets-schema.ts`'s import line
+moved with them and gained one section. No schema change, no new migration, no writes.
+`npx tsc -p tsconfig.json --noEmit` exits 0 and the proof passes **40 assertions**, its existing ones
+unchanged.
+
+**A move, not a redesign.** Both functions went across verbatim — same SQL, same parameters, same
+return type — and the only structural consequence is that `MarketRow` and `toMarket` are now
+`export`ed from `markets.ts`, because a second copy of the mapper would be a second answer to what a
+market row means. That is a visibility change, not a behaviour change, and the header says they are
+the seam rather than a public API.
+
+⚠️ **The module is named `outstanding.ts`, not `cron.ts`, and that mattered more than it looks.**
+The obvious name would have been wrong on arrival: Unit 12 drives both of these paths **by hand**
+before any cron exists, and Unit 6 drives them before that. What the two queries have in common is
+not their caller, it is that they ask what is outstanding *now*, from scratch — which is the property
+Vercel's best-effort delivery forces, since a run can silently not happen and the same run can arrive
+twice.
+
+⚠️ **`outstanding.ts` does not re-export `close()`.** `markets.ts` already re-exports the closer for
+scripts, and a second export of the same function is how a script ends up calling `end()` twice —
+`closePool` is idempotent precisely because that already happened once with `reports.ts`,
+`tokens.ts` and `quotes.ts`.
+
+**One pooled client was demonstrated rather than argued.** `db.ts` has carried
+`pooledClientsCreated()` since the Phase 3 consolidation and its own comment recorded that nothing
+read it — **this proof is now its first caller**, which is the counter finally doing the job it was
+kept for. Splitting one store module into two is exactly the change that would quietly undo that
+consolidation, and "I imported `db()` rather than `pooled()`" is a claim about code rather than a
+measurement. After a run touching `db.ts`, `markets.ts` and `outstanding.ts`, the count is **1**.
+
+⚠️ **The cut was taken as briefed and it does NOT bring `markets.ts` under the guideline: 215 → 191
+logic lines.** The two queries were the right cut — they were the only reads carrying real logic
+rather than a SELECT and a mapper — but they were only 24 lines, and the remaining bulk is not logic
+at all. It is eight tables' worth of `interface` + row type + mapper + plain read, which is mass
+rather than complexity. **If it is cut again the seam is by table group, not by query kind** —
+`markets`/`claims`/`stakes` are the market itself, while `scores`, `settlement_evidence`,
+`binding_evidence`, `spend_ledger` and `payouts` are records *about* it. Not taken: nothing has asked
+for it, and the guideline is about what a human can read in a sitting rather than a number to hit.

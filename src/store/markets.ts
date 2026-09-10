@@ -1,4 +1,11 @@
-// Reading Phase 4's seven tables. What `tokens.ts` is for `report_tokens`.
+// The row shapes of Phase 4's eight tables, and the plain reads over them. What `tokens.ts` is for
+// `report_tokens`.
+//
+// ⚠️ **The two reconciliation queries are NOT here — they are in `outstanding.ts`.** This file had
+// grown to 215 lines against a ~120 guideline, and the seam was named twice before it was taken:
+// every read here is a SELECT and a mapper, while those two carry real logic (a LEFT JOIN, a
+// three-predicate window) and answer a different kind of question. `MarketRow` and `toMarket` are
+// exported for that module and for no other reason — they are the seam, not a public API.
 //
 // ⚠️ **This module is READ-ONLY, and that is a decision rather than an unfinished state.** Every
 // write in this phase is a chain call with a row on either side of it — Unit 7 inserts a market
@@ -46,18 +53,22 @@ export interface Market {
   readonly voidedAt: Date | null;
   readonly outcome: boolean | null;
   readonly evidenceHash: string | null;
+  /** ⚠️ `voidMarket` is permissionless, so unlike `resolve` the caller is not knowable in advance. */
+  readonly voidedBy: string | null;
+  readonly voidTx: string | null;
   readonly createdAt: Date;
 }
 
-interface MarketRow {
+export interface MarketRow {
   id: string; spec_hash: string; spec_json: string; observed_day: string;
   close_time: Date; observation_end: Date; resolve_deadline: Date;
   directed_at: string | null; contract_address: string | null; chain_market_id: string | null;
   landed_at: Date | null; resolved_at: Date | null; voided_at: Date | null;
-  outcome: boolean | null; evidence_hash: string | null; created_at: Date;
+  outcome: boolean | null; evidence_hash: string | null;
+  voided_by: string | null; void_tx: string | null; created_at: Date;
 }
 
-const toMarket = (r: MarketRow): Market => ({
+export const toMarket = (r: MarketRow): Market => ({
   id: r.id,
   specHash: r.spec_hash,
   specJson: r.spec_json,
@@ -73,6 +84,8 @@ const toMarket = (r: MarketRow): Market => ({
   voidedAt: r.voided_at,
   outcome: r.outcome,
   evidenceHash: r.evidence_hash,
+  voidedBy: r.voided_by,
+  voidTx: r.void_tx,
   createdAt: r.created_at,
 });
 
@@ -81,52 +94,9 @@ export async function marketById(id: string): Promise<Market | null> {
   const [row] = await db()<MarketRow[]>`
     SELECT id, spec_hash, spec_json, observed_day, close_time, observation_end, resolve_deadline,
            directed_at, contract_address, chain_market_id, landed_at, resolved_at, voided_at,
-           outcome, evidence_hash, created_at
+           outcome, evidence_hash, voided_by, void_tx, created_at
     FROM markets WHERE id = ${id}`;
   return row ? toMarket(row) : null;
-}
-
-/**
- * ⚠️ **The commit cron's find-work query (Unit 10), and the reason it is a LEFT JOIN.** Markets a
- * human directed at this analyst that the analyst has no claim on yet. `list()` cannot express this
- * and bending it to would make the reports store import the market schema.
- *
- * ⚠️ **Reconciliation, never "since I last ran".** Vercel's cron delivery is best-effort in both
- * directions — a run can silently not happen and the same run can arrive twice — so the question is
- * always "what is still outstanding", asked from scratch. A row with a claim that has not landed
- * counts as taken: starting it again would be a second commit and a second spend.
- */
-export async function marketsAwaitingCommit(analyst: string): Promise<Market[]> {
-  const rows = await db()<MarketRow[]>`
-    SELECT m.id, m.spec_hash, m.spec_json, m.observed_day, m.close_time, m.observation_end,
-           m.resolve_deadline, m.directed_at, m.contract_address, m.chain_market_id, m.landed_at,
-           m.resolved_at, m.voided_at, m.outcome, m.evidence_hash, m.created_at
-    FROM markets m
-    LEFT JOIN claims c ON c.market_id = m.id AND c.author = ${analyst}
-    WHERE m.directed_at = ${analyst}
-      AND c.id IS NULL
-      AND m.voided_at IS NULL
-    ORDER BY m.created_at`;
-  return rows.map(toMarket);
-}
-
-/**
- * ⚠️ **The resolve cron's find-work query (Unit 11).** Past `observation_end`, neither resolved nor
- * voided. `markets_unresolved_idx` is this predicate exactly.
- *
- * ⚠️ `asOf` is a parameter rather than `now()` so a caller can ask the question at a stated instant.
- * The freshness rule (§5.16) is about `_meta.block.timestamp`, not about when this query ran, and a
- * settlement that mixes the two is how a market resolves on data from before the day it measures.
- */
-export async function marketsAwaitingResolve(asOf: Date): Promise<Market[]> {
-  const rows = await db()<MarketRow[]>`
-    SELECT id, spec_hash, spec_json, observed_day, close_time, observation_end, resolve_deadline,
-           directed_at, contract_address, chain_market_id, landed_at, resolved_at, voided_at,
-           outcome, evidence_hash, created_at
-    FROM markets
-    WHERE resolved_at IS NULL AND voided_at IS NULL AND observation_end <= ${asOf}
-    ORDER BY observation_end`;
-  return rows.map(toMarket);
 }
 
 /** A prediction on a market. ⚠️ `amount` is 18-dp atomic, as a string. */
@@ -261,4 +231,63 @@ export async function spentSince(
     FROM spend_ledger
     WHERE actor = ${actor} AND rail = ${rail} AND asset = ${asset} AND spent_at >= ${since}`;
   return row?.total ?? '0';
+}
+
+/**
+ * What one address was paid for its whole position in one market.
+ *
+ * ⚠️ **Per `(market, account)`, not per stake, because that is the grain the contract pays at.**
+ * `claim(marketId, recipient)` transfers `payoutOf(marketId, msg.sender)`, which sums
+ * `staked[marketId][true][account]` and `staked[marketId][false][account]` — every stake that
+ * address made in the market, plus its committed prediction if it made one, since `commitPrediction`
+ * and `stake` both run through the same `_add`. An address with three stakes has three `stakes` rows
+ * and exactly one row here.
+ */
+export interface Payout {
+  readonly marketId: string;
+  /** `msg.sender` of `claim()` — whose position this was. */
+  readonly account: string;
+  /** Where the money was sent. ⚠️ A different fact from `account`. Null until the claim lands. */
+  readonly recipient: string | null;
+  /** 18-dp atomic, as a string. ⚠️ Not a whole USDC unit — a payout is a ratio, see the migration. */
+  readonly amount: string;
+  readonly txHash: string | null;
+  /** The landmark. Null = computed and not yet collected. */
+  readonly claimedAt: Date | null;
+}
+
+interface PayoutRow {
+  market_id: string; account: string; recipient: string | null;
+  amount: string; tx_hash: string | null; claimed_at: Date | null;
+}
+
+const toPayout = (r: PayoutRow): Payout => ({
+  marketId: r.market_id,
+  account: r.account,
+  recipient: r.recipient,
+  amount: r.amount,
+  txHash: r.tx_hash,
+  claimedAt: r.claimed_at,
+});
+
+/** Every payout on a market, largest first. Uncollected ones have a null `claimedAt`. */
+export async function payoutsFor(marketId: string): Promise<Payout[]> {
+  const rows = await db()<PayoutRow[]>`
+    SELECT market_id, account, recipient, amount, tx_hash, claimed_at
+    FROM payouts WHERE market_id = ${marketId} ORDER BY amount DESC`;
+  return rows.map(toPayout);
+}
+
+/**
+ * One address's payout in one market, or `null`.
+ *
+ * ⚠️ **A non-null row is not the same as a collected payout** — `claimedAt` is what says the money
+ * moved. The row can exist with `claimedAt` null, meaning `payoutOf` returned a figure and nobody has
+ * called `claim()` yet, which is the normal state between resolution and collection.
+ */
+export async function payoutFor(marketId: string, account: string): Promise<Payout | null> {
+  const [row] = await db()<PayoutRow[]>`
+    SELECT market_id, account, recipient, amount, tx_hash, claimed_at
+    FROM payouts WHERE market_id = ${marketId} AND account = ${account}`;
+  return row ? toPayout(row) : null;
 }
