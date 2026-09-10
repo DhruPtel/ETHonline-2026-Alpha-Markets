@@ -6185,3 +6185,178 @@ bytecode we deploy — recorded at the top of the new file so nobody "fixes" the
 artifact is what gets deployed.
 
 Nothing committed. Nothing deployed.
+
+---
+
+## 2026-09-10T05:30Z — End of session. Phase 4 is three units in.
+
+⚠️ **The clock moved under this session and it matters.** Local time is Wednesday 22:27 PDT; **UTC is
+already Thursday 2026-09-10, 05:30Z.** The plan's calendar is entirely in UTC — Vercel cron is UTC,
+`dayStart()` is UTC, every epoch in PHASE-4.md is UTC — so the day the plan is counting has already
+turned over. **~90 hours to the deadline. ~18 hours to `closeTime` for the D = Friday 11 demo
+market.**
+
+**Where today ended against the calendar, as arithmetic rather than judgement.** The plan puts the
+contract deployed and the commit path working by Thursday, so the demo market can be created,
+committed, staked and resolved by the crons before recording. Units 4, 5, 6, 6b, 6c and 7 plus the
+deploy sit in that window. **Three units are done and none of those six has started.** The fallback —
+D = Saturday 12, commit by Friday — buys 24 hours and leaves no spare cron attempt.
+
+**What landed.** Unit 1, `src/arc/spec.ts` (357 lines) with `scripts/demo/spec.ts`, 38 assertions, no
+network. Unit 2, `contracts/AlphaMarket.sol` (381 lines), compiling under the pinned solc with zero
+errors and zero warnings, 4,783 deployed bytes. Unit 3, `scripts/ops/build-contract.ts` producing the
+committed `src/arc/abi.ts`, with a `prebuild` gate that refuses on drift. ⚠️ **The contract is
+compiled and not deployed. There is no Arc contract address.** Nothing from Phase 4 is on the
+deployment: no market routes, no cron routes, no `crons` key in `vercel.json`, no migration past 004.
+
+**Where each unit landed differently from its brief, and why.**
+
+*Unit 1* narrowed the legal metric set further than the brief asked. The brief said balance and flow
+legal, revenue refused by name; the repo's own record made two more classes unsafe. Lifetime
+accumulators are refused for the same class of reason as revenue — morpho-blue's
+`cumulativeDepositUSD` reads $3.78e23 and nobody swept the other 24 deployments — and TVL and the
+three unmeasured daily flows are refused as *not individually swept*, since the measurement that
+cleared balance and flow covered exactly four fields. The three refusal reasons stay distinct in the
+messages, because measured-broken, measured-absurd and no-evidence-either-way are different claims
+and only the third reverses with a sweep. It also gained `holds()`, which was not in the brief:
+leaving equality undefined is the ambiguity that makes a market unresolvable, and defining it in the
+resolver would mean settlement inventing the question.
+
+*Unit 2* took the access-control decision the plan routed to it: an **immutable `resolver`** set in
+the constructor, no setter. It uses **no OpenZeppelin and has zero imports** — the only candidate was
+`ReentrancyGuard`, and checks-effects-interactions with the `claimed` flag set before any transfer is
+sufficient, so a dependency inside the contract was not taken. And **`createMarket` enforces only the
+ordering of the timestamps, not their relation to now** — the obvious `observationEnd >
+block.timestamp` guard is absent because it would make the rehearsal market impossible, which is how
+resolve, void and the empty-pool path get exercised without waiting a calendar day. The cost is that
+a market can be created over a day already observed and the contract cannot tell.
+
+*Unit 3* **does not import `verify-ats.ts`**, against the brief's instruction to reuse its machinery.
+That file resolves two contract packages at module scope and imports `MIRROR`, which pulls `ethers`
+and the ATS typechain — so importing it would put a `require.resolve` on a devDependency inside the
+one code path that must survive a missing compiler. The pattern was reused; the module was not, and
+`verify-ats.ts` is unmodified. Its compile settings are also deliberately not shared: that file's
+settings *reproduce* ATS's upstream hardhat config, ours are an original choice, and coupling them
+would let a third party's config change alter the bytecode we deploy.
+
+**Open items are in PHASE-4.md's new stands-section** rather than repeated here — nine of them,
+including the four already known, plus: no Arc RPC environment variable exists and Unit 4 needs one;
+`buildEvidence` still has no destination; the repo has no LICENSE while the contract declares MIT;
+and `resolveDeadline >= observationEnd + 2 days` is enforced in `spec.ts` but not on chain.
+
+**Where this record went, and why it is split.** Unit states went into **PHASE-4.md's status table**,
+which is the first thing anyone opens and the thing PHASE-3 recorded going stale three times. The
+cold-start facts — the clock, what is deployed, the eight things to know before touching anything,
+and the open items — went into a **new *Where this actually stands* section in PHASE-4.md**, matching
+PHASE-3.md's shape exactly, because that is reference material a session needs at hand rather than
+history. **This narrative stays here.** State in one place, history in the other, no duplication.
+
+---
+
+## 2026-09-10T21:50Z — Orientation pass, no code. The clock moved again and two open items closed.
+
+**Nothing was built or changed.** A cold session read PHASE-4.md, the logs tail and DECISIONS.md,
+re-ran the two standing checks and verified the record against the repo and against live Arc.
+`npx tsc -p tsconfig.json --noEmit` exits 0. `migrate.ts` is a clean no-op, four migrations, tables
+`purchases, quotes, report_tokens, reports, token_transfers`. `npm run check:contract` passes both
+tiers — source hash matches and a fresh recompile is byte-identical at 4,783 deployed bytes.
+
+⚠️ **It is 21:50Z Thursday, not 05:30Z.** The stands-section was written sixteen hours ago and its
+"~18 hours to `closeTime`" is now **~2 hours**. Units 4, 5, 6, 6b, 6c and 7 plus the deploy are still
+unstarted, so **D = Friday 11 is gone and the fallback is in effect** — D = Saturday 12, `closeTime`
+Sat 12 00:00Z, ~26 hours out. Unit 12's own trigger ("not started by Thursday evening") has fired.
+
+⚠️ **Open item 1 — Arc's EVM version — is answered, and the answer is favourable.** Arc testnet's
+latest block header carries `blobGasUsed`, `excessBlobGas` and `parentBeaconBlockRoot` (Cancun) **and
+`requestsHash` (Prague, EIP-7685)**. The chain is at or past Cancun, so the committed cancun artifact
+is the right build and Unit 6 is not walking into a live revert. ⚠️ **Header fields prove the fork
+level, not opcode execution** — the airtight check is executing `MCOPY`/`TSTORE`, which costs gas and
+was not spent. Live `eth_chainId` returns `0x4cef52` = **5042002**, matching Unit 4's brief.
+
+⚠️ **Both wallets are funded, so Unit 6 has no faucet dependency.** Deployer ~19.998 and the analyst's
+Circle wallet ~17.499, native 18-dp. Unit 6's "fund the wallet first, and check the faucet still
+works" is already satisfied and should not cost time today.
+
+⚠️ **`ARC_WALLET` is the deployer EOA, not the analyst — and the record does not say so.** Derived
+locally from `ARC_DEPLOYER_KEY`, the address is `0xA6B1…8079`, exactly `ARC_WALLET`'s value;
+`analysts.ts` carries `arcAddress` `0x1b70…16a7`, the Circle wallet. Open item 4 records that the var
+is read by nothing, which reads as harmless tidying. **It is a differently-named copy of a second
+identity**, and Unit 4 is the file that adds both the chain constants and the guard that refuses when
+`CIRCLE_WALLET_ID` does not resolve to the analyst's address. Whoever writes Unit 4 must not reach
+for it.
+
+**Also found:** the Arc RPC is not the only missing constant — `NATIVE_USDC`
+(`0x3600…0000`) lives beside it as a hardcoded literal in `scripts/smoke/08-circle-payable-call.ts`,
+and Unit 4 needs both. **`DECISIONS.md` has no Phase 4 entry**; its last section is 2026-09-08, and
+Unit 2's two rewrite-shaped calls — the immutable `resolver`, and `createMarket` deliberately omitting
+an `observationEnd > block.timestamp` guard so a rehearsal market is possible — are recorded in
+PHASE-4.md's unit sections only. Last night's `logs.md` and `PHASE-4.md` edits are still uncommitted.
+
+---
+
+## 2026-09-10 — Phase 4 Unit 4: `src/arc/arc.ts`, the plumbing every Arc write shares
+
+`src/arc/arc.ts` (329 lines, 142 of real logic) and its proof `scripts/demo/arc.ts` (120 lines, 70
+of logic). `ARC_RPC_URL` added to `.env.example` and to the local `.env` so the proof runs. Nothing
+else touched. `npx tsc -p tsconfig.json --noEmit` exits 0 and the proof passes 22 assertions against
+live Arc and live Circle. ⚠️ **No transaction was sent** — two reads, and `submit()` is exercised in
+Unit 6 where a deployed contract exists to send to.
+
+⚠️ **142 lines of real logic is over this project's ~120 guideline, and I should have said so before
+writing rather than after.** I estimated ~124 while planning and it came out 142. The brief names all
+eight pieces as belonging to this one file so the content is not mine to cut, but **there is a named
+seam if the size matters**: PLAN-v4 §9's original Phase 4 sketch listed a `units.ts` alongside
+`spec.ts`, and the conversion site plus the `ARC` record is exactly that file. Splitting it is a
+decision, not a tidy-up, so it was not taken unasked.
+
+**The env-versus-constant call, which the brief left open.** `ARC_RPC_URL` is an **env var** — an
+endpoint is an operational choice that rotates, rate-limits and differs on mainnet, and
+`HEDERA_TESTNET_RPC` and `ETHEREUM_RPC_URL` are both env vars for that reason. The native-USDC
+address is a **constant inside the `ARC` record beside the chainId** — `0x3600…0000` is a predeploy
+the chain defines and cannot change without the chainId changing with it, so the two are one object.
+That is `payments/server.ts`'s `NETWORKS` shape and its reasoning: the wrong combination is
+unrepresentable. ⚠️ **A wrong RPC breaks reads and cannot mis-send money**, because every write goes
+through Circle, which is told the wallet id and never the URL — which is what makes the split safe.
+
+⚠️ **Two claims in the brief were verified in the shipped bundles before being relied on, and both
+held.** `generateIdempotencyKey` is exported from the package's typings and appears **zero times in
+both `.es.js` and `.cjs.js`** — a phantom, never import it. `idempotencyKey: t ?? ee()` is there
+verbatim in `createDeveloperTransactionContractExecution`. **The same check paid for itself
+immediately**: the SDK ships a real `waitForState` with a `signal`, present in both bundles, which
+polls `INITIATED → CLEARED → QUEUED → SENT → CONFIRMED → COMPLETE`, rejects on the four terminal
+failures with `errorReason` and `errorDetails` already in the message, and honours the signal in its
+delay. **So the poll loop is the SDK's, not ours** — SM-08 hand-rolled one because this was not known
+then, and reimplementing it here would have been a second state machine to keep correct.
+
+⚠️ **A third instance of the empty-string bug, found while reading the bundle.** `t ?? ee()` means a
+**blank** idempotency key is passed through rather than replaced — `??` falls back on `undefined` and
+never on `""`, which is `config/env.ts`'s bug on a different rail. `submit()` guards it explicitly as
+its first statement, before the identity lookup and long before Circle is asked to create anything,
+and the proof calls `submit()` for real to demonstrate that ordering costs nothing.
+
+**How the idempotency key reaches this file, since Unit 5's row does not exist yet:** it is a
+**required** field on `SubmitInput` and this file will not invent one. The key has to survive a cold
+start, so it belongs to whoever owns the row and is passed back in on the retry. Making it required
+is what stops a caller silently falling through to Circle's per-call generation, where a duplicate
+cron delivery would be a second transaction and a second spend.
+
+**How the Circle id is recorded before the wait:** `onSubmitted?` is awaited between the create and
+the wait, and every `ArcSubmitError` carries the id as well. ⚠️ **`inFlight` is the field that
+matters** — the SDK rejects an aborted wait with a `DOMException` named `AbortError` (its `cause` is
+the signal's reason, so the name is `AbortError` even for `AbortSignal.timeout`), and that is the one
+signal separating *we stopped watching* from *Circle says it is dead*. The two want opposite
+handling: reconcile the first by id, never retry the second. The wait is bounded at 45s so the error
+path still runs inside Hobby's 60-second ceiling; a platform kill at 60 runs nothing.
+
+**One thing the conversion site does that the brief did not ask for, and it is worth the four lines.**
+`usdcFromNative` refuses a remainder rather than rounding it. `AlphaMarket.sol:93` declares
+`UNIT_SCALE = 1e12` and `_checkAmount` reverts `NotAUsdcUnit` on exactly that condition, so rounding
+here would turn a free local throw into a paid on-chain revert — and a silently truncated stake is
+money a staker does not get back.
+
+⚠️ **The guard's wrong address in the proof is not invented.** It is `ARC_WALLET` —
+`0xA6B1…8079`, the deployer EOA derived from `ARC_DEPLOYER_KEY` — because that is a real address in
+this project's own configuration and exactly the one someone reaches for when they want "the
+analyst's Arc wallet". The analyst is `0x1b70…16a7`. **`ARC_WALLET` wants renaming to
+`ARC_DEPLOYER_ADDRESS`**; not done here, because it is Unit 11b's file and this unit touches
+`arc.ts` only.
