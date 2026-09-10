@@ -313,6 +313,11 @@ closed**. Its whole purpose is to drive resolve, void, claim and the empty-pool 
 instead of waiting for a calendar day. ⚠️ **Its commit is after the fact, so it is not a forecast and
 must never be presented as one.** It is a machinery proof and nothing else.
 
+⚠️ **That sentence is now load-bearing rather than a discipline** *(Unit 2, 2026-09-09)*.
+`createMarket` deliberately does **not** carry an `observationEnd > block.timestamp` guard — it could
+not, or a rehearsal market would be impossible — so **a market over an already-observed day is
+indistinguishable on chain from a forecast.** Nothing enforces the distinction but us. See Unit 2.
+
 **The demo market** — *D* = Friday 11, committed Thursday, genuinely unknown at commit time. **This is
 the one on camera** and the only one whose result means anything.
 
@@ -402,8 +407,55 @@ and it is kept.
 suite contradicts three phases of "live networks only". **The proof is Unit 6.** Cost recorded under
 *Sooner over correct*.
 
-**Proof:** it compiles under the pinned `solc@0.8.28`. ⚠️ **Everything else about this unit is proved
-by Unit 6 on Arc testnet**, and that is deliberate.
+### ✅ DECIDED HERE — who may call `resolve` *(2026-09-09)*
+
+**An immutable `resolver` address set in the constructor, and it is the only access control in the
+contract.** Anyone may create a market, anyone may stake, anyone may void after the deadline, anyone
+may claim. Only the resolver settles.
+
+**Why that address.** It is the analyst's Circle wallet, because it is **the only party that runs the
+Graph read and can therefore produce a matching `evidenceHash`.** A resolution from anyone else would
+be an outcome with nothing behind it, which is the one thing this design promises not to do.
+
+**Why immutable, with no setter.** ⚠️ **A mutable resolver is a key worth stealing and an admin
+function worth abusing.** If the analyst's wallet ever changes, the answer is a new contract — which
+is already how this project treats analyst identity everywhere else (Unit 11b: *recovery is adding a
+new analyst row, not restoring the old one*).
+
+⚠️ **Why a restricted resolve cannot strand funds, which is what makes it safe rather than a
+lock-in.** `voidMarket` stays **permissionless after `resolveDeadline`** and `claim` is pull-based.
+If the resolver never fires, refuses, or disappears, anyone voids the market and every staker takes
+their own stake back. **The worst a silent resolver can do is delay settlement to the deadline.**
+
+⚠️ **THE RESIDUAL, ACCEPTED RATHER THAN SOLVED: a dishonest resolver can settle wrongly BEFORE the
+deadline** and direct the pool to the wrong side. Nothing on chain contradicts it. What exists
+instead is `evidenceHash` over a reproducible read — a named deployment hash, a named document, a
+named day — so a wrong resolution is **detectable by anyone and correctable by no one.** That is the
+honest limit of a market with no oracle and no dispute layer, and it is the same shape as the
+settlement evidence rather than a new exposure.
+
+### ⚠️ A trade taken inside the contract, and the rehearsal market now rests on it
+
+**`createMarket` enforces only the ORDERING of the timestamps, not their relation to now.**
+`closeTime < observationEnd <= resolveDeadline`, and nothing else.
+
+The obvious guard — `observationEnd > block.timestamp` — is **deliberately absent**, because it would
+make a rehearsal market over an already-closed day impossible, and the rehearsal is how `resolve`,
+`voidMarket` and the empty-pool path get exercised **without waiting a calendar day this phase does
+not have.**
+
+⚠️ **The cost is real: a market can be created over a day already observed, and the contract cannot
+tell.** Policy about `closeTime` versus the observed day lives in `spec.ts`, which is the only place
+that knows which day the question names.
+
+⚠️ **This is what the calendar's rehearsal-market sentence now rests on** — *"its commit is after the
+fact, so it is not a forecast and must never be presented as one."* That was a discipline when it was
+written and it is now **the only thing standing between a rehearsal market and a claim that looks
+like a forecast.** Nothing on chain enforces it.
+
+**Proof:** it compiles under the pinned `solc@0.8.28` — ✅ **done 2026-09-09, zero errors and zero
+warnings**, 4,783 deployed bytes against EIP-170's 24,576. ⚠️ **Everything else about this unit is
+proved by Unit 6 on Arc testnet**, and that is deliberate.
 
 ---
 
@@ -555,6 +607,31 @@ recorded so nobody treats it as a bug.
 
 ⚠️ **Fund the wallet first**, and check `requestTestnetTokens` still works — SM-08 recorded the faucet
 API rate-limiting independently of its web form.
+
+### ⚠️ CONFIRM ARC'S EVM VERSION BEFORE DEPLOYING *(from Unit 2, 2026-09-09)*
+
+**`AlphaMarket.sol` compiles clean under `cancun`, `shanghai` and `paris` — but the builds are not the
+same bytecode.** Deployed size, pinned `solc 0.8.28`, optimizer on at runs 100:
+
+| evmVersion | deployed bytecode |
+|---|---|
+| `cancun` | **4,783 bytes** |
+| `paris` | **4,871 bytes** |
+
+⚠️ **88 bytes smaller under cancun means solc used cancun-era codegen**, so the cancun build is not
+merely "compiled with a newer target" — it contains instructions a pre-cancun chain does not have.
+
+⚠️ **Deploying it to a pre-cancun chain is a LIVE REVERT, not a compile error**, and it would present
+as an unexplained failure at the exact moment gas is being spent — on a chain whose reverts this
+project has never read before, with a contract holding real USDC. **Confirm what Arc testnet
+supports, then pin the setting.** The setting itself belongs to Unit 3; confirming the chain belongs
+here, because this is where the first deploy happens.
+
+⚠️ **How this was established, including the method that was wrong** — because the wrong one is what
+anyone would reach for next. The first attempt grepped the compiled bytecode for an `MCOPY` opcode
+byte and **that is meaningless: bytecode is a hex string and any byte pair matches somewhere.** It
+was discarded. **The size difference between two evmVersion builds of the same source is the signal**
+— it is a whole-artifact comparison and it cannot accidentally match.
 
 **Proof:** every path above, on chain, with transaction hashes. ⚠️ Specifically: **the empty-pool
 refund returns every staker exactly their stake**, and the sum of payouts on a normal resolution is
@@ -1196,7 +1273,9 @@ done.
 | the `FactId` → subject mapping | **Unit 1** | before Unit 7 reads a report's figure |
 | `msg.value` scale on chain | **Unit 2** | ✅ **already resolved** — conflict 1 |
 | whether `commitPrediction` emits `claimId` | **Unit 2** | ⚠️ **before it is deployed.** Unfixable after |
-| **who may call `resolve`** | **Unit 2** | ⚠️ **before it is deployed.** §5.2 shows no access control, so as written anyone could settle any market with any outcome. **Surfaced by Unit 11b's permissions table, taken in Unit 2** |
+| **who may call `resolve`** | **Unit 2** | ✅ **TAKEN 2026-09-09 — an immutable `resolver` set in the constructor**, the analyst's Circle wallet, no setter. Safe because `voidMarket` stays permissionless and `claim` is pull-based. ⚠️ Residual accepted: a dishonest resolver can settle wrongly before the deadline |
+| ⚠️ **Arc's EVM version** | **Unit 6** | ⚠️ **before the first deploy.** cancun and paris produce different bytecode (4,783 vs 4,871), so a wrong target is a live revert rather than a compile error. Unit 3 pins the setting; Unit 6 confirms the chain |
+| timestamps versus `now` at market creation | **Unit 2** | ✅ **TAKEN — ordering only, no `observationEnd > block.timestamp` guard**, so a rehearsal market is possible. ⚠️ Cost: a market can be created over a day already observed |
 | where the ABI drift check runs | **Unit 3** | with the unit |
 | the idempotency key's shape and storage | **Unit 4** | before Unit 10 can be idempotent |
 | the one conversion site | **Unit 4** | before Unit 13 displays anything |

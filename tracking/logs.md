@@ -6080,3 +6080,50 @@ ends up as something else, this line changes with it — and E3/E5 want the repo
 explicit anyway.
 
 Nothing committed. Nothing deployed.
+
+---
+
+## 2026-09-09 — Unit 2's findings recorded into PHASE-4.md
+
+Documentation only, `tracking/phases/PHASE-4.md`. Three things the contract surfaced that the plan
+did not carry, plus one cross-reference.
+
+**Unit 6 gained an EVM-version warning with a table.** `AlphaMarket.sol` compiles clean under cancun,
+shanghai and paris, but cancun and paris produce different bytecode — 4,783 against 4,871 deployed
+bytes — so the cancun build genuinely uses cancun-era codegen rather than merely targeting a newer
+version. Deploying it to a pre-cancun chain is a live revert rather than a compile error, and it
+would present as an unexplained failure at the moment gas is being spent, on a chain whose reverts
+this project has never read. Unit 3 pins the setting; Unit 6 confirms the chain, because that is
+where the first deploy happens. ⚠️ **The discarded method is recorded alongside the working one**,
+because it is the one someone reaches for next: grepping the bytecode for an `MCOPY` opcode byte is
+meaningless, since bytecode is a hex string and any byte pair matches somewhere. The size difference
+between two builds of one source is a whole-artifact comparison and cannot accidentally match.
+
+**Unit 2 now records the access-control decision rather than merely being routed it.** An immutable
+`resolver` set in the constructor, the analyst's Circle wallet, no setter — chosen because it is the
+only party that runs the Graph read and can produce a matching `evidenceHash`, and immutable because
+a mutable resolver is a key worth stealing and an admin function worth abusing. Recorded with the
+reason it is safe rather than a lock-in: `voidMarket` stays permissionless after `resolveDeadline`
+and `claim` is pull-based, so a silent resolver can only delay settlement to the deadline. ⚠️ **And
+with the residual, which is accepted rather than solved** — a dishonest resolver can settle wrongly
+*before* the deadline and nothing on chain contradicts it. What exists instead is `evidenceHash` over
+a reproducible read: detectable by anyone, correctable by no one.
+
+**The timestamp trade is now in the plan, and it turned out to change something already written.**
+`createMarket` enforces only the ordering of the timestamps, never their relation to now, because an
+`observationEnd > block.timestamp` guard would make the rehearsal market impossible — and the
+rehearsal is how resolve, void and the empty-pool path get exercised without waiting a calendar day
+this phase does not have. The cost is that a market can be created over a day already observed and
+the contract cannot tell. ⚠️ **So the calendar's line about the rehearsal market — "its commit is
+after the fact, so it is not a forecast and must never be presented as one" — has stopped being a
+discipline and become the only thing standing between a rehearsal market and something that looks
+like a forecast.** Added a pointer at that sentence's own site as well as in Unit 2, because a fact
+recorded at one end of a dependency is how this project has lost information three times.
+
+Three rows added to the decision-ownership table: the resolve decision as taken, Arc's EVM version as
+owed by Unit 6, and the timestamp trade as taken.
+
+⚠️ **Flagged for a decision, not added to the plan: the contract declares
+`SPDX-License-Identifier: MIT` and this repo has no LICENSE file.**
+
+Nothing committed.
