@@ -7703,3 +7703,70 @@ set in `.env` *and* in the Vercel project, and they have to be the same string.
 
 ⚠️ **Saturday 02:00Z is a free rehearsal of this path with nothing outstanding** — the empty-work
 case above is exactly what it will print — and it only happens if this is deployed by then.
+
+---
+
+## 2026-09-11T17:50Z — The three Vercel variables, checked by behaviour rather than by listing
+
+Read-only: no deploy, no edit, no write, no transaction. **All three are LIVE in the running
+production deployment**, established from what the deployed functions do rather than from
+`vercel env ls` or `.env`. One of the three carries a caveat that is worth stating precisely.
+
+### ⚠️ `/api/health` does NOT cover these three, and that is the first finding
+
+Its `env` block reports exactly four variables — `HEDERA_NETWORK`, `HEDERA_SELLER_ID`,
+`HEDERA_SELLER_KEY`, `DATABASE_URL`. The **mechanism** is right there and is the one this question
+needed (`envState()` distinguishes `absent` / `EMPTY — set but blank` / `set`, with no `??`
+anywhere), but none of `CRON_SECRET`, `ARC_MARKET_ADDRESS` or `ARC_RPC_URL` is passed to it.
+⚠️ **So the route built to end exactly this ambiguity could not answer it**, and the answer had to
+come from three other routes. That is the second time this project has needed a variable's deployed
+state and had to get it somewhere else.
+
+### What is deployed, and when, against when the variables were added
+
+The production alias points at `dpl_DCSZGcBdcUXXHt7vACpXr77daeEZ` (`3i0g85k9w`), created
+**2026-09-11T17:40:55Z**. ⚠️ **Four production deployments have landed since this morning's 07:56Z
+one**, and `/api/cron/resolve` now answers instead of 404ing — **Unit 11 is deployed**, and
+`vercel crons ls` shows **two** jobs: `/api/cron/commit 0 22 * * *` and `/api/cron/resolve 0 2 * * *`.
+
+Added at (relative, read 17:43Z): `ARC_MARKET_ADDRESS` ~17:23Z · `ARC_RPC_URL` ~17:24Z ·
+`CRON_SECRET` ~17:28Z. **All three predate the deployment by 12–18 minutes**, so the build that is
+serving picked them up. ⚠️ The ordering is corroboration, not the proof — the behaviour below is the
+proof, and the two agree.
+
+**The logs agree too.** This morning: `error λ GET /markets/6 … ARC_MARKET_ADDRESS is not set`.
+The current deployment's log shows the same routes at `info` with **no error entries at all**.
+
+### Per variable
+
+| | verdict | how |
+|---|---|---|
+| **`ARC_MARKET_ADDRESS`** | ⚠️ **LIVE, and the value is CORRECT** | `/markets/6` and `/markets/7` are **200** (were 500). Stronger than the status code: the page's query is `WHERE chain_market_id = $id AND contract_address = requiredEnv('ARC_MARKET_ADDRESS')`, so a present-but-**wrong** value matches no row and returns **404**. It returned 200 rendering `0x003e7Cb7…48044` and a **1.01 USDC** pool |
+| **`ARC_RPC_URL`** | ⚠️ **LIVE, and the raw value reaches a working Arc RPC** | The markets page proves *present and non-blank* only — ⚠️ **it has a fallback**: a URL carrying credentials, a query or a path is replaced with the hardcoded public endpoint, so the page's chain read cannot tell the env value from the fallback. `/api/markets/[id]/refresh:62` uses the **raw** value with no fallback; a probe there returned a receipt from Arc and read pools, so the stored value is a reachable Arc endpoint |
+| **`CRON_SECRET`** | **LIVE (present, non-blank). ⚠️ Value-correctness NOT determinable from here** | `/api/cron/commit` calls `requiredEnv('CRON_SECRET')` **before** the auth comparison, so **500 = absent or blank, 401 = present and non-blank**. It returns **401** with no header and with a deliberately wrong bearer. `/api/cron/resolve` returns 401 too — a second, independent confirmation |
+
+⚠️ **The brief said `CRON_SECRET` could not be tested because Unit 11 was not deployed. It could:
+`/api/cron/commit` has been deployed since 07:56Z and reads the same variable with no fallback** —
+which is exactly the shape the `HEDERA_SELLER_ID` episode said was the only reliable answer. Unit 11
+being deployed now just makes it two routes instead of one.
+
+### ⚠️ What genuinely cannot be established, and it is one thing
+
+**Whether `CRON_SECRET`'s value equals the string Vercel's scheduler will send.** Vercel generates
+the `Authorization: Bearer` header from the project's own value, so by construction they are the same
+string — but that is an argument, not an observation, and nothing readable from outside confirms it
+without the value itself or a real scheduled fire. ⚠️ **The 22:00Z commit run is the first thing that
+proves it**, and it proves it by working.
+
+### Smaller things
+
+- ⚠️ **All three are Production-only, no Preview.** Correct for the crons; it means a preview
+  deployment 500s on `/markets/[id]` and both cron routes.
+- `.env` locally still has no `CRON_SECRET` — ⚠️ irrelevant to the deployed question and it does not
+  block anything, since `ARC_RPC_URL` and `ARC_MARKET_ADDRESS` were already there. It only matters
+  for driving a cron route locally.
+- **The probe wrote nothing.** `/api/markets/10/refresh` was aimed at the rehearsal market with the
+  `voidMarket` transaction from chain market 9 — mined, same contract, carries `Voided` and no
+  `Staked` — so it returns **422 before the INSERT**, which is unreachable on that path. Verified
+  after: `stakes` still 1 row, `markets` still 8, and chain markets 6 and 7 still carry null
+  landmarks.
