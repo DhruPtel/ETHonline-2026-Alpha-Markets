@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/commit",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/cron/resolve",
+      "schedule": "0 2 * * *"
     }
   ]
 }

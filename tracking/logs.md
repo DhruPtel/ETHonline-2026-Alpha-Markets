@@ -7510,3 +7510,196 @@ to be finished by hand the same day. The manual path exists and is proven —
 after 2026-09-15T00:00:00Z regardless, so funds are never stranded. What cannot be recovered is the
 *unattended* claim: A2 and A4 both rest on a scheduled run nobody triggered, and each has one
 scheduled attempt left before the deadline.
+
+---
+
+## 2026-09-11T17:20Z — Orientation pass, no code. The deploy DID land; three env vars did not.
+
+A cold session read the four tracking documents, ran the two checks, and verified every claim
+against the chain, the Vercel project and the database. **Nothing was written, spent or deployed**
+beyond this entry. `npx tsc -p tsconfig.json --noEmit` exits 0. `migrate.ts` is a clean no-op across
+six migrations, thirteen tables. Chain state came from `eth_call` and `eth_getLogs`; the store was
+read only to cross-check it.
+
+⚠️ **The task brief said "Today is Saturday 13 September, deadline Sunday 14." It is Friday
+2026-09-11.** Confirmed three ways: the system clock (17:12Z), the Arc chain's latest block
+(`1789146752` = 2026-09-11T17:12:32Z) and the subgraph's `_meta` (17:17:35Z). **That is two clear
+days rather than one**, and every deadline in `PHASE-4.md`'s calendar still stands as written —
+including tonight's 22:00Z commit cron, which has **not yet fired**, and the 23:59Z close on the
+seeded market, which has **not yet happened**.
+
+### ⚠️ The deployment is current and the cron is registered — and it 500s
+
+**`PHASE-4.md`'s "`/api/cron/commit` is built and not deployed · the live deployment is still Phase
+3's" is out of date.** The production alias `et-honline-2026-alpha-markets.vercel.app` points at a
+deployment created **2026-09-11T07:56:18Z, sixteen seconds after HEAD (`48ed1ba`)**, and it carries
+Phase 4: `/api/cron/commit` and `/markets/[id]` both answer (500, not 404), `/api/markets/6/refresh`
+answers 405 to a GET, and `/api/cron/resolve` is a genuine 404 because Unit 11 does not exist.
+`vercel crons ls` shows **one job, `/api/cron/commit` at `0 22 * * *`**, registered.
+
+⚠️ **And it cannot work, because three environment variables the deployed code reads are absent from
+the Vercel project.** A symmetric grep of `src/` and `app/` against `vercel env ls`:
+
+| missing in Vercel | what breaks | evidence |
+|---|---|---|
+| **`CRON_SECRET`** | ⚠️ **tonight's 22:00Z cron returns 500 and A2 gets no evidence** | runtime log: *"CRON_SECRET is not set (or is set to an empty string)"* |
+| **`ARC_MARKET_ADDRESS`** | ⚠️ **`/markets/6` and `/markets/7` are 500 in production right now** | runtime log, same shape |
+| **`ARC_RPC_URL`** | the next failure after the one above, on the same pages | read by `arc.ts`, absent from the project |
+
+⚠️ **Only the first of the three is named anywhere in the tracking.** The other two mean **Unit 14's
+staking page — the A5 surface, the thing a stranger would be pointed at — has been down since the
+deploy landed nine hours ago**, and nothing said so because the deploy was recorded as not having
+happened. A route that 500s looks identical to a route that was never shipped; the difference only
+showed up by asking Vercel rather than the plan.
+
+`CRON_SECRET` is **also absent from `.env`** — not blank, absent — so there is no local value to copy
+up. `.env.example:160` documents it and leaves it empty, which is correct for a template.
+
+### Every market, read from the chain
+
+`marketCount` **9**, `claimCount` **7**, contract balance **1.02 USDC**, resolver
+`0x1B7035bBe0DA8F3bcb721863D42e1079e4A116A7`. A full log scan over blocks 61478315–61598315 found
+**31 events and nothing after block 61531149** — so no stake has landed on 6 or 7 since last night,
+and the chain agrees with the store on every row.
+
+The balance reconciles exactly: markets 2–5 were drained by their `Claimed` events, 6 holds 1.01 and
+7 holds 0.01. **1.02 held, 1.02 owed.**
+
+⚠️ **`PHASE-4.md` says market 6 is "losing" and that is now stale.** The 2026-09-10 snapshot was
+24.075B against its 24.387B bar; the 2026-09-11 snapshot reads **25.055B**, above both markets'
+thresholds. **Neither standing means anything yet** — the observed day is 2026-09-12 and it has not
+started. Recorded so the next session does not repeat the old line.
+
+### ⚠️ Three things nobody has written down
+
+1. ⚠️ **`marketsAwaitingResolve` has no `landed_at IS NOT NULL` predicate.** From
+   **2026-09-13T00:00:00Z** it returns the seeded market `m/9e1469c4fa950754e2791734` alongside 6 and
+   7, because that row's `observation_end` is the same instant and it will still be unresolved. If
+   the commit cron never commits it, **Unit 11's one run that matters hands `prepare()` a market with
+   no `chain_market_id`.** `resolve.ts` refuses it at guard 2 and spends nothing — so this is not a
+   gas leak, it is the Unit 10 shape one layer down: **the refusal has to be classified as a skip,
+   not as a failure**, or the Sunday 02:00Z run reports an error beside two good settlements. Unit 11
+   should decide this before it is discovered inside the run.
+2. **`ARC_DEPLOYER_KEY` is set in the Vercel production environment and read by nothing that
+   deploys.** It is a scripts-only variable. A funded private key sitting in a serverless environment
+   for no reason. Belongs in 11b's env audit.
+3. **Two store rows point at chain market 8** — `m/rehearsal-5e207fcf98b52eb3` and
+   `m/rehearsal-reconcile-8`. Deliberate, it is Unit 9's reconcile fixture, and both are resolved so
+   nothing queries them. Noted only because `markets` has 7 rows against 9 chain markets and the
+   arithmetic looks wrong until you know why.
+
+### What has to be true before Sunday 02:00Z, and there are two fires not one
+
+Markets 6 and 7 cannot settle before **2026-09-13T01:00:00Z** and `DECISIONS.md` puts the cron at
+`0 2 * * *`. ⚠️ **That schedule also fires Saturday 02:00Z, when `marketsAwaitingResolve` returns
+nothing — a free rehearsal of the scheduled path with no money at stake.** It is only free if Unit 11
+is deployed by then, which makes Saturday 02:00Z the real target rather than Sunday.
+
+Everything the resolve path needs is already proven on chain: `settle()`, `recordSettlement()`,
+`prepare()`, `resolveMarket()` and `voidMarket()` all ran against the rehearsal markets this morning.
+The analyst holds **17.44 USDC** on Arc against a measured resolve cost of ~0.0012 each. The subgraph
+is indexing within ~30 seconds of real time, so the freshness margin has the headroom it was chosen
+for. **What is missing is the route, its `vercel.json` entry, a deploy, and the three environment
+variables above** — and the last of those is the only item that is also blocking tonight.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 11: `app/api/cron/resolve/route.ts` — the analyst settles on a schedule
+
+`app/api/cron/resolve/route.ts` and a second `crons` entry in `vercel.json`. `npx tsc -p
+tsconfig.json --noEmit` exits 0 and **`npm run build` passes** with `/api/cron/resolve` listed.
+⚠️ **A4 is not closed yet** — it closes when a `vercel-cron/1.0` request settles something with
+nobody watching, and that needs a deploy. Everything up to that is proven, **including a real
+settlement driven through the route rather than through the function underneath it.**
+
+### The proof, and the real settlement went through the HTTP route
+
+Against the production build on `next start`, with the bearer token passed by hand:
+
+| | |
+|---|---|
+| no `Authorization` header | **401** |
+| wrong secret | **401** |
+| correct secret, nothing outstanding | **200**, `outstanding: 0`, clean summary, 977 ms |
+| correct secret, one market outstanding | **200**, **resolved on chain in 11.7 s** |
+| the same run delivered again | **200**, `outstanding: 0` — the market is settled and the query no longer returns it |
+
+⚠️ **The settlement is real and it is market 10, created for this.** A rehearsal market over
+**2026-09-10** — a finished day — with threshold 30B against an observed 24.074B, so it settles
+**FALSE**, a branch no rehearsal on chain had taken before. Created through ethers with the deployer
+key, `m/rehearsal-a014b3080fa43ec3`, `directed_at` NULL, and then **left alone** so the route was the
+thing that settled it. The route resolved it in `0xe4b274b5…`, gas **0.001357841095 USDC** paid by
+the analyst, `Resolved(marketId=10, outcome=false)` in the receipt, and the **stored `evidence_hash`
+equals the hash on chain** — which is the ordering property this unit exists to keep.
+
+**Total spent: 0.003561053095 USDC** — one `createMarket` from the deployer (0.002203212) and one
+`resolve` from the analyst through the route (0.001357841095).
+
+⚠️ **Markets 6 and 7 were never reachable, and that is structural rather than careful.**
+`marketsAwaitingResolve` is `observation_end <= asOf`, and theirs is 2026-09-13T00:00:00Z — so on
+2026-09-11 the query cannot return them at all. Verified from the chain after every run: both
+unresolved, unvoided, pools 1.01/0.00 and 0.01/0.00, no landmarks, `stakes` still one row.
+
+### ⚠️ The never-landed skip moved up a layer, and I would defend the move
+
+The brief expected the seeded market's refusal to come back from `prepare()`'s guard 2 and be
+reclassified. **It is refused in the route instead, before `settle()` runs.** Two reasons, and the
+second is the one that matters:
+
+- **Unit 10 set the precedent one layer up.** `marketsAwaitingCommit` has no `closeTime` predicate,
+  so the commit route checks `closeTime` off the row rather than changing `prepare()`. This is the
+  same shape: the route owns the predicate its find-work query lacks, and `Market.chainMarketId` is
+  already on the row the query returned.
+- ⚠️ **`ResolveRefused` carries a sentence and no code.** If guard 2 could fire here, telling it
+  apart from **guard 5 — the stored evidence no longer hashes to the stored hash** — would mean
+  string-matching another module's prose, and getting that wrong reports tamper detection as a
+  routine skip. Refusing earlier makes guard 2 unreachable from this route, so **every
+  `ResolveRefused` that does fire is worth an operator's attention.** That is the trap that has
+  broken five negative tests this phase, taken seriously one more time.
+
+**The second classification is still needed and is taken from this run's own state, not from a
+message**: after `settle()` returns, the run knows `kind === 'MISSING_OBSERVATION'`, so a refusal
+following it is guard 8 declining to void before `resolveDeadline`. Nothing is parsed.
+
+**Both were proven, with fixtures removed afterwards.** Two rows in one run, two different skips,
+`errors: 0`:
+
+- `m/probe-never-landed` — no `chain_market_id`, past `observation_end` → **skipped**
+- `m/probe-missing-obs` — 2021-01-01 on chain market 1, `resolveDeadline` still ahead → settle
+  returns MISSING_OBSERVATION, evidence recorded, guard 8 refuses → **skipped**
+
+⚠️ **The cleanup proved the ordering better than an assertion would have: two market rows removed
+and only one evidence row.** The never-landed market never reached the Graph, which is what skipping
+before `settle()` means. Both fixtures gone, no residue, re-checked after.
+
+### ⚠️ What is NOT proven, said rather than implied
+
+- **The void path through this route.** Unit 9 proved `voidMarket` on chain (market 9); what is
+  unproven is *this route* reaching it, which needs a MISSING_OBSERVATION market whose deadline has
+  passed. Manufacturing one means another chain write, and the brief did not ask for it.
+- **The `reconcile` branch through this route.** Same reasoning — proven in Unit 9, routed here.
+- **The scheduled fire.** That is the A4 evidence and it is a separate artifact.
+
+### ⚠️ `landed()` waits up to 120 s and this function may not live that long
+
+`resolve.ts::landed()` is `waitForTransaction(txHash, 1, 120_000)` against `maxDuration = 60`. **The
+measured run was 11.7 s for one market**, so two fit comfortably — but if a wait is ever cut off,
+Circle has already sent the transaction and it still lands; what is missing is our `UPDATE`. The next
+run's `prepare()` reads the chain, sees it settled, and returns `action: 'reconcile'`. **So running
+out of clock costs a late landmark, never a lost settlement.** Bounding that wait belongs to
+`resolve.ts`, which this unit was told not to modify. `BUDGET_MS = 45_000` stops *starting* a new
+market late, matching Unit 10.
+
+### ⚠️ The deploy, and `CRON_SECRET` still does not exist anywhere
+
+`vercel.json` now carries `0 2 * * *` for `/api/cron/resolve` beside the commit cron. **The schedule
+runs on Vercel, not here**, and the earlier orientation found **three variables the deployed code
+reads and the Vercel project does not have — `CRON_SECRET`, `ARC_MARKET_ADDRESS`, `ARC_RPC_URL`.**
+All three block this route in production exactly as they block the commit cron today.
+
+⚠️ **The secret used for these proofs was generated for the run and passed to the server process; it
+was deliberately NOT written into `.env`**, because this task named two files. A real value has to be
+set in `.env` *and* in the Vercel project, and they have to be the same string.
+
+⚠️ **Saturday 02:00Z is a free rehearsal of this path with nothing outstanding** — the empty-work
+case above is exactly what it will print — and it only happens if this is deployed by then.
