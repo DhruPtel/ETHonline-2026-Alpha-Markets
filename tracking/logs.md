@@ -7241,3 +7241,101 @@ It is one subsystem and one commit's worth of reading; recorded because the rule
 **The operational path is the same script:** `--market=<id>` prints the plan and spends nothing,
 `--send` spends. ⚠️ It **refuses chain markets 6 and 7 unless `--live` is passed**, so settling a
 real one on Sunday is a deliberate gesture rather than a default.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 14: `app/markets/[id]/` — the first browser-signed transaction
+
+`app/markets/[id]/page.tsx`, `app/markets/[id]/stake.tsx` and
+`app/api/markets/[id]/refresh/route.ts`. `npx tsc -p tsconfig.json --noEmit` exits 0 and **`npm run
+build` passes** with both new routes present. The production server serves `/markets/6` and
+`/markets/7` with live data read from the contract. ⚠️ **Nothing has been staked yet — that half is
+the operator's click**, and markets 6 and 7 are verified untouched: no landmarks, `stakes` still
+empty.
+
+⚠️ **SM-09's open half is the one that just closed.** Its row has read PARTIAL since 2026-09-06 —
+the wallet half walked on OKX, the *"stake under `next build`"* half deferred to this phase because
+there was no app. There is now, and it builds. The row does not flip to PASS until a stake actually
+lands from a browser.
+
+### ⚠️ Every other chain write in this repo is server-signed, and this one is not
+
+`report/[hash]/buy.tsx` is the nearest page and it argues the opposite case in its own header — *"An
+AGENT pays. The visitor does not… Nobody's wallet is connected, no browser signs anything."* True
+there and deliberately false here: **A5 wants value moving on Arc from a party that is not us**, and
+an agent paying itself cannot show that. There was no precedent to follow — no `window.ethereum`, no
+wagmi, no WalletConnect anywhere in `src/`, `app/` or `scripts/`.
+
+### ⚠️ No side control anywhere, and its absence is the feature
+
+`stake(marketId, claimId)` takes no side. The contract reads it off the claim — `_add(m, marketId,
+c.side, msg.value)`. A TRUE/FALSE toggle would have rebuilt the hole the contract closed: two people
+backing opposite sides of one claim, and the claim meaning nothing. The page says which side the
+stake joins and why, and offers no way to change it.
+
+### The client bundle carries no wallet library and no bytecode — measured, not asserted
+
+⚠️ **The full calldata is encoded on the SERVER and passed down as a prop.** `marketId` and
+`claimId` are fixed for a given page, so there is nothing left for a browser to encode:
+`0x7b0472f0` + two words, verified against `ethers.id('stake(uint256,uint256)')`. The client
+therefore ships **no `ethers`, no wagmi, no WalletConnect** — confirmed by fetching all seven chunks
+the page loads (571 kB total) and grepping them. Decimal→wei is exact `BigInt` string arithmetic;
+`parseUnits` would have cost 100 kB to pad a string.
+
+⚠️ **`src/arc/abi.ts` is never imported into a client component** — it carries creation and deployed
+bytecode and would ship the contract's bytes to every visitor. Minimal inline ABIs in the page and
+the route, `/api/holdings`'s precedent. Greped for a 200-hex run in every chunk: none.
+
+⚠️ **Nothing got `NEXT_PUBLIC_` and none was needed.** A server component hands a client component
+props, so the contract address, chain id and RPC URL cross as arguments rather than build-time
+globals. `.env` holds `HEDERA_SELLER_KEY`, `CIRCLE_ENTITY_SECRET` and `ARC_DEPLOYER_KEY` and none of
+it is inlined anywhere.
+
+⚠️ **The RPC URL handed to the wallet is checked for credentials before it is handed over.**
+`ARC_RPC_URL` is today the public endpoint with no key, path or query — confirmed — but the page
+asserts that rather than trusting it, and falls back to the public endpoint if it ever gains one.
+A keyed RPC leaked to every visitor is a disclosure nobody would notice.
+
+### The amount guard runs before signing, because a revert costs the staker gas
+
+`msg.value % 1e12 != 0` reverts `NotAUsdcUnit`, so a stake is a whole 6-dp USDC unit — at most six
+decimal places on a chain whose native token is 18-dp. Checked in the browser, with the contract's
+own error named in the message. Verified across the range: `1`, `0.5` and `0.000001` pass;
+`0.0000001` and `0.1234567` are refused as `NotAUsdcUnit`, `0` as `ZeroStake`, `1001` as
+`OverStakeCap` against the contract's `MAX_STAKE` read live rather than hardcoded.
+
+### ⚠️ `[id]` is the CHAIN market id, and that choice is inherited by Unit 13
+
+Store ids are `m/4fad94e5…` and a slash cannot live in one route segment. The chain id is also the
+public identity of a market — the number in the contract, the events and on arcscan — so `/markets/6`
+is the honest URL. The lookup is by `chain_market_id` **and** `contract_address`, because a market id
+is only meaningful against the deployment that issued it.
+
+### Post the hash, then reconcile — and what the schema would not let this do
+
+`gate.ts`'s discipline: the browser hands over the hash the moment `eth_sendTransaction` returns,
+which is **before** the transaction is mined. The route waits for the receipt (bounded at 40s, inside
+the honest `maxDuration = 60`) and records the stake from the **`Staked` event** — staker, side,
+amount and block all read from the chain, never from the request body, because this is a public
+endpoint and a client that lied would be writing a row the contract disagrees with. `stakes.tx_hash`
+is UNIQUE and the insert is `ON CONFLICT DO NOTHING`, so the page's "Record it" retry is a no-op
+rather than a second row.
+
+⚠️ **A hash cannot be written before the receipt, and that is a schema fact rather than a choice.**
+`stakes` has `staker`, `side` and `amount` NOT NULL, so there is no hash-only row to write first —
+and writing the browser's *claim* about those values would defeat the reason they are read from the
+chain. What stands in for it: the wait is bounded, a timeout answers `pending` rather than failing,
+the hash stays in the page, and re-posting finishes the job. A column for a pending hash would be a
+migration, which this unit was told not to write.
+
+⚠️ **The side is checked against the claim, not assumed.** If the event credited a side the stored
+claim disagrees with, the row is refused with 409. That mismatch would mean the store and the chain
+disagree about what a claim is, which is not something to record and move past.
+
+### Route guards, each exercised against the running production build
+
+Bad hash → 400. Unknown market → 404. A real mined transaction carrying no `Staked` for this market
+→ 422, **with the pools still returned** so a page refresh is never wasted. ⚠️ The 422 case was
+driven with Unit 9's `voidMarket` hash from chain market 9 — a genuinely mined transaction on the
+same contract with the wrong event — rather than an invented one, so the guard was reached for the
+right reason.
