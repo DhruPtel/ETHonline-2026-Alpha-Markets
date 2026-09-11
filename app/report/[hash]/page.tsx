@@ -17,8 +17,16 @@
 
 import { notFound } from 'next/navigation.js';
 import { load } from '../../../src/store/reports.js';
-import { tokenFor } from '../../../src/store/tokens.js';
 import { REPORT_PRICE_HBAR } from '../../../src/config/pricing.js';
+// ⚠️ **Unit 13b, and it ABSORBS the `Tokenization` section this page used to render.** The Hedera
+// half was already here; the Arc half was nowhere, and the two are only worth anything side by side
+// — the point is a reader comparing one hash against itself. A second section would have shown the
+// same token twice and put the halves where they cannot be compared.
+//
+// ⚠️ **A SERVER component, and it owns its own reads.** That is why `tokenFor` is no longer imported
+// here: nothing else on this page used it. It reads `report_tokens`, `claims` and `markets` — all
+// public facts, none of which contain any part of the report body, so it cannot leak past the gate.
+import { Ledgers } from './ledgers.js';
 // ⚠️ A CLIENT component. The buyer agent, `@x402` and `@hiero-ledger/sdk` stay behind
 // `/api/console/buy`; this page ships the button and nothing that pays. See its header.
 import { BuyAndRead } from './buy.js';
@@ -39,7 +47,6 @@ export default async function ReportPage({ params }: { params: Promise<{ hash: s
   const report = await load(hash);
   if (!report) notFound();
 
-  const token = await tokenFor(hash);
   const { coverage } = report.verdict;
   const factCount = Object.keys(report.facts).length;
 
@@ -85,34 +92,12 @@ export default async function ReportPage({ params }: { params: Promise<{ hash: s
 
       <BuyAndRead reportHash={hash} priceHbar={REPORT_PRICE_HBAR} />
 
-      {/* ── The on-chain half, public by nature ──────────────────────────────────────────────── */}
-      <section>
-        <h2>Tokenization</h2>
-        {token ? (
-          <>
-            <p>
-              This report is an ATS security token on Hedera testnet. Its creation event commits this
-              report&rsquo;s hash, so the token and the identity above name the same thing.
-            </p>
-            <dl className="identity">
-              <div><dt>ISIN</dt><dd className="mono">{token.isin}</dd></div>
-              <div><dt>Proxy</dt><dd className="mono break">{token.proxyAddress}</dd></div>
-              <div><dt>Issued</dt><dd className="mono">{when(token.issuedAt.toISOString())}</dd></div>
-            </dl>
-            <p>
-              <a href={`https://hashscan.io/testnet/contract/${token.proxyAddress}`}
-                 target="_blank" rel="noreferrer">View on HashScan →</a>
-              {/* ⚠️ A link rather than a balance. Reading `balanceOf` here would put `ethers` and an
-                  RPC client on every report page; `/holdings` does the read once, in a route. */}
-              {' · '}<a href="/holdings">Who holds this token →</a>
-            </p>
-          </>
-        ) : (
-          <p>
-            Not tokenized. The report is published and hashed; no ATS asset has been minted against it.
-          </p>
-        )}
-      </section>
+      {/* ── Both ledgers, side by side — Unit 13b. ⚠️ Placed AFTER the paywall control on
+          purpose: it is public and it is the reason to trust the thing being sold, so it should be
+          readable whether or not anyone pays. It renders nothing at all when a report has neither a
+          token nor a market, which is most of them. */}
+      <Ledgers hash={hash} />
+
       </article>
     </main>
   );

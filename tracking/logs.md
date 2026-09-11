@@ -8196,3 +8196,112 @@ a round trip and a second copy of the query behind a fetch the server makes to i
 **404**. The index shows live pools (1.01 USDC on market 6, which is the human stake), the record
 strip, the three groups, and each row links through. `/markets/6` shows the staking control, the
 report link and the recorded human stake.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 13b: `app/report/[hash]/ledgers.tsx` — one report, two ledgers
+
+`app/report/[hash]/ledgers.tsx` and its host page. `npx tsc -p tsconfig.json --noEmit` exits 0,
+**`npm run build` passes**, and it is **deployed**. No contract, migration, `src/arc/` or `store/`
+change; no chain calls and no gas. Markets 6 and 7 untouched.
+
+**Live:** `https://et-honline-2026-alpha-markets.vercel.app/report/24041ca282d260d3ad843d197086f595d6a2fab46d4e5aadf3e1c1517bfdd3e5`
+
+### ⚠️ Where it went, and it ABSORBED a section rather than adding one
+
+**The report page, because the hash is already there** — and the panel **replaces** the old
+`Tokenization` section rather than sitting beside it. Keeping both would have rendered the same token
+twice and put the two halves where they cannot be compared, which defeats the only thing the panel is
+for. `tokenFor` moved out of the page with it; nothing else on the page used it.
+
+⚠️ **Placed after the paywall control, deliberately.** These are public facts and they are the reason
+to trust the thing being sold, so they should read whether or not anyone pays.
+
+### ⚠️ Nothing crosses between the chains, and the component says so before anything else
+
+The first paragraph rendered is the disclaimer: **no bridge, no oracle, no cross-chain message, and
+none is being built.** `docs/research/cross-chain-binding.md` is where that landed — Hedera testnet
+has a LayerZero endpoint and **Arc is not on LayerZero's deployed list at all**, so there was no
+messaging layer to have used. A reader who infers an integration and then discovers there is none
+would discount everything else on the page, and would be right to.
+
+⚠️ **The panel never claims to have read the Hedera creation event at render time.** It has not —
+that is a Mirror Node call, and putting one on every report page would be a round trip to tell a
+reader what the HashScan link lets them confirm. `src/arc/admission.ts` does read it, before any
+money moves, and that is the check that matters.
+
+### ⚠️ The hash is never abbreviated, and that is the whole mechanism
+
+Three appearances, all the **same full 64 hex characters** in the same monospace:
+
+| where | rendered |
+|---|---|
+| the tie | `24041ca2…fdd3e5` |
+| Hedera, as the creation event stores it | `alpha:24041ca2…fdd3e5` |
+| Arc, as the contract was called | `0x24041ca2…fdd3e5` |
+
+Two truncations that merely look alike would demonstrate nothing — a reader's own eye comparing two
+complete strings is the entire mechanism. The `alpha:` and `0x` prefixes differ because each chain
+stores the bytes in its own form; the hex between them is identical and is labelled as such.
+
+### The three cases, and one of them cannot exist
+
+| case | today | renders |
+|---|---|---|
+| **token + market** | 1 report (`24041ca2…`) | both halves — ⚠️ **and it backs TWO markets**, 6 and 7, so the Arc half is a list |
+| **token, no market** | 3 reports | Hedera half, then *"No market cites this report"* |
+| **neither** | 7 reports | ⚠️ **nothing at all — the component returns `null`.** A heading over two "not yet" lines is worse than no heading |
+| **market, no token** | ⚠️ **0, and it is structurally impossible** | handled defensively; see below |
+
+⚠️ **"A market and no token" cannot occur, and the reason is Unit 6c.** The admission check refuses a
+commit whose report was never tokenized, so a claim can only exist against a tokenized report. The
+brief expected all three cases in the store; the third is absent **because the product prevents it**,
+which is a stronger answer than a rendering branch. The branch exists anyway and costs two lines.
+
+### ⚠️ The paywall still holds — probed, not asserted
+
+Served HTML for `/report/24041ca2…`, unpaid, in **production**:
+
+| probe | occurrences |
+|---|---|
+| `24633533926.80993183529872440370819` (totalDepositBalanceUSD) | **0** |
+| `398302385914.633740600675028633117` (cumulativeBorrowUSD) | **0** |
+| `9963794857.198530878816453786272214` (totalBorrowBalanceUSD) | **0** |
+| `{fact:` placeholders from the assessment | **0** |
+| the assessment's own summary text | **0** |
+
+⚠️ **With a control, because a probe that finds nothing proves nothing unless it can find something**:
+the panel's own market threshold `24,387,198,586` appears 2× and the report hash 13× in the same
+document. The component reads `report_tokens`, `claims` and `markets` — **none of which contains any
+part of the report body**, so there is no path for it to leak past the gate.
+
+### Composition, not new reading
+
+The Hedera half is `store/tokens.ts::tokenFor`, already used by the section this replaces. The Arc
+half is the `claims`-to-`markets` join written inline, the way Units 13 and 14 write theirs —
+**`store/` is not modified and no join was added to it.** ⚠️ `standing()` is duplicated from
+`app/markets/page.tsx` rather than imported: it is a page module and this unit may touch only the
+component and its host. Six lines, the same trade Unit 9 made with `landed()`.
+
+**Links go somewhere a stranger can verify**: HashScan for the proxy, arcscan for each commit
+transaction and for the market contract, plus `/markets/<id>` and `/holdings`. The closing line says
+plainly that both halves are read from our database and the links are not.
+
+### Traced sizes
+
+| route | traced | |
+|---|---|---|
+| `/report/[hash]` | **1.77 MB** | ⚠️ **unchanged** — 112 → 113 files, no new dependency |
+| `/markets/[id]` | 2.23 MB | |
+| `/markets` | 2.16 MB | |
+
+The panel is a **server** component doing two database reads, so it adds no client bytes and no
+vendor weight. ⚠️ **No `ethers` and no `src/arc/abi.ts`** — the only chain-shaped values it shows are
+addresses and hashes already in the store, and reading a balance or a pool here would have put an RPC
+client on every report page. `/holdings` and `/markets/[id]` do those reads where they belong.
+
+### Checked in production
+
+`/report/24041ca2…` **200**, panel present with both halves and all three hash appearances.
+`/report/348482a5…` **200**, Hedera half only with the correct Arc sentence. `/report/31d5f67d…`
+**200** with **no panel at all**. Paywall probe run against the deployed HTML, not a local build.
