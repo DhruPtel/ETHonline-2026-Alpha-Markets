@@ -58,21 +58,39 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
 
+  // ⚠️ Unit 13 added `created_at`, `outcome` and `evidence_hash` to this SELECT rather than asking a
+  // second time. `after_the_fact` is the rehearsal test the index uses — the same arithmetic in both
+  // places, and it must stay the same: `observation_end <= created_at` means the day was already
+  // over when the market was created, so the commit could not have been a prediction.
   const [market] = await db()<{
     id: string; spec_json: string; observed_day: string; close_time: Date; observation_end: Date;
     resolve_deadline: Date; contract_address: string; resolved_at: Date | null; voided_at: Date | null;
+    created_at: Date; outcome: boolean | null; evidence_hash: string | null; after_the_fact: boolean;
   }[]>`
     SELECT id, spec_json, observed_day, close_time, observation_end, resolve_deadline,
-           contract_address, resolved_at, voided_at
+           contract_address, resolved_at, voided_at, created_at, outcome, evidence_hash,
+           (observation_end <= created_at) AS after_the_fact
     FROM markets WHERE chain_market_id = ${id} AND contract_address = ${requiredEnv('ARC_MARKET_ADDRESS')}`;
   if (!market) notFound();
 
   // ⚠️ **One claim, and the page refuses rather than guessing if there is not exactly one.** A
   // staker stakes alongside a specific claim; with two on a market, "the analyst's side" is not a
   // thing a page can name. The contract allows several authors — this unit does not.
-  const claims = await db()<{ id: string; chain_claim_id: string; author: string; side: boolean; amount: string }[]>`
-    SELECT id, chain_claim_id, author, side, amount FROM claims
-    WHERE market_id = ${market.id} AND chain_claim_id IS NOT NULL ORDER BY created_at`;
+  // ⚠️ Unit 13 joined the report and Unit 15's score onto this query rather than adding two more
+  // round trips. The report is the justification the claim rests on; the score is what settlement
+  // made of it. Both are `LEFT JOIN`s, so a claim keeps working when neither exists.
+  const claims = await db()<{
+    id: string; chain_claim_id: string; author: string; side: boolean; amount: string;
+    report_hash: string; directive: string | null;
+    forecast_correct: boolean | null; reconciliation_quality: string | null;
+    staked: string | null; returned: string | null;
+  }[]>`
+    SELECT c.id, c.chain_claim_id, c.author, c.side, c.amount, c.report_hash,
+           r.directive, s.forecast_correct, s.reconciliation_quality, s.staked, s.returned
+    FROM claims c
+    LEFT JOIN reports r ON r.hash = c.report_hash
+    LEFT JOIN scores  s ON s.market_id = c.market_id AND s.claim_id = c.id
+    WHERE c.market_id = ${market.id} AND c.chain_claim_id IS NOT NULL ORDER BY c.created_at`;
   const claim = claims.length === 1 ? claims[0]! : null;
 
   const spec = JSON.parse(market.spec_json) as Spec;
@@ -100,9 +118,21 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
   const analystPool = claim?.side ? poolTrue : poolFalse;
   const otherPool = claim?.side ? poolFalse : poolTrue;
 
+  // ⚠️ A void is an ABSENCE of an outcome, never a wrong answer — Unit 15 scores it null for the
+  // same reason. Stating it as a loss here would misrepresent the analyst to every reader.
+  const standing = market.voided_at
+    ? 'Voided — the day could not be observed, so there is no outcome and every stake is refundable.'
+    : market.resolved_at
+      ? `Resolved ${market.outcome ? 'TRUE' : 'FALSE'} on ${when(market.resolved_at)}.`
+      : open
+        ? 'Open — staking is live.'
+        : Date.now() < market.observation_end.getTime()
+          ? 'Staking is closed. The observed day is still running.'
+          : 'Awaiting settlement.';
+
   return (
     <main>
-      <p className="back"><a href="/">← All reports</a></p>
+      <p className="back"><a href="/markets">← All markets</a> · <a href="/">All reports</a></p>
       <article className="memo">
         <h1>
           Will {spec.slug}&rsquo;s {spec.metric} be {spec.comparison} ${grouped(spec.threshold)} on {spec.observedDay}?
@@ -112,6 +142,20 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
           Settled by re-reading the deployment&rsquo;s daily snapshot for {spec.observedDay} UTC from
           The Graph. A tie resolves FALSE.
         </p>
+
+        {/* ⚠️ **A REHEARSAL MUST NEVER READ AS A FORECAST.** PHASE-4: a market over an
+            already-observed day is indistinguishable on chain from a real one, and nothing enforces
+            the distinction but us. This is where it is enforced for a reader. */}
+        {market.after_the_fact && (
+          <p className="no-durable">
+            ⚠️ <strong>This is a rehearsal, not a forecast.</strong> The observed day
+            ({spec.observedDay}) had already finished when this market was created, so the answer was
+            knowable at commit time. It exists to exercise settlement on chain and it counts towards
+            nothing.
+          </p>
+        )}
+
+        <p className="lede"><strong>{standing}</strong></p>
 
         <dl className="identity">
           <div><dt>Market</dt><dd className="mono">#{id}</dd></div>
@@ -133,6 +177,46 @@ export default async function MarketPage({ params }: { params: Promise<{ id: str
                 <div><dt>Claim</dt><dd className="mono">#{claim.chain_claim_id}</dd></div>
                 <div><dt>Author</dt><dd className="mono break">{claim.author}</dd></div>
               </dl>
+
+              {/* ⚠️ **THE TIE BETWEEN A STAKE AND THE RESEARCH BEHIND IT — the product's central
+                  sentence, and it was asserted here and shown nowhere.** Unit 6c's admission check
+                  refuses a commit whose report was never tokenized, so this hash is not decoration:
+                  it is the work the analyst put its own money behind. The full hash is printed
+                  because a reader who cannot copy it cannot check it against the token on Hedera. */}
+              <p>
+                Backed by{' '}
+                <a href={`/report/${claim.report_hash}`}>
+                  {claim.directive ?? 'the report behind this claim'}
+                </a>.
+              </p>
+              <div className="mono hash">{claim.report_hash}</div>
+
+              {/* ⚠️ **THE SCORE — Unit 15 computes it and nothing read it until now.** Two of the
+                  three are structurally blank today and are rendered as ABSENT, never as zero:
+                  reconciliation quality is null on every stored report by design, and trading return
+                  has no source because nothing writes `payouts`. ⚠️ A null return is "not
+                  collected", which is not the same as "earned nothing" — the contract is pull-based
+                  and a resolved market can still hold the money. */}
+              {claim.forecast_correct !== null || market.resolved_at || market.voided_at ? (
+                <dl className="identity">
+                  <div>
+                    <dt>Forecast</dt>
+                    <dd>{claim.forecast_correct === null
+                      ? 'No outcome — the market was voided, so the analyst was neither right nor wrong'
+                      : claim.forecast_correct ? 'Right' : 'Wrong'}</dd>
+                  </div>
+                  <div>
+                    <dt>Reconciliation</dt>
+                    <dd>{claim.reconciliation_quality ?? 'Not recorded — this report carries no verdict call'}</dd>
+                  </div>
+                  <div>
+                    <dt>Returned</dt>
+                    <dd className="mono">{claim.returned === null
+                      ? 'Not collected yet'
+                      : `${usdc(BigInt(claim.returned))} USDC`}</dd>
+                  </div>
+                </dl>
+              ) : null}
               <p className="no-durable">
                 ⚠️ Staking here backs <em>this claim</em>. The side is the claim&rsquo;s, read by the
                 contract from the claim itself — there is nothing to choose. To take the other side

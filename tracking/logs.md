@@ -8072,3 +8072,127 @@ with their hash checks passing, and **both carry the digest above**. ⚠️ The 
 produced that block were removed, so the history it describes is no longer in the database; it is in
 this entry, and the digest verifies against it. The fixtures' three lines all share one directive and
 one confidence because they cite a single stored report — a fixture artifact, not a product fault.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 13: `app/markets/` — an index, and a market page that says where it stands
+
+`app/markets/page.tsx` (new) and additions to `app/markets/[id]/page.tsx`. `npx tsc -p
+tsconfig.json --noEmit` exits 0, **`npm run build` passes**, and it is **deployed**:
+`https://et-honline-2026-alpha-markets.vercel.app/markets`. **No new route** — none was needed.
+No contract, migration, `src/arc/` or `store/` change. Markets 6 and 7 untouched.
+
+⚠️ **The visuals are disposable and nothing here reaches for them.** `globals.css` is not modified
+and every `className` already existed. What this unit settles is the data.
+
+### The queries, which are the part that is not disposable
+
+**The index is two round trips, and deliberately not more:**
+
+1. ⚠️ **One SQL query** — markets `LEFT JOIN` claims `LEFT JOIN` reports `LEFT JOIN` scores. The
+   claim, the report behind it and Unit 15's score all arrive with the row. **Not one query per
+   row**: `app/page.tsx` learned that with `tokensFor`, and a list that fans out per row is exactly
+   what costs when the design lands and the list gets longer.
+2. ⚠️ **One batched `eth_call`** — `ethers`' `JsonRpcProvider` coalesces calls made in one tick into
+   a single JSON-RPC batch, so `Promise.all` over N markets is one HTTP request, not N. Each read is
+   individually caught, so **one unreadable market leaves the rest of the page standing** and renders
+   as *"Pool unavailable"* rather than as zero.
+
+**The market page gained no round trips.** `created_at`, `outcome` and `evidence_hash` were added to
+the SELECT it already ran, and the report and score were joined onto the claims query it already
+ran. Two more facts, no more queries.
+
+⚠️ **Pools come from the chain on every request, never from `stakes`** — Unit 14's precedent, and
+its reason holds: the table records what we were told about, the contract records what it holds.
+
+### ⚠️ How a rehearsal is told from a forecast, and it is arithmetic rather than a naming convention
+
+PHASE-4 states the problem: *"a market over an already-observed day is indistinguishable on chain
+from a forecast. Nothing enforces the distinction but us."*
+
+**The test is `observation_end <= created_at`** — the day being measured had already finished when
+the market was created, so the commit could not have been a prediction. ⚠️ It agrees with the
+`m/rehearsal-` id prefix on every row today and it is the better test: **a prefix is a promise
+somebody kept; this is a property of the row.** The same expression is used on both pages.
+
+The index renders three groups, and a rehearsal carries *"Rehearsal — not a forecast"* wherever it
+appears plus a banner on its own page. **Rehearsals are excluded from the record** — counting a
+market whose answer was known at commit time would inflate a track record.
+
+| group | today |
+|---|---|
+| **Forecasts** | chain 6 and 7 — open, pools live, each linking to the report behind its claim |
+| **Rehearsals** | chain 8, 9, 10 — resolved TRUE, voided, resolved FALSE |
+| **Not on chain** | the seeded market awaiting the commit cron, and Unit 9's never-landed fixture |
+
+### ⚠️ Three things the data made me decide
+
+- ⚠️ **Two store rows can observe ONE chain market.** Unit 9's `reconcile` fixture and
+  `m/rehearsal-5e20…` both carry `chain_market_id = 8`, and listing market 8 twice would tell a
+  reader something untrue. **Deduped on the chain id** — a market's public identity — with the row
+  carrying a claim winning. Rows never created on chain keep their store id and cannot collide.
+  ⚠️ `/markets/[id]` has the same ambiguity and resolves it by taking the first row; that is
+  pre-existing and was not changed.
+- ⚠️ **Chain market 1 does not appear, and that is correct.** It is stranded and empty and **has no
+  store row**, so there is no question text, no spec and no claim — nothing the page could say about
+  it is known. `/markets/1` returns **404** in production, checked. The index shows what the store
+  can describe rather than inventing a row for what it cannot.
+- **A market never created on chain is listed and labelled, not hidden.** One of the two is a real
+  directed market still waiting for the commit cron, and hiding it would misreport the queue.
+
+### The record, and two scores that are absent rather than zero
+
+⚠️ **Unit 15 has produced scores since yesterday and nothing read them.** They are now on the index
+as the analyst's record and on a market page per claim. Today the index reads *"no forecast has
+settled yet"* — true, because markets 6 and 7 settle Sunday and rehearsals do not count.
+
+⚠️ **The per-claim block was unreachable with real data** — no resolved market has a claim — so it
+was proven with a throwaway claim on chain market 8, a resolved **rehearsal**, then removed. It
+renders:
+
+```
+Forecast        Right
+Reconciliation  Not recorded — this report carries no verdict call
+Returned        Not collected yet
+```
+
+**Neither blank is a zero.** Reconciliation is null on every stored report by design, and a null
+return is *"not collected yet"* — the contract is pull-based and a resolved market can still hold the
+money, so rendering `0.00 USDC` would say the analyst lost when it has simply not collected.
+
+### ⚠️ The tie between a stake and the research behind it
+
+A claim cites a report and the page asserted that and showed it nowhere. Both surfaces now link
+`/report/<hash>` by its directive **and print the full hash**, because a reader who cannot copy it
+cannot check it against the token on Hedera. Unit 6c's admission check is what makes that hash
+load-bearing rather than decorative.
+
+### Unit 14's staking control is untouched in behaviour
+
+Its props, its calldata encoding and its `Stake` component are unchanged; the page around it gained a
+standing line, a report link and a score block. Verified rendering in production on `/markets/6`:
+*"Stake alongside the analyst"*, *"Connect wallet and stake"*, the TRUE side named, the 1.01 USDC
+pool read from the contract, and the human stake row still listed. **Nothing was spent to prove it.**
+
+### Traced sizes
+
+| route | traced |
+|---|---|
+| `/markets` | **2.16 MB** |
+| `/markets/[id]` | **2.23 MB** (unchanged in composition — this unit added no import) |
+| `/report/[hash]` | 1.77 MB |
+| `/` | 1.70 MB |
+
+⚠️ **The index costs ~0.46 MB over the report index and all of it is `ethers`**, which is the price
+of reading pools from the contract instead of the database. The heavy routes are the Hedera SDK ones
+at 7.5–10 MB; neither markets page carries it. ⚠️ The pattern of keeping vendor weight in routes
+rather than pages is **bent here and knowingly**: moving the chain read behind an API route would add
+a round trip and a second copy of the query behind a fetch the server makes to itself, which
+`app/page.tsx` argues against by name. Unit 14 already set this precedent on `/markets/[id]`.
+
+### Checked in production
+
+`/markets` **200**; `/markets/6`, `/7`, `/8`, `/9`, `/10` all **200**; `/markets/1` and `/markets/999`
+**404**. The index shows live pools (1.01 USDC on market 6, which is the human stake), the record
+strip, the three groups, and each row links through. `/markets/6` shows the staking control, the
+report link and the recorded human stake.
