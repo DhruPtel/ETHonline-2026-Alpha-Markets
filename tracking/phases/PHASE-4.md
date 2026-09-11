@@ -20,135 +20,167 @@ measured. Where this document and §9 disagree, *Where the plan is now wrong* na
 
 ## Status
 
-| Unit | File | Kind | Status |
-|---|---|---|---|
-| **1** | `src/arc/spec.ts` | LOGIC ★ | ✅ **DONE** · 357 lines + `scripts/demo/spec.ts`, 38 assertions |
-| **2** | `contracts/AlphaMarket.sol` | LOGIC ★★ | ✅ **COMPILED, NOT DEPLOYED** · 381 lines, 0 errors 0 warnings, 4,783 deployed bytes |
-| **3** | `scripts/ops/build-contract.ts` → `src/arc/abi.ts` | LOGIC | ✅ **DONE** · artifact committed, `prebuild` refuses on drift |
-| **4** | `src/arc/arc.ts` | LOGIC ★ | ⬜ ⚠️ **NEXT** |
-| **5** | `005_markets.sql` + `src/store/markets.ts` | SCAFFOLD ★ | ⬜ ⚠️ **six tables — seam named** |
-| **6** | **PLAY GAP — deploy it and drive it by hand** | **PLAY** | ⬜ |
-| **6b** | `src/arc/identity.ts` — the two-way key attestation | LOGIC | ⬜ ⚠️ **NEW — must precede Unit 7** |
-| **6c** | `src/arc/admission.ts` — the binding check before a commit | LOGIC ★★ | ⬜ ⚠️ **NEW — must precede Unit 7** |
-| **7** | `src/arc/market.ts` — create + commit | LOGIC ★★ | ⬜ |
-| **8** | `src/arc/settle.ts` — the read and its evidence | LOGIC ★★ | ⬜ **owns the irreversible seam** |
-| **9** | `src/arc/resolve.ts` — outcome onto the chain | LOGIC ★ | ⬜ |
-| **10** | `app/api/cron/commit/route.ts` | SCAFFOLD | ⬜ **closes A2** |
-| **11** | `app/api/cron/resolve/route.ts` | SCAFFOLD | ⬜ **closes A4** |
-| **11b** | `docs/arc-deployment.md` | **DOC** | ⬜ ⚠️ **closes A6 — pass/fail on all three Arc prizes** |
-| **12** | **PLAY GAP — the first unattended cycle, watched** | **PLAY** | ⬜ |
-| **13** | `app/markets/` + `app/api/markets/` | SCAFFOLD | ⬜ |
-| **13b** | `app/report/[hash]/ledgers.tsx` — one report, two chains | SCAFFOLD | ⬜ ⚠️ **NEW** |
-| **14** | `app/markets/[id]/stake.tsx` | LOGIC ★★ | ⬜ **first browser-signed tx in the project** |
-| **15** | `src/arc/score.ts` + the record surface | LOGIC | ⬜ **the loop** |
-| **15b** | `src/agent/context.ts` — prior outcomes reach `compose` | LOGIC | ⬜ ⚠️ **NEW — closes the loop** |
-| **16** | **PLAY GAP — one real cycle with receipts** | **PLAY** | ⬜ |
+⚠️ **Read this table, not the plan's file list.** Where a unit landed differently from its brief the
+row says so; the reasoning is in `logs.md` under that unit's entry.
 
-**Twenty-one units, four days.** ⚠️ **That does not fit and the cut order at the end is the real
-plan.** Units 1–12 are the spine — **11b included, because it is pass/fail on three prizes and costs
-a day's writing at most**; 13–16 are the product, the loop and the proof. Read *The calendar* before
-starting, not after.
+| Unit | File | Status |
+|---|---|---|
+| **1** | `src/arc/spec.ts` | ✅ **DONE** · 357 lines, 38 assertions |
+| **2** | `contracts/AlphaMarket.sol` | ✅ **DEPLOYED** · `0x003e7Cb791257B529bb5f9F6D17A846264d48044` |
+| **3** | `scripts/ops/build-contract.ts` → `src/arc/abi.ts` | ✅ **DONE** · artifact committed, `prebuild` refuses on drift |
+| **4** | `src/arc/arc.ts` | ✅ **DONE** · ⚠️ **plus two things the brief did not have** — `SubmitInput` is a discriminated union carrying `callData` for tuples, and idempotency keys are derived from the call bytes |
+| **5** | `005_markets.sql` + `src/store/markets.ts` | ✅ **DONE** · ⚠️ **plus 5b** (`006_market_landmarks.sql` — void evidence, payouts) and the find-work queries split into `src/store/outstanding.ts` |
+| **6** | PLAY GAP — deploy and drive | ✅ **DONE** · 21 txs, 0.0512 USDC, four rehearsal markets, **no contract bug** |
+| **6b** | `src/arc/identity.ts` | ✅ **DONE** · `src/arc/attestation.ts` committed, no gas |
+| **6c** | `src/arc/admission.ts` | ✅ **DONE** · binds on **issuance**, checks both address encodings |
+| **7** | `src/arc/market.ts` | ✅ **DONE** · ⚠️ **the side rule was rewritten after this unit shipped** — `decideSide` calls `settle()`, it does not read the report's figure |
+| **8** | `src/arc/settle.ts` | ✅ **DONE** · evidence persisted before any chain write |
+| **9** | `src/arc/resolve.ts` | ✅ **DONE** · ⚠️ **plus a `reconcile` action the brief did not have**, for a run that submits and dies before its `UPDATE` |
+| **10** | `app/api/cron/commit/route.ts` | ⚠️ **BUILT, NOT DEPLOYED** · ⚠️ **plus a closed-market refusal the brief did not have** — without it the cron burns gas daily forever |
+| **11** | `app/api/cron/resolve/route.ts` | ⬜ ⚠️ **NEXT** |
+| **11b** | `docs/arc-deployment.md` | ⬜ ⚠️ **closes A6 — pass/fail on all three Arc prizes** |
+| **12** | PLAY GAP — first unattended cycle | ⬜ · partly earned by Units 10 and 11 firing |
+| **13** | `app/markets/` list + `app/api/markets/` | ⬜ · Unit 14 built `app/markets/[id]/` and `app/api/markets/[id]/refresh` |
+| **13b** | `app/report/[hash]/ledgers.tsx` | ⬜ |
+| **14** | `app/markets/[id]/stake.tsx` | ✅ **DONE** · ⚠️ **a real human stake landed — 1 USDC from `0x683eE842…` into market 6** |
+| **15** | `src/arc/score.ts` + the record surface | ⬜ **the loop** |
+| **15b** | `src/agent/context.ts` | ⬜ **closes the loop** |
+| **16** | PLAY GAP — one real cycle with receipts | ⬜ |
 
-## ⚠️ Where this actually stands — 2026-09-10T05:30Z
+---
 
-**Read this before touching anything.** Written so a session starting cold can trust it without
-re-deriving it. Narrative for how each unit got here is in `tracking/logs.md`; this is state.
+## ⚠️ Where this actually stands — 2026-09-11T08:00Z
 
-### ⚠️ The clock, and it is not where it feels
+**Read this before touching anything.** Every figure below was read from the chain, not from the
+store. ⚠️ **This section was a session stale on 2026-09-11 and said "What is deployed: Nothing from
+Phase 4", which was false by six units.** If it disagrees with the code again, the code wins.
 
-| | |
-|---|---|
-| **UTC now** | **2026-09-10, Thursday, ~05:30Z** |
-| local | 2026-09-09, Wednesday, 22:27 PDT |
-| deadline | 2026-09-13 — **~90 hours** |
-| ⚠️ `closeTime` for the D = Friday 11 demo market | **2026-09-11T00:00:00Z — ~18 hours** |
-
-⚠️ **The plan's calendar is entirely in UTC and the operator is on PDT, and at this hour they are a
-different day.** Vercel cron is UTC, `dayStart()` is UTC, every epoch in this document is UTC. **It is
-already Thursday where the plan is counting.**
-
-⚠️ **What that means for the demo market, stated as arithmetic rather than as a judgement.** The plan
-puts the analyst's commit on "Thu 10, during the day" so the market can close at Fri 11 00:00Z. That
-leaves **~18 hours** to finish Units 4, 5, 6, 6b, 6c and 7, deploy the contract, create a market and
-commit to it. **None of those six units has started.** The fallback in *The calendar* — D = Sat 12,
-commit by Fri 11 — buys 24 hours and leaves **no spare cron attempt**.
-
-### What is built
+### ⚠️ The clock, and the fallback is already in effect
 
 | | |
 |---|---|
-| `src/arc/spec.ts` | the question, `specHash`, the day window, freshness, the `FactId` mapping, `holds()` |
-| `scripts/demo/spec.ts` | its proof — 38 assertions, no network, no `--env-file` |
-| `contracts/AlphaMarket.sol` | the contract, compiling clean |
-| `scripts/ops/build-contract.ts` | compile → artifact, and the drift gate |
-| `src/arc/abi.ts` | **generated and committed.** ABI + creation + deployed bytecode + build record |
+| **now** | **2026-09-11, Friday, ~08:00Z** |
+| deadline | **2026-09-13, Sunday** |
+| observed day *D* | **2026-09-12, Saturday** |
+| resolution | **Sunday, and Sunday is the only window** |
 
-### ⚠️ What is deployed
+⚠️ **The plan's calendar wanted D = Friday 11 with Sunday spare. We have the documented fallback:
+D = Saturday 12, resolution Sunday, no spare day.** It was forced rather than chosen — `spec.ts`
+requires `closeTime <= dayStart(observedDay)` and the contract's `_open` requires `closeTime > now`,
+so the observed day is always ahead of the commit.
 
-**Nothing from Phase 4.**
+### ⚠️ What has to happen, with times
 
-- ⚠️ **`AlphaMarket.sol` is compiled and NOT deployed. There is no contract address anywhere.**
-  Unit 6 deploys it.
-- The live app is still Phase 3's: `https://et-honline-2026-alpha-markets.vercel.app`. No market
-  routes, no market pages, no cron routes.
-- `vercel.json` is `{"framework": "nextjs"}` — **no `crons` key yet.** Units 10 and 11 add it.
-- No migration beyond `004`. No market, claim, stake, score, evidence or ledger table exists.
+| when | what | if it does not happen |
+|---|---|---|
+| **before 2026-09-11T22:00Z** | deploy to Vercel carrying `/api/cron/commit`, `vercel.json`'s `crons`, and **`CRON_SECRET` in the Vercel project env** | the 22:00 cron never fires and A2 has no evidence |
+| **2026-09-11T22:00–22:59Z** | commit cron fires, creates `m/9e1469c4fa950754e2791734` on chain and commits ~0.02 USDC, unattended. ⚠️ **The `vercel-cron/1.0` log line is the A2 evidence — capture it** | no unattended commit on record |
+| **2026-09-11T23:59:00Z** | staking closes on markets 6, 7 **and the seeded market** | the seeded market can never be committed; the Unit 10 guard refuses it harmlessly and it sits outstanding |
+| **2026-09-13T00:00:00Z** | observation ends for markets 6 and 7 | — |
+| **2026-09-13T01:00:00Z** | ⚠️ **earliest legal resolve** — `observationEnd` + `FRESHNESS_MARGIN_SECONDS` (3600) | nothing before this; `settle()` throws `SettlementTooEarly` |
+| **2026-09-13T02:00–02:59Z** | resolve cron fires and settles 6 and 7 — see `DECISIONS.md` for why 02:00 | fall back to `scripts/ops/resolve-market.ts --market=<id> --live --send` |
+| **2026-09-15T00:00:00Z** | `resolveDeadline` — `voidMarket` becomes permissionless | funds are still recoverable by anyone; the forecast scores nothing |
+
+### What is built and deployed
+
+**On chain, verified 2026-09-11T07:50Z:** `AlphaMarket` at
+`0x003e7Cb791257B529bb5f9F6D17A846264d48044`, `marketCount()` **9**, holding **1.02 USDC**.
+`resolver()` is `0x1B7035bBe0DA8F3bcb721863D42e1079e4A116A7`, the analyst's Circle wallet. The
+deployed runtime is **4,783 bytes and equals `src/arc/abi.ts` byte for byte** once the immutable
+resolver is masked out of the two slots the constructor writes it into.
+
+**In the app:** `/markets/[id]` and `/api/markets/[id]/refresh` are built and pass `next build`;
+`/api/cron/commit` is built and **not deployed**. The live deployment is still Phase 3's.
+
+**Store:** 7 market rows (2 live, 4 rehearsal, 1 seeded), 2 claims, **1 human stake**,
+3 settlement evidence rows, 2 binding evidence rows. `scores`, `payouts` and `spend_ledger` are
+empty.
+
+### ⚠️ The live markets — read from the chain, 2026-09-11T07:50Z
+
+**Both ask the same metric on the same day and differ only in where the bar came from.** Neither is
+resolved or voided.
+
+| | **market 6** | **market 7** |
+|---|---|---|
+| store id | `m/4fad94e592674b3fd291918a` | `m/e923c7deb6c3c6321887c355` |
+| question | is `aave-v3-ethereum.totalDepositBalanceUSD` above **24,387,198,586** on **2026-09-12** UTC? | same metric and day, above **23,834,027,938** |
+| threshold from | the report's balance-sheet figure, 3 days stale | the snapshot series (2026-09-10, 24.075B) |
+| analyst's side | **TRUE**, claim 6, 0.01 USDC | **TRUE**, claim 7, 0.01 USDC |
+| human stakes | ⚠️ **1.00 USDC from `0x683eE842A16f85e69883F433745263BFe8D55f76`**, TRUE, block 61531149 | none |
+| pools | TRUE **1.01** / FALSE **0.00** | TRUE **0.01** / FALSE **0.00** |
+| closes | 2026-09-11T23:59:00Z | 2026-09-11T23:59:00Z |
+| observation ends | 2026-09-13T00:00:00Z | 2026-09-13T00:00:00Z |
+| earliest resolve | **2026-09-13T01:00:00Z** | **2026-09-13T01:00:00Z** |
+| resolve deadline | 2026-09-15T00:00:00Z | 2026-09-15T00:00:00Z |
+| standing | ⚠️ **losing** — the snapshot series was 24.075B on 2026-09-10, below the bar | winning — the series is above the bar |
+
+⚠️ **Every pool is one-sided, so unless somebody stakes FALSE before 23:59Z the parimutuel pays each
+staker their own stake back.** That is `payoutOf`'s `winningPool == 0` branch working, not a fault.
+
+**The seeded market** `m/9e1469c4fa950754e2791734` — above **22,871,036,910** on 2026-09-12, 95% of
+the 2026-09-10 snapshot. Directed at the analyst, **not on chain, no claim**. It exists so the
+commit cron has work; a dry run of `prepare()` picks a 39-hour-old report and plans side TRUE.
+
+**The rehearsal markets** — chain 8 resolved TRUE, chain 9 voided, both by Unit 9. Chain ids 2–5 are
+Unit 6's. Chain id 1 is stranded, empty and harmless. ⚠️ **None of these is a forecast.**
 
 ### ⚠️ Before touching anything
 
-1. **Vercel Hobby caps a function at 60 seconds.** A declared `maxDuration = 300` is **silently
+1. ⚠️ **Vercel Hobby caps a function at 60 seconds.** A declared `maxDuration = 300` is **silently
    clamped** — accepted, no build warning, deployment READY carrying 60. A route declaring nothing
-   gets roughly 10 seconds.
-2. **An empty env var is a missing env var.** `??` falls back on `undefined`, never on `""`. Five
-   instances so far. **`src/config/env.ts::requiredEnv` is the one guard** — use it, do not write a
-   sixth copy.
-3. **Two Neon URLs and they are not interchangeable.** `DATABASE_URL` is pooled (host contains
-   `-pooler`) for route handlers; `DATABASE_URL_DIRECT` is direct, **migrations only**. DDL through
-   the pooler fails in ways that read like a bug in the `.sql` file.
-4. ⚠️ **`solc` is pinned to `0.8.28+commit.7893614a` and `build-contract.ts` ASSERTS it**, refusing
-   any other build. The pin is load-bearing: the bytecode in `src/arc/abi.ts` is what gets deployed,
-   and a different compiler produces different bytes.
-5. ⚠️ **`prebuild` is now in the build path.** `npm run build` runs `check:contract` first and
-   **refuses** if `src/arc/abi.ts` drifts from `contracts/AlphaMarket.sol`. If a build stops with
-   `STOP ...has changed since...`, the fix is `npm run build:contract` and commit the artifact — not
-   to remove the check.
-6. ⚠️ **Arc's EVM version is UNCONFIRMED and the committed artifact is a cancun build.** cancun and
-   paris produce different bytecode for this source (4,783 vs 4,871 deployed bytes), so deploying to
-   a pre-cancun chain is a **live revert, not a compile error**. **Unit 6 owes this check before it
-   spends gas.**
-7. **Never edit the root `tsconfig.json`** — NodeNext, and every import in `src/` and `scripts/`
+   gets roughly ten seconds.
+2. ⚠️ **An empty env var is a missing env var.** `??` falls back on `undefined`, never on `""`. Five
+   instances plus one inside a vendor bundle. **`src/config/env.ts::requiredEnv` is the one guard.**
+3. ⚠️ **Idempotency keys are DERIVED from the call bytes, never stored random.** A stored key pins
+   the request **body**: after a bug fix Circle replays the cached failure forever and the logs only
+   say Circle failed. `market.ts::idempotencyKeyFor` is the pattern.
+4. ⚠️ **Circle's `submit()` returns at `SENT`, so the transaction is NOT mined when the hash
+   arrives.** Anything wanting a receipt must `waitForTransaction`, never `getTransactionReceipt`.
+   True of a browser `eth_sendTransaction` too.
+5. ⚠️ **Guard ordering has broken five negative tests this phase.** A refusal must fail at the guard
+   being tested, not one above it — and a refusal firing for the wrong reason looks exactly like a
+   passing test. The fifth was a tamper test that added whitespace to stored JSON, which
+   canonicalizes straight back out.
+6. ⚠️ **The deployed contract's `resolver` is `immutable` with no setter.** A new Arc key means a
+   **new contract**, not a reconfigured one — and every `markets.chain_market_id` is meaningless
+   against a different address, which is why `contract_address` is on the row.
+7. ⚠️ **Never edit the root `tsconfig.json`** — NodeNext, and every import in `src/` and `scripts/`
    carries an explicit `.js` extension. Next reads `tsconfig.app.json`.
-8. ⚠️ **Do not run `scripts/smoke/08-circle-payable-call.ts`.** It deploys, sends a payable
-   transaction, and without `CIRCLE_WALLET_ID` creates a second Circle wallet — a wrong-author bug.
+8. ⚠️ **`npm run build` runs `check:contract` first** and refuses if `src/arc/abi.ts` has drifted
+   from `contracts/AlphaMarket.sol`. The fix is `npm run build:contract` and commit the artifact.
+9. ⚠️ **Do not run `scripts/smoke/08-circle-payable-call.ts`**, and do not point
+   `scripts/ops/resolve-market.ts` at markets 6 or 7 without `--live`.
 
 ### ⚠️ Open items
 
 | # | | owner |
 |---|---|---|
-| 1 | **Arc's EVM version unverified** against a cancun artifact | **Unit 6**, before deploying |
-| 2 | ⚠️ **The Circle wallet-set spend cap.** A console action, not code. Its trigger — decision 3R — has fired. **No unit will remind anyone**, and it is the only spend guard that exists until the ledger is built | nobody — do it |
-| 3 | **The digit guard's inherited obligation, both gaps open.** `market-population` is a check with the count in a rationale string, not a `unit: 'count'` fact; no ratio fact is emitted anywhere. `validate.ts` still only warns | accepted debt |
-| 4 | **`ARC_WALLET` is set in `.env`, read by nothing, and absent from `.env.example`** | Unit 11b |
-| 5 | ⚠️ **No Arc RPC environment variable exists.** SM-08 hardcodes `https://rpc.testnet.arc.network`. **Unit 4 needs one** | **Unit 4** |
-| 6 | ⚠️ **`buildEvidence` still has no destination** — its only caller is a demo script, and `resolve` puts `evidenceHash` on chain irreversibly | **Unit 8**, never cut |
-| 7 | **`AlphaMarket.sol` declares `SPDX-License-Identifier: MIT` and the repo has no `LICENSE` file** | undecided |
-| 8 | ⚠️ **`resolveDeadline >= observationEnd + 2 days` is enforced in `spec.ts` and NOT on chain.** `createMarket` checks ordering only, so a market created by any other path can carry a deadline the cron cannot meet | known, by design |
-| 9 | **`src/arc/abi.ts` must stay committed.** The app imports it and cannot compile one — `solc` is a devDependency | — |
+| 1 | ⚠️ **R17's republished-deployment void is UNBUILT.** Nothing stores the creation-time subgraph deployment to compare against — not the `markets` row, not `spec_json` (a spec names a `slug`, never a deployment id), so not `specHash` either. **It needs a column, which is a migration** | unassigned |
+| 2 | ⚠️ **`DECISIONS.md` stopped at 2026-09-07 and six rewrite-to-undo Phase 4 decisions live only here and in `logs.md`** — the immutable resolver, issuance-not-holding, the attestation as a committed file, `SubmitInput` as a discriminated union, derived idempotency keys, and the side rule reading `settle()`. ⚠️ The resolve-cron hour was recorded there on 2026-09-11; the other six were not | unassigned |
+| 3 | ⚠️ **`spend_ledger` has no writer anywhere in `src/`** and zero rows, and the Circle wallet-set console cap was never set. **There is no spend guard, in code or console.** Cut-list item 4 was taken by default rather than decided | unassigned |
+| 4 | **`ARC_WALLET` is the deployer EOA and the name says otherwise.** In `.env`, absent from `.env.example`, and `arc.ts` carries a warning never to read it as the analyst | Unit 11b |
+| 5 | ⚠️ **No market row records which report justifies its claim, or its stake size.** `prepare()` needs both and `marketsAwaitingCommit` returns neither, so `/api/cron/commit` decides them — newest qualifying tokenized report, 0.01 USDC constant | accepted, Unit 10 |
+| 6 | ⚠️ **`marketsAwaitingCommit` has no `closeTime` predicate and `prepare()` has no past-close refusal.** The cron guards it; **anything else calling `prepare()` on a stale row would spend to learn what the contract already knows** | accepted, guarded in Unit 10 |
+| 7 | **No idempotency-key column for `resolve` or `voidMarket`.** `markets` carries `create_idempotency_key` only. Survivable because the key is derived and needs no memory | accepted |
+| 8 | **`resolve.ts`'s `TooEarlyToResolve` and `NotResolver` guards are unreachable** — `settle()` will not produce an outcome for an unfinished day, and there is no second Circle wallet. Kept because a revert costs USDC; **not claimed as proven** | accepted |
+| 9 | **`AlphaMarket.sol` declares `SPDX-License-Identifier: MIT` and the repo has no `LICENSE` file** | undecided |
+| 10 | ⚠️ **`resolveDeadline >= observationEnd + 2 days` is enforced in `spec.ts` and NOT on chain** | known, by design |
+| 11 | **`src/arc/abi.ts` must stay committed** — the app imports it and cannot compile one; `solc` is a devDependency | — |
 | — | Phase 3's open seams — `Report.atsTokenAddress` unpopulated, `quotes.state` unwritten, `payments/recover.ts` never built, `tokenize/ats.ts` leaking two `pooled()` clients, `scripts/demo/skills.ts` broken, the console deployed and unauthenticated | `PHASE-3.md` |
 
-### Unit 4 — what it is and what it needs
+### Unit 11 — what it is and what it needs
 
-**`src/arc/arc.ts`, the plumbing every Arc write shares.** The chain constants, a lazily-constructed
-memoized Circle client, a `submit()` that wraps `createContractExecutionTransaction` and the wait, the
-single 18-dp↔6-dp conversion site, and the analyst identity guard that refuses when `CIRCLE_WALLET_ID`
-does not resolve to the analyst row's `arcAddress`.
+**`app/api/cron/resolve/route.ts`, and it closes A4.** Same shape as Unit 10: `CRON_SECRET` against
+`Authorization: Bearer`, `maxDuration = 60`, reconciliation not a cursor. It asks
+`marketsAwaitingResolve(now)` — past `observation_end`, neither resolved nor voided — and for each
+market calls `settle()` then `recordSettlement()` (Unit 8) and `prepare()` then `resolveMarket()` or
+`voidMarket()` (Unit 9). ⚠️ **Everything it needs already exists and is proven on chain**; `settle()`
+throwing `SettlementTooEarly` is a **skip, not an error**, and `MISSING_OBSERVATION` is recorded and
+retried until the deadline. It adds a second entry to `vercel.json`'s `crons` — **`0 2 * * *`, and
+the reasoning is in `DECISIONS.md`, not here.** The one thing it must not do is call `prepare()` on a
+market whose evidence has not been persisted first, which is the ordering Unit 8's header names.
 
-**It depends on nothing built today.** `src/arc/abi.ts` exists for decoding but Unit 4 does not need
-it; `spec.ts` is unrelated. What it needs that does **not** exist: **an Arc RPC environment variable**
-(open item 5). What it must get right is in its own brief — supply `idempotencyKey` on every call
-because the default is not idempotent, never import `generateIdempotencyKey` because it is in the
-typings and `undefined` at runtime, bound the wait with `AbortSignal.timeout`, and wait for `SENT`
-rather than `COMPLETE` because an EOA has its hash at `SENT`.
 
 ---
 

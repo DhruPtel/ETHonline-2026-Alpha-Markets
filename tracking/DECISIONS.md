@@ -663,3 +663,45 @@ what makes a second one additive.
 
 **Affects:** `config/analysts.ts` · `agent/execute.ts` · `tokenize/ats.ts`
 (Unit 8) · `payments/quotes.ts` (Unit 13) · PLAN §11 cut #6
+
+---
+
+## The resolve cron fires at 02:00 UTC, not 01:00 (2026-09-11)
+
+**Decision:** Unit 11's `vercel.json` entry is `0 2 * * *`. Markets 6 and 7 have
+`observationEnd` at 2026-09-13T00:00:00Z, and `spec.ts`'s `FRESHNESS_MARGIN_SECONDS`
+is 3600, so the earliest legal settlement is **2026-09-13T01:00:00Z**. The cron is
+set an hour past that rather than on it.
+
+**Why not 01:00.** ⚠️ The freshness rule compares **the subgraph's
+`_meta.block.timestamp`**, not the wall clock — `isFresh(metaBlockTimestamp,
+observedDay)`. An indexer running even minutes behind real time makes a 01:00 call
+throw `SettlementTooEarly`, and **Vercel Hobby fires once daily with no retry**, so
+a single early call costs the whole day. 02:00 buys an hour of indexer lag on top
+of the margin the rule already carries.
+
+**Why not later.** Sunday 2026-09-13 is the submission deadline. Firing at 02:00
+leaves roughly twenty-one hours of that day for the manual fallback
+(`scripts/ops/resolve-market.ts --market=<id> --live --send`) and for recording,
+and a later hour buys nothing the margin has not already bought.
+
+**Consequence — and it is the reason this hour is worth more than the arithmetic
+says.** Hobby drifts up to an hour, so the run lands between 02:00 and 02:59Z.
+⚠️ **The same schedule also fires on Saturday 2026-09-12**, when markets 6 and 7
+are not yet past `observationEnd` and `marketsAwaitingResolve` returns nothing. That
+Saturday run is **a free rehearsal of the scheduled path with no money at stake** —
+it proves auth, deployment and the empty-work report a day before the only run that
+matters. A schedule chosen to land late on Sunday would have given up that rehearsal.
+
+**Cost:** nothing settles before 02:00Z Sunday even though it legally could from
+01:00Z. On a market whose `resolveDeadline` is 2026-09-15T00:00:00Z that is an hour
+out of a forty-seven-hour window, and `voidMarket` stays permissionless after the
+deadline regardless of whether the cron ever works.
+
+**Alternative rejected:** `0 1 * * *`, which is the earliest legal hour and reads
+tidier against `observationEnd + margin`. Rejected because it makes the run's
+success depend on the indexer being no further behind than zero, on the one day
+there is no second attempt.
+
+**Affects:** `app/api/cron/resolve/route.ts` (Unit 11) · `vercel.json` ·
+PHASE-4 *The calendar* · PLAN §5.16's freshness rule

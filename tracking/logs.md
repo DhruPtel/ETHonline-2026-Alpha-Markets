@@ -7427,3 +7427,86 @@ refuses the row harmlessly, and there is no A2 evidence tonight.
 ⚠️ **The schedule runs on Vercel, not here.** The live deployment is still Phase 3's, so the route,
 the `crons` entry and `CRON_SECRET` in the Vercel project environment all have to land there before
 22:00 UTC. Nothing is committed and that deploy is the operator's.
+
+---
+
+## 2026-09-11T08:00Z — End of session. Phase 4 is twelve units in and the fallback calendar is live.
+
+**Written for a session that starts tomorrow knowing only what is on disk.** State lives in
+`tracking/phases/PHASE-4.md` — its status table, *Where this actually stands*, *What has to happen,
+with times*, *The live markets*, *Before touching anything*, *Open items* and *Unit 11*. The
+resolve-cron hour is in `tracking/DECISIONS.md`. This entry is the narrative and **deliberately does
+not repeat the tables** — three files, three jobs, no duplication.
+
+⚠️ **`PHASE-4.md` was a session stale and said "What is deployed: Nothing from Phase 4."** That was
+false by six units — `AlphaMarket` had been live since Unit 6. Its status table also still marked
+Unit 4 as NEXT. **Both were rewritten from the chain and the code rather than from the plan**, and
+the section now carries the date it was read and a note saying the code wins if they disagree again.
+
+### What landed today, and four units landed differently from their briefs
+
+Units **9**, **14** and **10** were built today; **1–8** were already done. Twelve of the
+twenty-one units in the table are complete. Four carry changes their briefs did not ask for, each
+for a reason found while building:
+
+- **Unit 4 — `callData` on `submit()`.** Circle's server-side encoder handles *"string, integer,
+  boolean, and array"* and refused `createMarket`'s `QuestionCore` struct with
+  `ABI_SIGNATURE_PARAMS_MISMATCH`. `SubmitInput` became a discriminated union so sending both shapes
+  is unrepresentable.
+- **Unit 4 — idempotency keys derived from the call bytes.** A stored random key pins the request
+  **body**, so the retry after the `callData` fix replayed Circle's cached failure and never sent the
+  corrected call. ⚠️ A cron storing a key would have wedged permanently with logs saying only that
+  Circle failed.
+- **Unit 7 — the side rule was rewritten after the unit shipped.** `decideSide` read the report's
+  figure, which comes from the **`balance-sheet`** document; settlement reads
+  **`financialsDailySnapshots`**. Same metric name, different entity, and they disagree. It now calls
+  `settle()` — the function settlement calls — so the side is by construction what settlement would
+  decide. Market 6 was committed on the old rule and is currently losing. It is left exactly as it
+  is. Full account in `lessons.md`.
+- **Unit 10 — a closed-market refusal.** `marketsAwaitingCommit` has no `closeTime` predicate and
+  `prepare()` has no past-close refusal, so a market whose window shut would be `create()`d on chain
+  (spending) and then revert `StakingClosed` on `commit()` (spending again) **every day forever**.
+  Found by reasoning about what happens if tonight's deploy slips.
+
+Unit **9** also gained a `reconcile` action for a run that submits and dies before its `UPDATE` —
+without it the resolve cron's `WHERE resolved_at IS NULL` would retry that market daily forever.
+
+### Today's spending, and what it bought
+
+Unit 9's rehearsal cost **0.0064005594 USDC** across four transactions and drove both settlement
+paths on chain: market 8 resolved TRUE on a real snapshot, market 9 voided after a deadline that
+passed in 2021. Nothing reverted. ⚠️ **That rehearsal exists because markets 6 and 7 cannot settle
+before Sunday 01:00Z and Sunday is the only window** — a bug found then would have had no second
+attempt.
+
+### The first money into this system from somebody who is not us
+
+⚠️ **A human staked 1 USDC into market 6 from MetaMask** — `0x683eE842A16f85e69883F433745263BFe8D55f76`,
+side TRUE, block 61531149, recorded in `stakes` with its transaction hash. Every other chain write in
+this repo is server-signed; `report/[hash]/buy.tsx` argues the opposite case in its own header. **A5
+asks for value moving on Arc from a party that is not us, and this is it.** SM-09's `next build` half,
+open since 2026-09-06, is closed with it.
+
+### What is not done, and the one that is time-critical
+
+**Unit 10 is built and not deployed**, and the live deployment is still Phase 3's. The commit cron
+fires at 22:00Z tonight only if the deploy and `CRON_SECRET` reach Vercel before then; the seeded
+market it would commit closes at 23:59Z. ⚠️ **A2's evidence is a `vercel-cron/1.0` line in the Vercel
+log, and tonight is the run that produces it.** Unit 11 is next and everything it needs exists.
+11b, 12, 13, 13b, 15, 15b and 16 are untouched — ⚠️ **15 and 15b are the feedback loop, and the cut
+list puts them above every remaining page.**
+
+### ⚠️ Where today ended against the calendar
+
+**The fallback is in effect and there is no spare day.** The plan wanted observed day *D* = Friday 11
+with resolution Saturday and Sunday spare; we have **D = Saturday 12, resolution Sunday, deadline
+Sunday**. It was forced rather than chosen: `spec.ts` requires `closeTime <= dayStart(observedDay)`
+while the contract requires `closeTime > now`, so a commit is always ahead of its observed day and
+the earliest honest *D* on the day markets 6 and 7 were created was the 12th.
+
+**What that costs, stated plainly:** one missed resolve cron on Sunday morning and the demo cycle has
+to be finished by hand the same day. The manual path exists and is proven —
+`scripts/ops/resolve-market.ts --market=<id> --live --send` — and `voidMarket` stays permissionless
+after 2026-09-15T00:00:00Z regardless, so funds are never stranded. What cannot be recovered is the
+*unattended* claim: A2 and A4 both rest on a scheduled run nobody triggered, and each has one
+scheduled attempt left before the deadline.
