@@ -8305,3 +8305,93 @@ client on every report page. `/holdings` and `/markets/[id]` do those reads wher
 `/report/24041ca2…` **200**, panel present with both halves and all three hash appearances.
 `/report/348482a5…` **200**, Hedera half only with the correct Arc sentence. `/report/31d5f67d…`
 **200** with **no panel at all**. Paywall probe run against the deployed HTML, not a local build.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 11b: `docs/arc-deployment.md` — Arc mainnet readiness, assembled and verified
+
+One document, 340 lines. **No code, no contracts, no transactions, no database writes.** `npx tsc -p
+tsconfig.json --noEmit` exits 0 (nothing in code changed). ⚠️ **`.env.example` needed no change** —
+the audit found no gap in it; the gap is elsewhere, see below.
+
+⚠️ **This closes A6, which is pass/fail on all three Arc prizes.** PLAN §4 is explicit that an env
+var and a README line do not satisfy it, so the document covers a portable manifest, provisioning,
+**permissions and recovery** — the two §4 names by name and the two that got the most care.
+
+### ⚠️ Every value verified live, and three things were wrong until they were read
+
+The brief said verify against the network or the code rather than the tracking, because the tracking
+has been stale twice this phase. That was the right instruction — **three claims changed under
+checking**:
+
+1. ⚠️ **The Circle mainnet blockchain enum is NOT a blank.** A first pass grepped `"ARC-[A-Z]+"` and
+   concluded `ARC-TESTNET` was the only Arc value in the package. Printing the actual `Blockchain`
+   union showed **`readonly Arc: "ARC"`** sitting directly beside it in
+   `dist/types/clients/configurations.d.ts`. The hyphenless value never matched the pattern.
+   **A blank was about to be recorded for a value that is already known** — the seventh instance of
+   this project's recurring wrongness about what is live, caught by reading rather than grepping.
+2. ⚠️ **The bytecode quirk is two 20-byte runs, not two 32-byte slots.** Located by a byte-wise diff:
+   the deployed code and the artifact are both 4,783 bytes and differ at **bytes 253–272 and
+   1949–1968**, each exactly the 20-byte resolver address against zeros in the artifact. Masking
+   those two runs makes the comparison **identical**. A reader masking 32 bytes would blank
+   neighbouring opcodes and fail for a second, different reason.
+3. **The explorer host is hard-coded in three files, not two** — and `stake.tsx` also hands it to
+   MetaMask in `wallet_addEthereumChain`.
+
+**Gas figures were re-read from the receipts** rather than quoted: `createMarket` 0.002203212,
+`commitPrediction` 0.00490882768926, `resolve` 0.001357841095, `voidMarket` 0.0007726779 USDC. A full
+unattended day is under a cent — the exposure is the stake, not the gas.
+
+Everything else checked live: `chainId 5042002`, `resolver()`, `marketCount() 10`, `claimCount() 7`,
+the 1.02 USDC balance, `MAX_STAKE`, `UNIT_SCALE`, the USDC predeploy answering `decimals() = 6`, both
+analyst identities through `verify-analyst.ts` against Circle and Mirror Node, and both crons
+registered on Vercel.
+
+### ⚠️ A live finding the document had to record: the ATS resolver has EXPIRED
+
+`/api/health` reports `daysRemaining: -1.3`, and Mirror Node confirms contract `0.0.9212226` expired
+**2026-09-10T10:51:29Z** with `deleted: false` — it is in Hedera's grace period. **The public ATS
+testnet infrastructure this project's tokenization rests on is past its expiry as of today.** SM-07
+recorded the date; nothing was watching it. Reported and not enforced, and on mainnet an operator
+would deploy their own rather than inherit a public one with an expiry.
+
+### What the document does not soften
+
+The spend-guard section is the sharpest: **neither guard exists.** The Circle wallet-set cap is a
+console action nobody performed — SM-08 flagged it on 2026-09-06 as required *before* unattended
+commits, and the agent has been committing unattended since Unit 10 deployed. `spend_ledger` has
+**zero writers** (`grep "INSERT INTO spend_ledger" src/` → nothing) and was taken off the cut list by
+default rather than decided. What bounds spending today is a `0.01 USDC` constant and a once-daily
+cron.
+
+Also stated rather than omitted: `payouts` has no writer so trading return is null for every real
+claim; reconciliation quality is null on all nine reports by design, so **two of three scores carry
+no signal**; R17's republished-deployment void is unbuilt and needs a column; two `resolve.ts` guards
+are unreachable and **not claimed as proven**; `AlphaMarket.sol` declares MIT and the repo has no
+`LICENSE`; there is no Solidity test framework, by decision, and that is the largest accepted risk.
+
+### ⚠️ `ARC_WALLET` — recorded, not renamed, and the reason is that it should not exist
+
+It is in `.env`, absent from `.env.example`, and **read by nothing** — the only matches in `src/`,
+`app/` and `scripts/` are comments warning against reading it. Verified today that its value is
+**exactly the address `ARC_DEPLOYER_KEY` derives to**.
+
+⚠️ **Renaming would preserve a variable that should not exist**, and a second copy of an address is a
+second thing that can disagree. **The recorded action is to delete the line from `.env`**, and it is
+deliberately not added to `.env.example`. The env audit that surfaced it is symmetric and mechanical:
+every variable the code reads is declared, every variable declared is read — with the note that
+`DATABASE_URL`, `HEDERA_BUYER_KEY` and `HEDERA_NETWORK` are read through aliased helpers, so a naive
+`process.env.X` grep under-reports them.
+
+### ⚠️ How it gets checked, and why the strongest check is unavailable
+
+Three checks, in decreasing strength, and the document says so in those terms: a **symmetric env
+audit** (mechanical, cannot be fooled by knowing too much — it is what found `ARC_WALLET`); **every
+value against the live network or the installed code** (the network answering, not the author); and a
+**from-scratch walkthrough**, which is the weakest.
+
+⚠️ **Stated plainly rather than claimed past: you cannot un-know things.** A walkthrough by the person
+who wrote the system reads past an ambiguity that would stop a stranger, and no amount of care fixes
+that. Checks 1 and 2 close every *value*; what nothing available to this project can close is whether
+the *order and the explanations* in the provisioning section are sufficient for someone who has never
+seen it. That is left as an open weakness.
