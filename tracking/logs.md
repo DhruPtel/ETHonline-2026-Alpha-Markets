@@ -6941,3 +6941,142 @@ demo-market shape**, forced by the clock rather than chosen.
 
 ⚠️ **`prepare()` now refuses this market**, proven in the same run — one claim per author per market,
 caught before spending gas to learn it from the contract.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 8: `src/arc/settle.ts` — the read, its evidence, and a finding about the live market
+
+`src/arc/settle.ts` and `scripts/demo/settle.ts`. 22 assertions pass against the live gateway;
+`npx tsc -p tsconfig.json --noEmit` exits 0. ⚠️ **No chain calls and no gas** — asserted
+structurally rather than promised: the proof reads `settle.ts`'s own imports and fails if it can
+reach Arc at all. A unit that cannot import the chain cannot spend on it.
+
+**The seam is closed.** `buildEvidence` now has a destination. A settlement read produces a
+`record+raw` `EvidenceRecord`, it is persisted to `settlement_evidence` **before** anything goes on
+chain, and `evidenceHash` is taken over it. Unit 9 owns the chain write and this file has no path to
+one.
+
+**The proof's hardest check, done the way it was asked for:** `responseHash` is re-hashed from the
+bytes **read back out of the database**, not from the object still in memory — and confirmed twice,
+once through `verifyStoredEvidence` and once by hand so the check does not rest on the module's own
+helper. `raw` comes back byte-identical to what was written (1,658 bytes), which is the property
+TEXT-not-jsonb exists to give: under jsonb the keys would return reordered and the row would be a
+hash with nothing behind it.
+
+**Also proven:** a real past day (2026-09-09) settles with a real figure; the read is UNPINNED
+(`requestedBlock` null) which is the only reason a timestamp exists to check freshness against; an
+**exact tie resolves FALSE** end to end, matching `holds()` called directly; 2021-01-01 returns
+`MISSING_OBSERVATION` with `rowCount` 0 and evidence of having looked; and **2026-09-12 — the live
+market's own day — is refused** as `SettlementTooEarly`, which is a retry rather than an outcome.
+
+⚠️ **`SettlementTooEarly` is thrown while `MISSING_OBSERVATION` is returned, and the split is
+deliberate.** "Too early" is information about *when we asked*; "missing" is information about *the
+data*. Unit 11 skips the first and records the second.
+
+### ⚠️ A FINDING ABOUT THE LIVE MARKET, and it is about Unit 7's side rule rather than this unit
+
+Reading the recent series against the live market's threshold of **24,387,198,586**:
+
+| day | `totalDepositBalanceUSD` (daily snapshot) | vs threshold |
+|---|---|---|
+| 2026-09-06 | 24.696B | above |
+| 2026-09-07 | 24.513B | above |
+| 2026-09-08 | 24.517B | above |
+| 2026-09-09 | 24.243B | **below** |
+| 2026-09-10 | 24.074B | **below** |
+
+**The metric has been falling and is already below the threshold, two days before the observed day.**
+The analyst committed **TRUE**. That forecast is currently losing, and it may well resolve FALSE.
+
+⚠️ **A forecast being wrong is not a bug — but two things made it more likely, and both are in the
+side rule I wrote in Unit 7:**
+
+1. ⚠️ **The report is THREE DAYS STALE.** It was observed `2026-09-08T06:05:59Z` and was used on
+   2026-09-11 to forecast 2026-09-12. **Nothing in `prepare()` checks how old a report is.** The rule
+   compared a figure measured before the fall had happened.
+2. ⚠️ **THE SIDE RULE COMPARES ACROSS TWO DIFFERENT SOURCES.** The report's
+   `aave-v3-ethereum.totalDepositBalanceUSD` comes from the **`balance-sheet`** document — the
+   protocol entity's live state. Settlement reads **`financialsDailySnapshots`**. Same metric NAME,
+   different entity, and they do not agree: 24.634B against 24.517B for the same day, ~0.5% apart.
+   **The analyst is deciding from one series and being judged on another.**
+
+**Three ways out, and it is not this unit's call:**
+
+- have the side rule read the latest daily snapshot through `settle()`'s own path, so the analyst
+  predicts from the series it will be scored against — the honest fix, and it makes A1's "decision
+  logic tied to real signals" tie to the *right* signal;
+- refuse a report older than some age in `prepare()`;
+- accept it and let Unit 15 score it, which is what the loop exists for.
+
+⚠️ **I did not flag the source mismatch in Unit 7 and should have.** The brief said "the report's own
+figure against the threshold" and I implemented exactly that, but `LEGAL_METRICS` map to
+`FinancialSnapshot` fields — the connection to settlement's source was visible in `spec.ts` and I did
+not check that the report's fact of the same name came from the same place. **The live market is the
+cost of that**, and it is small: 0.01 USDC and a forecast that may be scored as wrong.
+
+⚠️ **Nothing here resolves the live market** — Unit 8 has no chain path, and the only call made
+against 2026-09-12 was the freshness test, which correctly refused.
+
+---
+
+## 2026-09-11 — The side rule now decides from the series it is scored on
+
+`src/arc/market.ts`'s `decideSide` rewritten, the staleness decision recorded in `prepare()`,
+`scripts/ops/commit-market.ts` updated, and the finding written up in `tracking/lessons.md`.
+`npx tsc -p tsconfig.json --noEmit` exits 0. **Market 7 created and committed** with the fixed rule,
+for **0.0193190208952 USDC** — 0.01 stake plus 0.0093 gas.
+
+**The fix: `decideSide` calls `settle()`.** Not "also reads the snapshot series" — it calls the
+function settlement calls, against the latest finished day, and takes its outcome. The side is
+therefore **by construction** what settlement would decide on the most recent data. Two reads of one
+series that could disagree is the bug being fixed, so a second copy of the window arithmetic, the
+freshness rule and the comparison would have been the same bug in a new file. It walks back from
+yesterday up to seven days, skipping `SettlementTooEarly` (today has not finished) and refusing if a
+week produces nothing — a series that has stopped publishing would void rather than settle.
+
+⚠️ **The report is untouched as the justification.** The claim is still bound to a tokenized report,
+admission still runs, and a report with no fact for the market's metric is still refused. Only the
+source of the *number* moved. **Both figures now ride on the decision and print before spending**, so
+a divergence is a line an operator reads rather than something resolved silently.
+
+**Proved, with both numbers shown:**
+
+```
+side rule   24074775695.03695740498966507765232  → TRUE
+settlement  24074775695.03695740498966507765232  → TRUE
+report      24633533926.80993183529872440370819  (balance-sheet entity — NOT what settles)
+```
+
+Identical to the last digit, same outcome, and still **2.3% away from the report's figure** — the
+divergence did not go away, it stopped being silent. ⚠️ The threshold in the run script now derives
+from the snapshot series too; deriving it from the report was part of the same mismatch and would
+have set the bar against a number nothing is ever measured against.
+
+⚠️ **All five of Unit 7's refusals re-run and still fail at the guard being tested** — checked
+explicitly because guard ordering has now bitten four tests this phase. The untokenized-report case
+still reaches Unit 6c's admission check at step 8, which matters because `decideSide` now makes
+network calls at step 5 and could have started failing earlier for an unrelated reason.
+
+### ⚠️ No staleness refusal, and the reasoning is the point
+
+The report behind market 6 was three days old, and that mattered **because the side was computed from
+it**. It no longer is — so **the correctness argument for an age limit is gone at the source**. What
+remains is editorial: is week-old research a good reason to stake? That is a product question nobody
+has answered, and refusing would stop an analyst staking on work it published last week, which is a
+real capability to remove on a hunch. The age is **recorded on the decision and printed** — 72.8h on
+this run — so it is visible before spending and available to Unit 15. Visibility without prohibition;
+if a limit is ever wanted it should come from a scoring result rather than from taste.
+
+### Two live markets now, and they are different questions
+
+| | market 6 | market 7 |
+|---|---|---|
+| threshold | 24,387,198,586 (from the report) | 23,834,027,938 (from the snapshot series) |
+| side | TRUE | TRUE |
+| decided from | report's 24.634B, three days stale | the 2026-09-10 snapshot, 24.075B |
+| currently | **losing** — series at 24.074B | winning — series is above the bar |
+
+⚠️ **Market 6 is left exactly as it is.** It is a genuine forecast, it is currently losing, and that
+is the loop working rather than something to tidy away. Unit 15 will score it, and a first real
+prediction that was wrong for a reason we can name is worth more to this project than one quietly
+replaced.

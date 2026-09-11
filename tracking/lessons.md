@@ -1296,3 +1296,62 @@ see gets the wrong answer from a document that also contains the right one.
   for eleven units, which cost us credit and nothing else. Had it been overclaiming — a paid read that
   did not settle, a token that did not verify — a judge would have found it in one click. That
   asymmetry is why every correction here that could have been softened was not.
+
+## 2026-09-11 — Two fields with the same name, from different entities, and the analyst was scored on the one it never read
+
+**Expected.** `prepare()` picks the analyst's side by comparing the report's figure for the market's
+metric against the threshold. `LEGAL_METRICS` names four fields, the report carries a fact for each
+of them, settlement reads the same four — one metric, one number, one comparison.
+
+**What happened.** The report's `aave-v3-ethereum.totalDepositBalanceUSD` comes from the
+**`balance-sheet`** document, which reads the protocol entity's live state. Settlement reads
+**`financialsDailySnapshots`**. Same subgraph, same field name, **different entity** — and they
+disagree: 24.634B against 24.517B for 2026-09-08, and by 2026-09-10 the snapshot series had fallen to
+24.074B while the report still said 24.634B. **The analyst decided from one series and was going to
+be scored on another.**
+
+Market 6 was committed on that basis: side TRUE, against a threshold the snapshot series had already
+been below for two days. It is a genuine forecast and it is currently losing.
+
+⚠️ **This is not "the side rule read the wrong field."** Every field name was right. It is that two
+identically-named figures came from different entities and nobody checked they were the same series.
+**This project learned that exact shape in Phase 1 and did not carry it forward** — the first entry
+in this file is Morpho publishing on Messari's template with every field name matching and the
+headline off by 3.6x, and the note forty lines on says it outright: *"the Morpho TVL was wrong while
+every field name was right."* The lesson was recorded as a fact about Morpho. It was a fact about
+**names**.
+
+**What it cost.** 0.01 USDC of stake, ~0.0074 of gas, and a forecast that may score as wrong. Cheap,
+and only because it surfaced in Unit 8 — the settlement unit was the first thing to read the other
+series, so the mismatch had roughly one place left to be caught before a cron was committing on a
+schedule. ⚠️ **On the cut list, Unit 8 is never-cut for a different reason (the evidence seam).
+Cutting it would also have removed the only thing that noticed this.**
+
+**What would have caught it, and it was visible.** `spec.ts` maps `LEGAL_METRICS` straight onto
+`FinancialSnapshot` fields — the file says which entity settlement reads, in the type. Nobody checked
+that the report's identically-named fact came from the same place. One question — *"which document
+produced this number?"* — asked once, against a report's own `provenance`, which records it.
+
+**What changes.**
+
+- ⚠️ **The side rule calls `settle()` rather than reading the report.** Not "reads the snapshot
+  series too" — *calls the function settlement calls*, against the latest finished day. The side is
+  now, by construction, what settlement would decide on the most recent data. Two reads of one series
+  that can disagree is the bug; a second copy of the window arithmetic and the comparison would have
+  been the same bug in a new file.
+- ⚠️ **The report stays the justification and that did not change.** The claim is still bound to a
+  tokenized report, admission still checks it, and a report with nothing to say about the market's
+  metric is still refused. What moved is only where the *number* comes from.
+- ⚠️ **Both figures are recorded on the decision and printed before spending.** The divergence is now
+  a line an operator reads — `snapshot 24.074B / report 24.634B` — rather than something resolved
+  silently in favour of whichever was read second. **A number that two sources disagree about should
+  show both, not pick one quietly.**
+- ⚠️ **A figure's identity is (entity, field), never field alone.** Anywhere this project compares
+  two numbers that "are the same metric", the thing to check is which entity each came from. That is
+  now the second time the same trap has been paid for.
+- **No staleness refusal was added, deliberately.** The report used for market 6 was three days old,
+  which mattered *because the side came from it*. It no longer does, so the correctness argument for
+  an age limit is gone at the source; what is left is an editorial question about what makes good
+  justification, and nobody has answered it. The age is recorded and printed instead. ⚠️ Adding a
+  threshold because it sounds prudent is how an arbitrary number becomes a rule nobody can defend —
+  if a limit is ever wanted it should come out of a scoring result, not out of taste.

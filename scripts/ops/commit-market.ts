@@ -18,7 +18,8 @@ import { ethers } from 'ethers';
 import { MarketRefused, commit, create, prepare } from '../../src/arc/market.js';
 import { BindingRefused } from '../../src/arc/admission.js';
 import { analystIdentity, arcProvider } from '../../src/arc/arc.js';
-import { dayStart } from '../../src/arc/spec.js';
+import { dayStart, validateSpec } from '../../src/arc/spec.js';
+import { settle } from '../../src/arc/settle.js';
 import { load } from '../../src/store/reports.js';
 import { ALPHA_MARKET_ABI } from '../../src/arc/abi.js';
 import { closePool, db } from '../../src/store/db.js';
@@ -59,10 +60,18 @@ const METRIC = 'totalDepositBalanceUSD';
 const observed = report.facts[`${SLUG}.${METRIC}`]?.value;
 if (!observed) { console.error(`\nSTOP  report ${tokenized.hash} has no ${SLUG}.${METRIC}.\n`); process.exit(1); }
 
-// ⚠️ The threshold is where the judgement actually lives — the side rule is arithmetic once it is
-// chosen. 1% under the measured figure: a real question (the number can fall that far in a day) that
-// the report's own measurement currently answers TRUE.
-const threshold = ((BigInt(observed.split('.')[0]!) * 99n) / 100n).toString();
+// ⚠️ **The threshold is derived from the SNAPSHOT series, not from the report** — the same series
+// the side rule and settlement both read. Deriving it from the report's figure was part of the same
+// mismatch: it would set the bar against a number nothing will ever be measured against.
+let latestDay = '', latestFigure = '';
+for (let back = 1; back <= 7 && !latestFigure; back += 1) {
+  const d = new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+  const r = await settle(validateSpec({ slug: SLUG, metric: METRIC, comparison: 'above', threshold: '1', observedDay: d }));
+  if (r.kind === 'settled') { latestDay = d; latestFigure = r.observed; }
+}
+if (!latestFigure) { console.error('\nSTOP  no daily snapshot in the last 7 days.\n'); process.exit(1); }
+// 1% under the latest snapshot: a real question the current series answers TRUE.
+const threshold = ((BigInt(latestFigure.split('.')[0]!) * 99n) / 100n).toString();
 
 // ⚠️ **The observed day cannot be in the past, and that is structural rather than a choice.**
 // `questionCore` requires `closeTime <= dayStart(observedDay)` and the contract's `_open` requires
@@ -131,6 +140,8 @@ try {
   console.log(`  observed   ends ${new Date(plan.core.observationEnd * 1000).toISOString()}`);
   console.log(`  deadline   ${new Date(plan.core.resolveDeadline * 1000).toISOString()}`);
   console.log(`  SIDE       ${plan.decision.side ? 'TRUE' : 'FALSE'}`);
+  console.log(`  from       the ${plan.decision.decidedFromDay} daily snapshot: ${plan.decision.observed}`);
+  console.log(`  report says ${plan.decision.reportFigure}  (observed ${plan.decision.reportObservedAt}, ${plan.decision.reportAgeHours}h old)`);
   console.log(`  because    ${plan.decision.reason}`);
   console.log(`  verdict    ${plan.verdict ?? 'null — a metric-across-deployments report carries none'}`);
   console.log(`  stake      ${ethers.formatUnits(plan.amount, 18)} USDC of the analyst's own money`);
@@ -140,6 +151,26 @@ try {
   console.log(`  claim id   ${plan.claimId}`);
   ok('the plan is serializable — it crosses a request boundary intact',
     JSON.parse(JSON.stringify(plan)).marketId === plan.marketId);
+
+  // ── ⚠️ The fix, proved: the side IS what settlement decides, on the same inputs ─────────────────
+  //
+  // Not "agrees with" — the side rule calls `settle()`, so this re-runs settlement for the day the
+  // side came from and checks the two answers and the two FIGURES are identical. Before the fix the
+  // figures came from different entities and differed by ~0.5%.
+  console.log('\n══ the side rule against settlement, same inputs');
+  const asSettlement = await settle(validateSpec({
+    slug: SLUG, metric: METRIC, comparison: 'above', threshold: plan.spec.threshold,
+    observedDay: plan.decision.decidedFromDay,
+  }));
+  if (asSettlement.kind !== 'settled') { console.error('\nSTOP  the decided-from day did not settle.\n'); process.exit(1); }
+  console.log(`  side rule   ${plan.decision.observed}  → ${plan.decision.side ? 'TRUE' : 'FALSE'}`);
+  console.log(`  settlement  ${asSettlement.observed}  → ${asSettlement.outcome ? 'TRUE' : 'FALSE'}`);
+  console.log(`  report      ${plan.decision.reportFigure}  (balance-sheet entity — NOT what settles)`);
+  ok('same figure, to the last digit', plan.decision.observed === asSettlement.observed);
+  ok('same outcome', plan.decision.side === asSettlement.outcome);
+  ok('⚠️ and it is NOT the report\'s figure — the two sources still differ',
+    plan.decision.observed !== plan.decision.reportFigure,
+    `snapshot ${plan.decision.observed.slice(0, 12)}… vs report ${plan.decision.reportFigure.slice(0, 12)}…`);
 
   if (DRY) {
     console.log(`\n  balance ${ethers.formatUnits(before, 18)} USDC — unchanged, nothing was sent.`);

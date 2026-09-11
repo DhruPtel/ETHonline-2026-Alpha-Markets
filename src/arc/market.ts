@@ -22,6 +22,7 @@ import { ethers } from 'ethers';
 import { ALPHA_MARKET_ABI } from './abi.js';
 import { type BindingEvidence, checkBinding, recordArcTransaction, recordBinding } from './admission.js';
 import { analystIdentity, arcProvider, submit, usdcFromNative } from './arc.js';
+import { SettlementTooEarly, settle } from './settle.js';
 import { type MarketSpec, type QuestionCore, holds, metricFromFactId, questionCore, specHash, validateSpec } from './spec.js';
 import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
 import { hashCanonical } from '../domain/canonical.js';
@@ -51,82 +52,124 @@ const GAS_HEADROOM = ethers.parseUnits('0.05', 18);
 // ⚠️ **NOTHING IN THE PLAN EVER SPECIFIED THIS, AND THIS FILE OWNS IT.** A1 is about decision logic
 // tied to real signals, so it cannot be arbitrary and it cannot be a coin flip.
 //
-// **The rule: the report's own headline figure, compared against the market's threshold.** The
-// report says what the number is today; the market asks where it will be at the end of the observed
-// day; the analyst predicts that its own measurement still holds. `holds()` is the same function
-// settlement uses, so the analyst is judged by exactly the comparison it predicted with.
+// **The rule: what settlement would decide for the most recent finished day.** `decideSide` calls
+// `settle()` — the same function, the same series, the same `holds()` — against the latest day that
+// has a snapshot, and the analyst predicts that answer still holds on the observed day.
+//
+// ⚠️ **THIS IS A CORRECTION, AND THE FIRST VERSION WAS WRONG IN A WAY THAT PASSED ITS TESTS.** It
+// read the figure out of the report: `facts['{slug}.{metric}']`. That figure comes from the
+// **`balance-sheet`** document — the protocol entity's live state. Settlement reads
+// **`financialsDailySnapshots`**. Same metric NAME, different entity, and they disagree — 24.634B
+// against 24.517B for the same day. **The analyst was deciding from one series and being scored on
+// another**, which is a mismatch that happened to work rather than decision logic tied to a real
+// signal. Market 6 is the cost. See `tracking/lessons.md`.
+//
+// ⚠️ **`settle()` is CALLED, never reimplemented.** Two reads of one series that could disagree is
+// the bug being fixed; a second copy of the window arithmetic, the freshness rule and the comparison
+// would be the same bug wearing a different file name.
+//
+// ⚠️ **THE REPORT IS STILL THE JUSTIFICATION AND NOTHING ABOUT THAT CHANGED.** The claim is bound to
+// a tokenized report, admission still checks it, and the report is still what a reader is being
+// asked to trust. What moved is only where the NUMBER comes from. The report must still speak to the
+// figure the market asks about — a report with nothing to say about it is not a justification for
+// this market — and both figures are recorded side by side, so a divergence is visible rather than
+// silently resolved in favour of whichever was read second.
 //
 // ⚠️ **Deterministic, and no second model call — taken deliberately.** A 60-second Vercel function
 // cannot afford another round trip to a model, and a deterministic rule is **auditable in a way a
-// model call is not**: anyone holding the report and the spec can recompute the side and get the
-// same answer, forever. The report is the justification and the assessment is the words; the side is
-// arithmetic over the figure the report already published.
+// model call is not**: anyone holding the spec can recompute the side and get the same answer.
 //
-// ⚠️ **The honest cost:** the analyst cannot predict a REVERSAL. A report saying "TVL is 25.1B" can
-// only ever commit to "still above 25B", never to "about to fall through it". That is a real
-// limitation of the rule and not a bug in it — and it is why the threshold is chosen when the market
-// is created, which is where the judgement actually lives.
+// ⚠️ **The honest cost:** the analyst still cannot predict a REVERSAL — it can only ever forecast
+// that the latest answer persists. That is a real limitation of the rule, and it is why the
+// threshold, chosen when the market is created, is where the judgement actually lives.
+
+/** ⚠️ A week. A deployment with no snapshot for seven days is not one a market could settle on. */
+const MAX_LOOKBACK_DAYS = 7;
 
 /** Why the analyst took the side it took. Recorded so a reader can recompute it. */
 export interface SideDecision {
   readonly side: boolean;
-  readonly headline: string;
+  /** ⚠️ The day the side was computed from — the latest FINISHED day, not the observed day. */
+  readonly decidedFromDay: string;
+  /** The snapshot figure the side was computed from. The series settlement will read. */
   readonly observed: string;
+  /** What the REPORT said about the same metric. Recorded for comparison, not used for the side. */
+  readonly reportFigure: string;
+  readonly reportObservedAt: string;
+  /** ⚠️ Recorded, never enforced. See `prepare()` on why there is no staleness refusal. */
+  readonly reportAgeHours: number;
   readonly reason: string;
 }
 
-export function decideSide(report: Report, spec: MarketSpec): SideDecision {
-  // ⚠️ **The fact the MARKET asks about, not the report's headline — and that correction came from
-  // the data.** The first draft required `subject.headline` to be the market subject. Every one of
-  // the nine reports in the store has the headline `metric.totalDepositBalanceUSD`: the `metric.`
-  // sentinel `compose.ts` mints when a report is about a metric ACROSS deployments and none leads.
-  // `metricFromFactId` refuses that by design, so the rule would have refused **every report we
-  // have** — a side rule that never fires.
-  //
-  // The market names a deployment and a metric. The report's answer to that exact question is
-  // `facts['{slug}.{metric}']`, and those are present and measured — `aave-v3-ethereum.
-  // totalDepositBalanceUSD` and `.totalBorrowBalanceUSD` both carry values in every report.
-  //
-  // ⚠️ **Stated plainly because it is a real weakening:** the figure the analyst stakes on may not be
-  // the figure its report LEADS with. It is still a figure that report measured, corroborated and
-  // published — the fact table is the only place a digit exists in a report — but "the report is the
-  // justification" is now "the report measured this", not "the report is about this".
-  const factId = `${spec.slug}.${spec.metric}`;
+const utcDay = (msAgo: number): string => new Date(Date.now() - msAgo).toISOString().slice(0, 10);
 
+export async function decideSide(report: Report, spec: MarketSpec): Promise<SideDecision> {
+  // ── The report must speak to the figure the market asks about ──
+  //
   // ⚠️ Still routed through `metricFromFactId`, which round-trips the id through `figureRef` and
-  // refuses a per-market figure or the `metric.` sentinel. Building the string ourselves and
-  // trusting it would skip the one check that knows what is settleable.
+  // refuses a per-market figure or the `metric.` sentinel — a report whose headline names no single
+  // deployment cannot back a market, because settlement re-reads one deployment.
+  const factId = `${spec.slug}.${spec.metric}`;
   metricFromFactId(factId);
 
   const fact = report.facts[factId];
   if (!fact) {
     throw new MarketRefused(
-      `report ${report.subject.headline.split('.')[0] === 'metric' ? '(metric-across-deployments)' : ''} ` +
-      `has no fact ${factId}. It never measured the figure this market asks about, so it cannot ` +
-      'justify a side on it.',
+      `the report has no fact ${factId}. It never measured the figure this market asks about, so ` +
+      'it cannot justify a prediction on it.',
     );
   }
-  // ⚠️ A withheld figure is a real state (§5.13), not a missing one — and it is a refusal here
-  // because a side taken without a number is a guess wearing a justification.
   if (fact.value === null) {
     throw new MarketRefused(
       `fact ${fact.id} is WITHHELD (${fact.withheld?.code ?? 'no code'}: ` +
-      `${fact.withheld?.rationale ?? 'no rationale'}), so the report publishes no figure to ` +
-      'compare against the threshold.',
+      `${fact.withheld?.rationale ?? 'no rationale'}), so the report stands behind no figure here.`,
     );
   }
 
-  const side = holds(spec, fact.value);
-  const isHeadline = report.subject.headline === factId;
+  // ── The side, from the series that will judge it ──
+  //
+  // ⚠️ Walks back from yesterday. Today is unfinished, so `settle()` would refuse it as
+  // `SettlementTooEarly` — correctly, and that refusal is caught and skipped rather than suppressed.
+  let latest: { day: string; observed: string; side: boolean } | null = null;
+  const missing: string[] = [];
+  for (let back = 1; back <= MAX_LOOKBACK_DAYS && !latest; back += 1) {
+    const day = utcDay(back * 86_400_000);
+    try {
+      const read = await settle({ ...spec, observedDay: day });
+      if (read.kind === 'settled') latest = { day, observed: read.observed, side: read.outcome };
+      else missing.push(day);
+    } catch (error) {
+      // ⚠️ Only "the day has not finished" is skippable. Anything else — a pinned read, a gateway
+      // failure — is a reason to stop rather than to try an older day and pretend it is current.
+      if (!(error instanceof SettlementTooEarly)) throw error;
+      missing.push(`${day} (not finished)`);
+    }
+  }
+
+  if (!latest) {
+    throw new MarketRefused(
+      `no daily snapshot for ${spec.slug}.${spec.metric} in the last ${MAX_LOOKBACK_DAYS} days ` +
+      `(${missing.join(', ')}). There is no recent observation to forecast from, and a market on a ` +
+      'series that has stopped publishing would void rather than settle.',
+    );
+  }
+
+  const ageHours = (Date.now() - Date.parse(report.observedAt)) / 3_600_000;
+  const diverges = latest.observed !== fact.value;
   return {
-    side,
-    headline: fact.id,
-    observed: fact.value,
+    side: latest.side,
+    decidedFromDay: latest.day,
+    observed: latest.observed,
+    reportFigure: fact.value,
+    reportObservedAt: report.observedAt,
+    reportAgeHours: Math.round(ageHours * 10) / 10,
     reason:
-      `the report measured ${fact.id} at ${fact.value} (block ${fact.block}, corroboration ` +
-      `${fact.corroboration})${isHeadline ? ', which is its headline figure' : ', which is a measured figure but not its headline'}; ` +
-      `the market asks whether it is ${spec.comparison} ${spec.threshold} on ${spec.observedDay}. ` +
-      `${side ? 'It already is, so the analyst predicts it still will be.' : 'It is not, so the analyst predicts it will not be.'}`,
+      `the ${latest.day} daily snapshot put ${factId} at ${latest.observed}; the market asks ` +
+      `whether it is ${spec.comparison} ${spec.threshold} on ${spec.observedDay}. ` +
+      `${latest.side ? 'It is, so the analyst predicts it still will be.' : 'It is not, so the analyst predicts it will not be.'} ` +
+      `The report (observed ${report.observedAt}, ${Math.round(ageHours)}h old) measured the same ` +
+      `metric at ${fact.value}` +
+      `${diverges ? ' — a DIFFERENT figure, because the report reads the protocol entity and settlement reads the daily snapshot.' : '.'}`,
   };
 }
 
@@ -192,6 +235,18 @@ export async function prepare(input: {
   const contractAddress = requiredEnv('ARC_MARKET_ADDRESS', 'Deployed by Unit 6.');
 
   // 1 · the report loads and passes its own hash check (`load` throws if it does not).
+  //
+  // ⚠️ **THERE IS NO STALENESS REFUSAL, AND THAT IS A DECISION RATHER THAN AN OMISSION.** The report
+  // used for market 6 was three days old, and that mattered *because the side was computed from it*.
+  // It no longer is — the side comes from the latest daily snapshot — so **the correctness argument
+  // for an age limit is gone at the source.** What remains is editorial: is week-old research a good
+  // reason to stake? That is a product question nobody has answered, and refusing would stop an
+  // analyst staking on work it published last week, which is a real capability to remove on a hunch.
+  //
+  // ⚠️ Adding a threshold "because it sounds prudent" is how an arbitrary number becomes a rule
+  // nobody can justify later. **The age is recorded on the decision and printed instead** — visible
+  // to an operator before spending, and available to Unit 15 when it scores. Visibility without
+  // prohibition; if a limit is ever wanted, it should come from a scoring result rather than taste.
   const report = await load(input.reportHash);
   if (!report) throw new MarketRefused(`no report ${input.reportHash} in the store.`);
 
@@ -211,7 +266,7 @@ export async function prepare(input: {
   }
 
   // 5 · the side, from the report's own figure. Throws rather than guessing.
-  const decision = decideSide(report, spec);
+  const decision = await decideSide(report, spec);
 
   // 6 · the amount is a legal stake before the contract is asked to say so.
   const amount = BigInt(input.amount);
