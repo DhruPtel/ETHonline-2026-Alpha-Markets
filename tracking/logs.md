@@ -6535,3 +6535,99 @@ rather than complexity. **If it is cut again the seam is by table group, not by 
 `markets`/`claims`/`stakes` are the market itself, while `scores`, `settlement_evidence`,
 `binding_evidence`, `spend_ledger` and `payouts` are records *about* it. Not taken: nothing has asked
 for it, and the guideline is about what a human can read in a sitting rather than a number to hit.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 6: AlphaMarket deployed to Arc testnet, every path driven
+
+**`AlphaMarket.sol` is deployed at `0x003e7Cb791257B529bb5f9F6D17A846264d48044`** with the analyst's
+Circle wallet as the immutable resolver. Every path in the brief was driven on chain across **21
+transactions** for **0.051198058400910441 USDC** of gas, and the contract ended holding **zero**.
+`scripts/ops/drive-market.ts` does the driving; `scripts/demo/verify-market.ts` re-checks the result
+from the chain alone for free. `ARC_MARKET_ADDRESS` recorded in `.env` and `.env.example`.
+
+⚠️ **No contract bug was found, and nothing was worked around.** That is the outcome this unit
+existed to determine, so it is worth saying plainly rather than burying: four markets, every
+settlement path, every refusal, and the arithmetic held exactly.
+
+**The EVM version question, answered three ways.** Header fields carry `blobGasUsed`,
+`excessBlobGas`, `parentBeaconBlockRoot` **and `requestsHash`** — the chain is Prague, past Cancun.
+The on-chain code equals the committed artifact. ⚠️ **But the check I would actually rely on is the
+third: view calls into the deployed runtime bytecode EXECUTE.** Header fields say what a chain
+advertises; only running cancun-era codegen proves it runs. It cost nothing — an `eth_call` right
+after deploy — so the question of whether header fields were "sufficient" did not need answering in
+the abstract.
+
+⚠️ **The artifact and the on-chain code are NOT byte-identical, and my first assertion that they
+should be was wrong.** `resolver` is `immutable`, so the constructor writes the address INTO the
+runtime code: two 32-byte slots, at bytes 253–272 and 1949–1968, hold the analyst where the artifact
+holds `PUSH32 0`. Measured, not guessed — 74 differing nibbles, all inside those two slots. The check
+now masks the resolver back out, which makes it a real equality test instead of a length comparison.
+
+### The four rehearsal markets
+
+| | pool | outcome | what it proved |
+|---|---|---|---|
+| M1 (id 2) | 0.02 | resolved TRUE | redistribution — winner took the whole pool, loser got nothing |
+| M2 (id 3) | 0.03 | resolved FALSE | **empty winning pool**: analyst refunded EXACTLY 0.01, staker EXACTLY 0.02 |
+| M3 (id 4) | 0.02 | **voided** by the deployer | permissionless void, both refunded EXACTLY their stakes |
+| M4 (id 5) | 0.01 | resolved TRUE | single staker refunded EXACTLY its stake |
+
+⚠️ **The two checks the research said cost people money both hold, exactly rather than approximately.**
+Every refund equalled its stake to the wei, and `payouts ≤ pool` held per market. The global check is
+the strong one: **the contract's balance is 0 after the last claim**, read from the chain rather than
+from adding up what we expected — so total paid out equals total staked with nothing stranded and
+nothing overpaid.
+
+⚠️ **A market cannot be stakeable and resolvable at the same instant, and that is the contract, not
+the script.** `_open` refuses at `closeTime`, `resolve` refuses until `observationEnd`, and
+`createMarket` requires `closeTime < observationEnd`. So a rehearsal still has to wait out a real
+gap — 420 seconds here. **Unit 12's demo market cannot be compressed below this either**, which is
+worth knowing before anyone plans the recording.
+
+### Two findings about guard ORDER, both caught by my own checks being wrong first
+
+⚠️ **The drive script's "second resolve is refused" check was weak and I only noticed reading the
+output.** It was sent as the deployer, so `NotResolver` fired before `AlreadySettled` could — it
+re-tested the guard above it and proved nothing about double resolution. `scripts/demo/verify-market.ts`
+exists because of that, and it sends every refusal **as the caller that actually reaches the guard**:
+as the resolver, M1 answers `AlreadySettled`; as anyone else, `NotResolver`.
+
+⚠️ **`TooEarlyToVoid` became unreachable the moment M4 resolved.** `voidMarket` checks
+`resolved || voided` BEFORE the deadline, so a resolved market answers `AlreadySettled` even when its
+deadline is a day away. It **was** proven live on M4 during the drive run while the market was still
+open — but it cannot be re-proven afterwards, and asserting it in the verify script was simply wrong.
+**A refusal test's expected error depends on the state the market is in**, which is not obvious until
+a guard order puts it in front of you.
+
+### What this cost, and who paid
+
+| | txs | gas |
+|---|---|---|
+| analyst, through Circle + Unit 4's `submit()` | 11 | 0.032438042400910441 |
+| deployer, through ethers | 10 | 0.018760016 |
+| **total** | **21** | **0.051198058400910441 USDC** |
+
+⚠️ **Circle's transactions cost noticeably more than ethers' for the same work** — the analyst's
+`commitPrediction` ran 0.0043–0.0058 against the deployer's 0.00375 for an identical call. `submit()`
+sends `feeLevel: MEDIUM`; ethers used the node's default. Not a problem, but it is a real per-call
+premium on the rail every cron write will use, and nobody had measured it.
+
+**Unit 4's `submit()` was exercised 11 times and held.** ⚠️ **The open question it carried is now
+closed: Circle's `abiParameters` encodes `uint256`, `bytes32` and `bool` correctly** — passed as a
+decimal string, a `0x` hex string and a JavaScript boolean. Nothing needed `callData`. Every commit,
+resolve and claim by the analyst went through it, and `claimId` came back off the
+`PredictionCommitted` event exactly as the contract's comment promised it would have to.
+
+**One script bug, no contract involvement.** The first run deployed and then died in Phase 2 reading
+a receipt before the transaction was mined. ⚠️ **The fix matters beyond this script**: `submit()`
+returns at `SENT`, so a Circle transaction is *also* un-mined when the hash arrives — anything that
+wants a receipt must `waitForTransaction`, not `getTransactionReceipt`. A `--address=` flag was added
+so the re-run reused the deployed contract rather than spending 0.024 USDC replacing a correct one.
+
+⚠️ **Market id 1 is stranded and harmless.** It was created by the first run before it died, carries
+no commits and no funds, and will sit open forever unless someone voids it. Market ids in this
+deployment therefore start at 2, which is why the four rehearsal markets are ids 2–5.
+
+⚠️ **These four commits are after the fact and are NOT forecasts.** They are a machinery proof. The
+demo market is the only one whose result means anything.
