@@ -7901,3 +7901,88 @@ guard ordering and the first time the test could say so itself.
   `collected` branch is proven and currently unreachable outside this proof.**
 
 Both are open items, not defects in this unit.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 15b: `src/agent/context.ts` — the reward comes back, and the loop closes
+
+`src/agent/context.ts`, a third argument on `compose`, and `007_report_context.sql`. **19 assertions,
+PASS** in `scripts/demo/context.ts`. `npx tsc -p tsconfig.json --noEmit` exits 0, migrations are a
+clean no-op across **seven**, **no chain calls and no gas**. Markets 6 and 7 verified untouched.
+
+⚠️ **Unit 15 produced the record and nothing read it. This is the step that makes settlement reach
+the next decision** — and it is **not model training**: no weights, no fine-tuning, no pipeline, no
+dataset. It is a few hundred characters in a prompt, rebuilt from the database each request and
+deleted when the request ends. The file says so in those words so nobody plans a training job.
+
+### What reaches the prompt, and what it looks like with real rows
+
+The last five settled claims, one line each: directive, subject, side taken, outcome, and the
+report's own `assessment.confidence`. Built from **`scores`** — Unit 15's output — never from
+`markets` directly, because two paths to one number is how they stop agreeing. Ordered by when the
+market **settled**, not when it was scored, so re-running Unit 15 cannot reorder history.
+
+```
+- "…" · aave-v3-ethereum totalDepositBalanceUSD above 30000000000 on 2026-09-10 · you said TRUE
+    · VOID (no outcome — neither right nor wrong) · your confidence at the time: medium
+- "…" · … above 99000000000 … · you said TRUE · outcome FALSE — you were WRONG · confidence: medium
+- "…" · … above 20000000000 … · you said TRUE · outcome TRUE  — you were RIGHT · confidence: medium
+```
+
+⚠️ **A void renders as `VOID (no outcome)` and never as a loss.** Unit 15 scores it null
+deliberately; a line presenting it as wrong would teach the model something false.
+
+⚠️ **The two blank scores never reach the prompt at all.** Reconciliation quality is null on all nine
+reports and trading return is null for every real claim — and **neither is in the decided five**, so
+the blankness never becomes a line the model interprets. That is the cheapest possible answer to
+"make a blank read as absent rather than as zero". Where a blank *can* occur inside the five, it is
+an absence: a void has no outcome clause, and an unreadable assessment contributes **no** confidence
+clause rather than `confidence unknown`, which the model would weigh as a judgment the analyst made.
+
+⚠️ **The cost, stated rather than discovered: the model sees WHAT it got wrong, not WHY.** It can
+become more or less bold about a metric it has been wrong on; it cannot diagnose its own reasoning.
+The honest upgrade is the full assessment of one wrong report, once there is more than one to choose
+from — rejected now on size (~71 KB, 140 facts) and not on value.
+
+### ⚠️ Empty history produces no block, and that is most runs
+
+`build()` returns `null`, `compose` adds nothing, and the system prompt is **byte-for-byte what it
+was before this unit existed**. An empty section with a heading would be worse than nothing — it is a
+thing the model reads, and *"you have no track record"* is a statement nobody decided to make. The
+third argument is **optional**, which is also what keeps all six existing `compose` callers correct
+and unmodified.
+
+### The two plans were identical, and that is the honest result
+
+Same directive, planned with and without the record: both produced
+`metric.totalDepositBalanceUSD | reads balance-sheet`. ⚠️ **Reported as-is.** At n=3 on one directive
+that is the expected outcome, and a difference manufactured to look like learning would be worth
+less than a null result stated plainly. The mechanism is proven; the behaviour change is not claimed.
+
+### `context_digest` — migration 007, beside the row and outside the hash
+
+⚠️ **A report's plan now depends on state outside the directive and the block**, so two runs of one
+directive at one block can plan differently. That is the loop working, and the consequence is
+recorded rather than left to be discovered: `007_report_context.sql` adds `reports.context_digest`,
+`sha256` of exactly the block that was supplied.
+
+⚠️ **Outside the hash and it cannot move inside later** — putting it in `Report` would change every
+report's canonical bytes, and **four hashes are already committed in ATS creation events on Hedera**
+where nothing can amend them. Proven, not asserted: the report loads, both of `load()`'s checks pass,
+and the object is byte-identical before and after the digest lands beside it. `AnalystContext`
+carries the block and its digest **together**, so what was digested is always what reached the prompt.
+Null stays null — the digest of an absent block is an absent digest, never the hash of an empty
+string.
+
+### ⚠️ What is NOT wired, and it is one line in each of two files
+
+**No production caller passes context yet.** `compose` accepts it, `build()` produces it and
+`recordContextDigest()` records it — but `scripts/ops/report.ts` and
+`app/api/console/generate/route.ts` still call `compose(directive, client)`, and **both are outside
+this unit's file budget**. Until that changes the loop is built and proven and does not run on its
+own. Two one-line changes, named here rather than done quietly.
+
+**Two fixture artifacts visible in the block above, neither a product fault:** all three lines carry
+one directive and one confidence because the fixture claims all cite a single stored report, and that
+report's directive names makerdao while the fixture subjects are aave-v3 — real claims cite the
+report that justified them, which is what Unit 6c's admission check enforces.

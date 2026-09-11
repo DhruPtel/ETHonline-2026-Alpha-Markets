@@ -23,6 +23,9 @@ import { PROTOCOLS } from '../config/protocols.js';
 import { DOCUMENT_IDS, DOCUMENT_BRIEF } from '../graph/queries/index.js';
 import { figureRef } from '../engine/invariants.js';
 import { MODEL } from '../config/model.js';
+// ⚠️ A TYPE-ONLY import, so `compose` gains no database dependency from Unit 15b. The caller builds
+// the context and passes it; this file only places text in a prompt.
+import type { AnalystContext } from './context.js';
 
 /**
  * The figures a report can be ABOUT. Narrower than the document, on purpose.
@@ -157,7 +160,22 @@ const brief = (c: Capabilities) =>
   `- ${c.slug} (${c.liveSchemaVersion}, ${c.lendingType}, triage ${c.triageVerdict}) revenue ${c.revenue}; ${c.corroboration}; deposit USD from ${c.depositBasis}`
   + (c.semanticNotes ? `\n    ⚠️ ${c.semanticNotes}` : '');
 
-export async function compose(directive: string, client: Anthropic): Promise<ComposeResult> {
+/**
+ * @param context ⚠️ **The analyst's own settled record, and it makes a report a function of history.**
+ *   Unit 15b. A plan now depends on state outside the directive and the block it was read at, so two
+ *   runs of one directive at one block can plan differently — **which is the loop working, not a
+ *   defect**: an analyst that has learned something should plan differently. The full report hash was
+ *   already non-deterministic because narration is inside it and the model call is not; what changes
+ *   is that the PLAN now varies too. What the plan saw is recorded in `reports.context_digest`,
+ *   outside the hash.
+ *
+ *   ⚠️ **Optional, and absent is not empty.** Omitted or `null` adds nothing — the system prompt is
+ *   byte-for-byte what it was before this argument existed, which is what keeps every existing
+ *   caller correct and unmodified.
+ */
+export async function compose(
+  directive: string, client: Anthropic, context?: AnalystContext | null,
+): Promise<ComposeResult> {
   const live = PROTOCOLS.filter((p) => p.status === 'live').map((p) => capabilitiesOf(p.slug)!);
   const system = `You plan financial reports on lending protocols.
 
@@ -171,7 +189,7 @@ ${live.map(brief).join('\n')}
 
 Available documents — every report is built from one or more of these, and \`reads\` must name the ones that produce it:
 ${DOCUMENT_IDS.map((id) => `- **${id}** — ${DOCUMENT_BRIEF[id]}`).join('\n')}
-
+${context ? `\n---\n\n${context.block}\n` : ''}
 ⚠️ **There is no report template.** Decide what would actually answer the directive — one deployment's figure, a metric across every live deployment, two deployments side by side, the markets inside one — and name the deployments and documents that produce it. The report is whatever comes back, in a table. Do NOT narrow a wide question to a trustworthy subset; scope follows the directive, not the data quality.
 
 ⚠️ **You always produce a plan. You never ask.** A vague directive is not a reason to go back — it is a reading to choose. "Best financial health" is not a quantity this platform holds, and that is not a refusal: pick the proxy that answers it most usefully, plan against that, and put the reading and why you chose it in \`rationale\` so the report can state it. An analyst asked an imprecise question picks a reasonable interpretation, says what they picked, and answers.
