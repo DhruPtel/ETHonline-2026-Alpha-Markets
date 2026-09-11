@@ -7770,3 +7770,134 @@ proves it**, and it proves it by working.
   `Staked` — so it returns **422 before the INSERT**, which is unreachable on that path. Verified
   after: `stakes` still 1 row, `markets` still 8, and chain markets 6 and 7 still carry null
   landmarks.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 15: `src/arc/score.ts` — built, and STOPPED before its proof
+
+`src/arc/score.ts`. `npx tsc -p tsconfig.json --noEmit` exits 0. **No chain writes, no gas, no
+proof script yet** — the proof the brief specifies cannot run against the store as it stands, and
+that is a question rather than a workaround. Nothing was committed.
+
+### The three scores, and which is which
+
+**Reconciliation quality is COPIED** — `Report.verdict.call`, read through `store/reports.ts::load`
+so the bytes are re-hashed before a verdict is taken off them. Legitimately null on a
+metric-across-deployments report. **Forecast accuracy is the only thing this file computes** — the
+claim's side against the outcome. **Trading return is READ from `payouts`** and never recomputed,
+per Unit 5b.
+
+**A voided claim scores `forecastCorrect = null`, not `false`.** A void is an absence of an outcome,
+so the analyst was neither right nor wrong. ⚠️ The null is unambiguous only because **an unsettled
+market gets no row at all** — 005's column comment says "null while the market is unresolved", which
+predates that decision. On a row that exists, null means void.
+
+Idempotent on `(market_id, claim_id)`, and the `ON CONFLICT` carries a `WHERE … IS DISTINCT FROM …`
+so a re-score with identical inputs **does not move `scored_at`**. Without that, "running it twice
+changes nothing" would be nearly true instead of true.
+
+### ⚠️ The finding: a wrong forecast does not mean a zero return, and the first draft got it wrong
+
+The brief asks to separate *"claimed nothing yet"* from *"earned nothing"*. The obvious rule — a
+losing claim returns zero — is **false on this contract**, and the first draft of this file shipped
+it before the counterexample turned up.
+
+⚠️ **Chain market 3 resolved FALSE, the analyst's claim was TRUE — a genuinely wrong forecast — and
+`payoutOf` reads 0.01, its whole stake back.** `poolFalse` was empty, so the `winningPool == 0`
+branch refunded every staker. With one analyst and few stakers **an empty side is the expected case,
+not an edge case** — the research said so and the contract was built for it; the inference simply
+forgot it. Read from the chain, not reasoned about.
+
+**So the distinction the brief wants cannot be drawn from the store.** Telling a loss from an
+uncollected win needs the market's **pools**, which the `markets` row does not carry and this unit
+may not add a column for. `returned` is therefore what `payouts` says or **null, never zero** —
+`null` meaning *no payout recorded*, which is silence rather than a loss. ⚠️ **Recorded as a thing
+the schema cannot express rather than faked into the column**, which is what the brief asked for in
+that case.
+
+A second, smaller catch: `stakesFor` is keyed by **claim**, not by market. `stakesFor(marketId)`
+typechecks, returns `[]` forever and leaves the attribution guard silently never firing — the failure
+mode this phase has paid for repeatedly. Every claim on the market is walked instead.
+
+### ⚠️ Why the proof did not run — two things the brief's premise assumed
+
+The brief says chain markets 2, 3, 5 and 8 are resolved and 4 and 9 voided, *"all available now"*.
+**That is true of the chain and not of the store**, and `scores` is keyed on `claims`:
+
+1. ⚠️ **No settled market in the store has a claim.** `claims` holds exactly two rows, both for
+   markets 6 and 7 — unresolved, and off-limits. **Chain markets 2–5 have no `markets` rows and no
+   `claims` rows at all**: Unit 6 drove them through ethers without writing the store. Chain markets
+   8, 9 and 10 have `markets` rows and zero claims. So `scoreSettled()` correctly returns nothing,
+   and there is no row anywhere to assert against.
+2. ⚠️ **`payouts` has no writer and zero rows** — only the read helpers `payoutsFor`/`payoutFor`
+   exist. So `returned` is null for everything, even though chain markets 2, 3, 4 and 5 all carry
+   `Claimed` events the analyst really collected. **The `collected` branch cannot be exercised at
+   all**, with or without claim fixtures.
+
+Running the proof needs fixture `markets` + `claims` rows mirroring chain reality, and the brief
+scoped this unit to *"its writes to `scores`. Nothing else."* ⚠️ **That restriction reads as a
+consequence of the premise rather than a considered ban**, so it is being asked about rather than
+interpreted. Nothing was seeded and nothing was removed.
+
+---
+
+## 2026-09-11 — Unit 15 proven: `scripts/demo/score.ts`, and three things the schema already decided
+
+The proof the previous entry stopped for. Both questions were answered — seed fixtures and remove
+them, and seed `payouts` from the chain's `Claimed` events too. **24 assertions, PASS**,
+`npx tsc -p tsconfig.json --noEmit` exits 0. **No chain writes, no gas.** Markets 6 and 7 verified
+untouched from the chain afterwards; `payouts` and `scores` are back to zero rows and the store is
+1 stake / 2 claims, exactly as before.
+
+### What the proof drove, using chain markets 2–5 as its subjects
+
+Fixtures mirror what the chain says — read by `eth_call` in Phase 0 and asserted before anything is
+seeded — and are removed in a `finally`.
+
+| | forecast | returned | |
+|---|---|---|---|
+| chain 2, claim 1 | **correct** | 0.02 collected | the ordinary win |
+| chain 3, claim 2 | **incorrect** | ⚠️ **0.01 collected** | the counterexample |
+| chain 4, claim 3 | ⚠️ **null — VOID** | 0.01 refund | not a loss |
+| chain 5, claim 4 | correct | 0.01 collected | one-sided pool |
+| chain 2, claim 5 | incorrect | ⚠️ **null, never 0** | lost and never collected |
+
+Idempotency holds: five rows after two runs, and **`scored_at` did not move** — the `WHERE … IS
+DISTINCT FROM …` on the conflict is what makes "changes nothing" literal. Market 6 returns `[]` and
+writes no row. `scoreSettled()` returns exactly five — chain markets 8, 9 and 10 contribute nothing
+because they carry no claims.
+
+### ⚠️ Three constraints the schema had already decided, each found by hitting it
+
+1. ⚠️ **`claims.report_hash` is a FOREIGN KEY into `reports`.** A claim citing an unstored report
+   **cannot be inserted at all** — found by the seed failing on the chain's own rehearsal hash
+   `0xe7e0e5a7…`, which was never a stored report. **This is load-bearing and it makes the unit
+   simpler than drafted**: `load()` can only return null if a report row were deleted, and
+   `store/reports.ts` never deletes one. So `reconciliation_quality IS NULL` always means *the
+   verdict had no call*, never *the report is missing*. It is also part of why Unit 6 never wrote
+   claim rows for markets 2–5.
+2. **`claims` carries `UNIQUE (market_id, author)`** — the contract's one-claim-per-author rule, in
+   the schema. So `score.ts`'s `mine.length > 1` attribution guard is **unreachable by construction**
+   and is not claimed as proven; the stake half of the same guard can still fire.
+3. **`claims.amount` has `CHECK (amount % 1e12 = 0)`**, which refused the first probe before it
+   reached anything interesting.
+
+⚠️ **Constraints 2 and 3 each made the foreign-key probe pass for the wrong reason first** — `23514`,
+then `23505`, before `23503`. Both presented as a bare ❌ with no way to tell which guard fired.
+**The probe now returns the SQLSTATE and the assertion names `23503`**, so a refusal one guard above
+the one under test is visible instead of silent. That is the seventh time this phase has paid for
+guard ordering and the first time the test could say so itself.
+
+### ⚠️ Two findings that limit what the record can say
+
+- ⚠️ **Reconciliation quality is null on all nine stored reports**, because every one is the
+  metric-across-deployments shape whose `Verdict.call` is null by the 2026-09-07 decision. So the
+  first of the three scores **carries no signal today**. The figure that would carry it is
+  `verdict.coverage` — `checksRun`, `checksAvailable`, `marketsCorroborated`, `completeness` — and
+  `scores` has no column for it. ⚠️ **Unit 15b should know this before it feeds a record to
+  `compose`: one of the three lines is currently always blank.**
+- ⚠️ **`payouts` still has no writer.** The proof seeded it and removed it; in real running it stays
+  empty, so `returned` is null for every claim until something records `Claimed` events. **The
+  `collected` branch is proven and currently unreachable outside this proof.**
+
+Both are open items, not defects in this unit.
