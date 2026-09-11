@@ -6631,3 +6631,76 @@ deployment therefore start at 2, which is why the four rehearsal markets are ids
 
 ⚠️ **These four commits are after the fact and are NOT forecasts.** They are a machinery proof. The
 demo market is the only one whose result means anything.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 6b: `src/arc/identity.ts`, the two-way key attestation
+
+`src/arc/identity.ts` (the sentence, two signing calls, a verifier),
+`scripts/ops/attest-identity.ts` (produces then proves, with `--check` and `--force`), and the
+generated `src/arc/attestation.ts` (30 lines, committed). 11 assertions pass;
+`npx tsc -p tsconfig.json --noEmit` exits 0. ⚠️ **No transaction, no gas** — confirmed by reading the
+analyst's Arc balance either side of the Circle call: 17.476743944841969559 USDC, unchanged, exactly
+where Unit 6 left it.
+
+**What it closes.** Three of the four links between a report and a stake were already public facts on
+public chains — the token carries `alpha:<hash>`, the analyst issued it, an Arc address committed
+that hash. The fourth, joining the Arc address to the Hedera issuer, was `config/analysts.ts`: our
+file, on our repo. It is now a claim backed by two signatures anyone can recover.
+
+⚠️ **Verification, not enforcement, and the file says so rather than reading stronger than it is.**
+The Arc contract never sees these signatures — `commitPrediction` takes a `bytes32` and does not care
+where it came from — so a commit remains possible without any attestation existing. A verifier has to
+*choose* to check. What it buys is narrow and real, and it does not stop anyone doing anything.
+
+**The sentence, and why each part is in it.** Schema line for domain separation, so the same 65 bytes
+cannot be re-presented as an attestation to something else. **Both addresses, which is the whole
+point** — a signature over "I am the analyst" proves only that a key signed a sentence, while a
+signature over a sentence *containing both addresses* is what ties them, because neither key could
+produce it alone. The analyst id so a reader can find the row. Both chain ids, because an address is
+only meaningful on a chain. The `0.0.x` account, since the consensus world speaks that and the EVM
+world speaks the alias. ⚠️ **No timestamp and no nonce inside the signed bytes** — the claim is
+permanent, and a date would make a standing fact read as a moment. `producedAt` sits beside the
+signatures, outside what was signed, marked as provenance.
+
+**Where the signatures live: `src/arc/attestation.ts`, committed, generated — `abi.ts`'s pattern.**
+⚠️ **Not the database, and that is the substance of the decision.** A verifier is a stranger holding
+this repo and two public RPCs; a row in our Neon instance would be checkable only by us, which is
+precisely the problem the unit exists to remove. A committed file also needs no migration and no
+network to read. Not a field on `config/analysts.ts` either — that file is hand-maintained and
+checked against live services, and mixing a generated artifact into it would have needed your
+sign-off anyway.
+
+⚠️ **If either key changes the file is void and must be regenerated**, and the Arc half is the harder
+one: `AlphaMarket`'s `resolver` is immutable with no setter, so a new Arc key means a **new contract**,
+not a reconfigured one. That is the same thing this project says everywhere else — a lost key is a
+new analyst, not a restored one.
+
+### ⚠️ A near-miss worth recording: the phantom-export heuristic does not generalise
+
+`encodedByHex` appears **three times in the typings and zero times in both shipped bundles** — the
+exact signature of `generateIdempotencyKey`, the phantom this project was caught by in Unit 4. I
+flagged it as a seventh instance. **That conclusion was wrong**, and reading the bundle rather than
+stopping at the count is what showed it.
+
+The rule is about **functions that must exist to be called**. `encodedByHex` is a request **field**,
+and the client spreads its entire input into the HTTP body —
+`Signing.signMessage({entitySecretCiphertext: await z(e)(), ...s})` — so the bundle never names it
+and has no need to. It is forwarded. ⚠️ **A grep count distinguishes a missing function from a
+present one; it says nothing about a field riding a spread.** Recorded in `identity.ts` so the next
+person applying the heuristic gets the boundary with it.
+
+We omit the field anyway and sign plain UTF-8, which sidesteps the question instead of answering it.
+
+**Two facts confirmed live that were previously assumptions.** Circle's `signMessage` returns a
+standard **EIP-191 `personal_sign`** signature — `ethers.verifyMessage` recovers it directly, with no
+hex encoding and no custom prefix. And it is genuinely not a transaction: no fee field, no
+`TransactionState`, and the measured balance did not move.
+
+**The proof does its recovery with `ethers.verifyMessage` and nothing this unit wrote**, so the check
+is not the thing being checked; `verifyAttestation()` is then compared against that independent
+result rather than trusted. Tampering the message moves the recovered address; swapping the two
+signatures fails **both**; a malformed signature is refused rather than thrown, which matters because
+a verifier should not crash on bad input. ⚠️ **The check that matters most is that neither signature
+recovers the other's address** — if one did, the attestation would prove one key exists twice rather
+than two keys agreeing.
