@@ -215,12 +215,42 @@ export class ArcSubmitError extends Error {
   }
 }
 
-export interface SubmitInput {
+/**
+ * ⚠️ **TWO CALL SHAPES, AND WHICH ONE TO USE IS DECIDED BY THE ARGUMENT TYPES.**
+ *
+ *   `abiFunctionSignature` + `abiParameters`   **flat arguments only.** Circle encodes server-side
+ *                                              and its encoder handles "string, integer, boolean,
+ *                                              and array" — its words. Simplest, and what every
+ *                                              scalar call should use.
+ *   `callData`                                 **anything with a tuple.** We encode with the
+ *                                              committed ABI and hand Circle finished bytes.
+ *
+ * ⚠️ **This is not a style choice; it is a limitation found the hard way.** `createMarket` takes a
+ * `QuestionCore` struct, and Circle refused to build the transaction —
+ * `ABI_SIGNATURE_PARAMS_MISMATCH: ABI function signature can't pack ABI parameter` — at validation,
+ * before broadcast, so it cost nothing. `commitPrediction(uint256,bytes32,bool)`, `resolve` and
+ * `claim` are all flat and all went through `abiParameters` fine in Unit 6. **`createMarket` is the
+ * only function in this contract taking a struct**, which is why the gap took until Unit 7 to show.
+ *
+ * ⚠️ **A union, so sending both is UNREPRESENTABLE.** Circle's own field documentation says
+ * *"the usage of `callData` is mutually exclusive with the `abiFunctionSignature` and
+ * `abiParameters`"*, and a type that cannot express the invalid pair is worth more than a test that
+ * observed it once.
+ *
+ * ⚠️ **`callData` was checked in the shipped bundle before being relied on, not inferred from Unit
+ * 6b.** The client wrapper destructures exactly `idempotencyKey`, `fee` and `xRequestId` and spreads
+ * **everything else** into the request object (`{entitySecretCiphertext, idempotencyKey, ...fee.config, ...rest}`),
+ * and the API layer then serializes that whole object (`c.data = M(t, c, e)`) with no field
+ * whitelist. So `callData` reaches the body. ⚠️ A grep count cannot tell a forwarded field from a
+ * dropped one — only reading the mechanism can, and it was read again here rather than assumed.
+ */
+type SubmitCall =
+  | { readonly abiFunctionSignature: string; readonly abiParameters: unknown[]; readonly callData?: never }
+  | { readonly callData: `0x${string}`; readonly abiFunctionSignature?: never; readonly abiParameters?: never };
+
+export type SubmitInput = SubmitCall & {
   /** The deployed AlphaMarket. ⚠️ Passed in — nothing is deployed yet and Unit 6 is what deploys. */
   readonly contractAddress: string;
-  /** e.g. `commitPrediction(bytes32,bytes32)`. */
-  readonly abiFunctionSignature: string;
-  readonly abiParameters: unknown[];
   /** 18-dp native to send with the call. Converted here; callers never format an amount. */
   readonly value?: bigint;
   /**
@@ -247,7 +277,7 @@ export interface SubmitInput {
    * platform kill at 60s runs nothing at all.
    */
   readonly timeoutMs?: number;
-}
+};
 
 export interface Submitted {
   readonly circleTransactionId: string;
@@ -284,16 +314,22 @@ export async function submit(input: SubmitInput): Promise<Submitted> {
   }
 
   const { walletId } = await analystIdentity();
+  // What to call this call in an error. ⚠️ `callData` has no signature to name, so it names itself.
+  const what = input.abiFunctionSignature ?? `callData ${input.callData.slice(0, 10)}…`;
+
+  // ⚠️ Exactly one shape is spread in. The union above is what stops both reaching Circle together.
+  const call = input.callData !== undefined
+    ? { callData: input.callData }
+    : { abiFunctionSignature: input.abiFunctionSignature, abiParameters: input.abiParameters as never[] };
 
   const created = await circleClient().createContractExecutionTransaction({
     walletId,
     contractAddress: input.contractAddress,
-    abiFunctionSignature: input.abiFunctionSignature,
-    abiParameters: input.abiParameters as never[],
+    ...call,
     ...(input.value === undefined ? {} : { amount: nativeAmount(input.value) }),
     idempotencyKey: input.idempotencyKey,
     fee: { type: 'level', config: { feeLevel: 'MEDIUM' } },
-  });
+  } as Parameters<ReturnType<typeof circleClient>['createContractExecutionTransaction']>[0]);
 
   const id = created.data?.id;
   if (!id) throw new Error(`Circle returned no transaction id: ${JSON.stringify(created.data)}`);
@@ -318,12 +354,12 @@ export async function submit(input: SubmitInput): Promise<Submitted> {
       ? `still in flight after ${(input.timeoutMs ?? 45_000) / 1000}s — this is not a failure. Do ` +
         'not resubmit: reconcile the id below on the next run.'
       : (error as Error).message;
-    throw new ArcSubmitError(id, inFlight, `${input.abiFunctionSignature} — ${why}`);
+    throw new ArcSubmitError(id, inFlight, `${what} — ${why}`);
   }
 
   const transaction = sent.data?.transaction;
   if (!transaction?.txHash) {
-    throw new ArcSubmitError(id, true, `${input.abiFunctionSignature} reached SENT with no txHash.`);
+    throw new ArcSubmitError(id, true, `${what} reached SENT with no txHash.`);
   }
   return { circleTransactionId: id, txHash: transaction.txHash, state: transaction.state };
 }

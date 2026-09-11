@@ -6781,3 +6781,163 @@ into it — which matches 005's design of writing the row before the chain call.
 an analyst could commit the hash of a report that does not exist, was never tokenized, or belongs to
 somebody else, and `commitPrediction` would accept all three. This unit stops that **for us**, not
 for everyone.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 7: `src/arc/market.ts` — built, proven, and BLOCKED on one call
+
+`src/arc/market.ts` and `scripts/ops/commit-market.ts`. `npx tsc -p tsconfig.json --noEmit` exits 0.
+The dry run passes every refusal and prints a complete plan. ⚠️ **The real run stopped at
+`createMarket` and nothing was spent** — balance identical at 17.476743944841969559 USDC.
+
+### ⚠️ THE BLOCKER: Circle cannot pack a struct, so `submit()` cannot send `createMarket`
+
+Circle refused to build the transaction — **`ABI_SIGNATURE_PARAMS_MISMATCH: ABI function signature
+can't pack ABI parameter`** — and refused it at validation, before broadcast, so no gas moved.
+
+**Why it never surfaced before.** `createMarket` takes a **tuple** (`QuestionCore`).
+`commitPrediction` is `uint256,bytes32,bool` — **all scalars**, which is exactly what Unit 6 drove
+through Circle four times successfully. Unit 6 created its markets through **ethers with the deployer
+key**, so the one call with a struct argument never went down the Circle rail until now. The SDK's
+own typings say the quiet part: *"Supported parameter types include string, integer, boolean, and
+array."* A tuple is not on that list.
+
+⚠️ **`arc.ts` cannot express what this unit needs, and the brief said to say so rather than reach
+in.** `submit()` only builds `abiFunctionSignature` + `abiParameters`. Circle's input type also
+accepts **`callData`** (mutually exclusive with those two), which would let us encode the struct
+ourselves with the committed ABI — verified locally: `ethers` encodes it to selector `0xc67094c9`,
+266 chars, and decodes back intact. ⚠️ `callData` appears 10 times in the typings and 0 in the
+bundles, which is the **field-riding-a-spread** case established in Unit 6b, not a phantom export —
+the client spreads its whole input into the HTTP body. **Not taken. It is Unit 4's file.**
+
+**Nothing is stranded.** One `markets` row exists carrying its idempotency key with
+`chain_market_id` NULL — which is 005's "row before the chain call" design working exactly as
+intended, and a retry will reuse that key rather than mint a second one. No claim, no evidence row.
+
+### ⚠️ A commit through `market.ts` is ALWAYS a forecast, and that is structural
+
+`questionCore` requires `closeTime <= dayStart(observedDay)`; the contract's `_open` requires
+`closeTime > now`. Together: `dayStart(observedDay) > now`, always. **The rehearsal shape Unit 6
+drove is unreachable through this module** — Unit 6 could only build those markets because it went
+through ethers and bypassed `spec.ts` entirely. So `spec.ts` enforces the honest shape that the
+contract deliberately does not. Today that makes the earliest legal observed day **2026-09-12**,
+which is the calendar's fallback demo-market shape; it is forced by the clock, not chosen.
+
+### ⚠️ How the analyst picks a side — this unit owns it, and the data corrected the first draft
+
+**The rule: the report's measured figure for the market's subject, compared against the threshold
+with `holds()` — the same function settlement uses.** Deterministic, no second model call: a
+60-second function cannot afford one, and a deterministic rule is **auditable in a way a model call
+is not** — anyone holding the report and the spec recomputes the same side forever.
+
+⚠️ **The first draft used `report.subject.headline` and would have refused every report we have.**
+All nine reports in the store have the headline `metric.totalDepositBalanceUSD` — the `metric.`
+sentinel `compose.ts` mints for a metric ACROSS deployments — which `metricFromFactId` refuses by
+design. Every headline fact is also **WITHHELD**, and every `verdict.call` is **null**. The rule now
+looks up `facts['{slug}.{metric}']`, the report's answer to the question the market actually asks,
+and those carry real values: `aave-v3-ethereum.totalDepositBalanceUSD` = 24,633,533,926.81.
+
+⚠️ **Stated plainly because it is a real weakening:** the figure the analyst stakes on may not be the
+figure its report leads with. It is still a figure that report measured and published — the fact
+table is the only place a digit exists — but "the report is the justification" is now "the report
+measured this", not "the report is about this".
+
+⚠️ **The honest cost of the rule:** the analyst cannot predict a REVERSAL. A report measuring 24.6B
+can only commit to "still above 24.4B", never to "about to fall through it". The judgement lives in
+the **threshold**, chosen when the market is created.
+
+⚠️ **`verdict.call` being null is the NORM in our data, not an edge case.** All nine reports carry
+null. The brief said handle it rather than assume a verdict exists; it is surfaced in the plan and
+printed, and nothing branches on it.
+
+### The refusals, each proven to fire at the guard it names
+
+Five cases, all passing, all reaching the guard they test: an illegal metric, a non-decimal
+threshold, a `closeTime` inside the observed day (past-posting), an untokenized report through Unit
+6c's admission check, and a wrong `CIRCLE_WALLET_ID`.
+
+⚠️ **The wrong-wallet case needs a COLD CHILD PROCESS**, and that is not ceremony:
+`analystIdentity()` is memoized, so reassigning the env var in-process would be read by nothing and
+the test would "pass" by failing somewhere else. The script spawns itself with a different
+`CIRCLE_WALLET_ID`.
+
+⚠️ **And it found a second small thing about Unit 4's guard: Circle THROWS for an unknown wallet id
+rather than returning an empty body**, so `arc.ts`'s `if (!wallet)` branch — "does not resolve to a
+wallet" — is unreachable for that case and the operator sees Circle's sentence instead. The refusal
+is still correct and still loud; only the wording is not ours. Asserting our sentence there would
+have been asserting a branch that never runs.
+
+---
+
+## 2026-09-11 — Unit 7 unblocked: `callData` on `submit()`, and an idempotency trap that cost two runs
+
+The blocker above is resolved and the market is live. **On-chain market 6, claim 6**, created and
+committed through Circle by the analyst. `tsc` exits 0, every refusal still passes, and the struct
+round-trips off the chain. **Total cost 0.01740410400646 USDC** — 0.01 stake plus 0.0074 gas across
+both writes.
+
+### ⚠️ `callData` was verified in the bundle, not inferred from Unit 6b
+
+The operator was right to insist on re-checking rather than carrying the `encodedByHex` conclusion
+across — a forwarded field and a dropped field look identical from a grep count. Read again, at both
+layers:
+
+- the client wrapper destructures exactly `idempotencyKey`, `fee` and `xRequestId` and spreads
+  **everything else** into the request object;
+- the API layer then does `c.data = M(t, c, e)` — serializes the **whole object**, no field whitelist.
+
+So `callData` reaches the body. **Confirmed by mechanism, and it now works in production.**
+
+⚠️ **The pair was NOT tested live, deliberately.** Circle's own field documentation states *"the
+usage of `callData` is mutually exclusive with the `abiFunctionSignature` and `abiParameters`"*, and
+the failure mode of testing it is an **unintended transaction** if Circle happens to accept both. So
+`SubmitInput` is now a **discriminated union** and sending both is unrepresentable — a type that
+cannot express the invalid pair is worth more than a test that observed it once.
+
+`arc.ts` now documents why both shapes exist: `abiParameters` for flat arguments, `callData` for
+anything with a tuple. `createMarket` is the only function in this contract taking a struct, which is
+why it took until Unit 7 to surface.
+
+### ⚠️ THE TRAP: Circle's idempotency cache replays a prior FAILURE and ignores the new body
+
+The first retry after the fix **failed identically** — same `ABI_SIGNATURE_PARAMS_MISMATCH`, and
+crucially **the same Circle transaction id `148dbd02-…`, created at 06:32:13Z**: the timestamp of the
+*original* attempt. The market row had stored a `randomUUID()` on attempt 1, `create()` correctly
+reused it, and **Circle returned the cached outcome of the original request. The new `callData` body
+was never looked at.**
+
+⚠️ **So a stored idempotency key pins the request BODY, not just the row.** This is the dangerous
+shape: a cron that stores a key, then gets a bug fix, will replay the old failure forever and never
+send the corrected call — a permanently wedged job whose logs say only that Circle failed. **Unit 10
+would have hit this.**
+
+**The fix, and it is strictly better than what the brief asked for:** the key is now **derived from
+the call** — `sha256(rowId + the bytes being sent)`, shaped as a v4 UUID. A genuine retry of the same
+request computes the same key and cannot double-spend, which is the whole point; a *changed* call
+computes a new one automatically. ⚠️ It also sidesteps Unit 4's open question — "not derived from a
+hash until someone has checked whether Circle validates the UUID shape" — because the derived value
+**is** a well-formed UUID, so the question stays unanswered rather than gambled on. The row still
+records the key that was used; it is no longer the thing that decides it.
+
+⚠️ **Nothing was ever spent on either failure.** Both were rejected at Circle's validation, before
+broadcast — balance sat at 17.476743944841969559 USDC across all three attempts.
+
+### The market that now exists
+
+| | |
+|---|---|
+| question | is `aave-v3-ethereum.totalDepositBalanceUSD` **above 24,387,198,586** on **2026-09-12** UTC? |
+| analyst's side | **TRUE**, staked with 0.01 USDC of its own money |
+| why | the report measured it at 24,633,533,926.81 at block 25930744 |
+| closes | 2026-09-11T23:59:00Z |
+| observation ends | 2026-09-13T00:00:00Z |
+| resolve deadline | 2026-09-15T00:00:00Z |
+| bound to | proxy `0xE7aaEFB1…`, issued by the analyst in `0xe4c1dcb1…` |
+
+⚠️ **This is a real forecast, not a rehearsal** — and it could not have been anything else.
+`questionCore` requires `closeTime <= dayStart(observedDay)` while the contract's `_open` requires
+`closeTime > now`, so the observed day is always ahead. **D = 2026-09-12 is the calendar's fallback
+demo-market shape**, forced by the clock rather than chosen.
+
+⚠️ **`prepare()` now refuses this market**, proven in the same run — one claim per author per market,
+caught before spending gas to learn it from the contract.
