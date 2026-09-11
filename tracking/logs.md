@@ -6704,3 +6704,80 @@ signatures fails **both**; a malformed signature is refused rather than thrown, 
 a verifier should not crash on bad input. ⚠️ **The check that matters most is that neither signature
 recovers the other's address** — if one did, the attestation would prove one key exists twice rather
 than two keys agreeing.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 6c: `src/arc/admission.ts`, the binding check before a commit
+
+`src/arc/admission.ts` and `scripts/demo/admission.ts`. 18 assertions pass against live Hedera and
+live Arc; `npx tsx tsc --noEmit` exits 0. ⚠️ **Nothing spent** — measured, not asserted: the analyst's
+Arc balance is read either side of the whole run and is unchanged at 17.476743944841969559 USDC,
+exactly where Unit 6b left it. Two Mirror GETs, one Circle wallet lookup, database reads.
+
+**The rule, enforced:** no commit unless a token exists, its creation event carries `alpha:<hash>`,
+and this analyst issued it. Refusals throw `BindingRefused` with a sentence naming which of the four
+reads failed.
+
+### ⚠️ The brief's `receipt.from` would have refused every report we have
+
+Mirror Node reports the signer of a deploy transaction in **long-zero** form — the account number
+padded to twenty bytes, `0x00000000000000000000000000000000009e80ea` for account `0.0.10387690`.
+The analyst row's `hederaEvmAddress` is the **ECDSA alias**, `0x32838fe9…`. They are the same
+identity and they are not the same string, so `receipt.from === analyst.hederaEvmAddress` is false
+for all four of our tokens. Measured across every one of them before writing the check.
+
+**The fix is better than a correction.** `EquityDeployed`'s indexed `deployer` argument carries the
+alias and matches `hederaEvmAddress` directly, while `from` matches `hederaAccountId` in long-zero
+form. ⚠️ **Both are checked, which is strictly stronger than either** — two independent encodings of
+one identity, from two different parts of the same record, and `config/analysts.ts` already stores
+both forms on purpose for exactly this reason ("recording one fact twice, because deriving one from
+the other at each call site is where they drift"). A mismatch in either refuses.
+
+### The holding-versus-issuance test, which is the one that mattered
+
+⚠️ **A report whose token now sits with the buyer is ADMITTED**, and the proof shows it. Three of our
+four tokens were moved by Phase 3's Unit 10 on purpose, because H2.4 wants a lifecycle operation on
+camera — so a check built on `balanceOf` would refuse three quarters of our own work, and **the act
+that satisfies one requirement would break the other**. This file reads the deploy transaction and
+never asks who holds anything. The ISIN is not checked either: `isinFor()` is a pure function of the
+report hash, so comparing them checks our arithmetic rather than the chain.
+
+### ⚠️ Guard ordering bit a test for the third time this phase, and a schema rule closed a case
+
+Test 4 — "a hash the creation event does not carry" — took three attempts, and both failures are
+recorded in the script because each taught something:
+
+1. **A made-up proxy `0x1111…`** made Mirror's proxy lookup fail *first*, so the refusal came from
+   read 1 and the commitment check was never reached. A passing-looking test of the wrong guard —
+   the same mistake as Unit 6's second-resolve check, and Unit 6's `TooEarlyToVoid` before that.
+   ⚠️ **A refusal test has to be built to reach the guard it names**, and that is now three for three.
+2. **A second `report_tokens` row on a real proxy** was refused by the schema:
+   `report_tokens.proxy_address` is UNIQUE in 001_init. ⚠️ **Worth knowing on its own — two rows
+   claiming one proxy are already impossible**, so the only shape this check has to catch is a row
+   pointing at a deploy transaction that is not its own.
+3. What works: swap one column on a real row, test, and restore it in a `finally`. The proof asserts
+   the restore and a separate read afterwards confirms all four `deploy_tx` values are as they were.
+
+### What the evidence record is and is not
+
+⚠️ **It does not prove the check ran.** A reader has to trust us for that and no row in our database
+can fix it. Its value is narrower: it names **exactly what to re-check** — proxy, deploy transaction,
+issuer address, report hash, Arc transaction — and every one is independently readable off two public
+chains by somebody who believes nothing we say. **Detectable by anyone, enforced by no one.** That
+sentence is in the file so it cannot be read as stronger than it is.
+
+⚠️ **`arc_tx` is NULL at check time and that is correct**, not a gap: the check runs before the commit,
+which is the point. `recordArcTransaction` completes the row once Unit 7 has a hash, and the proof
+exercises both halves. `raw` is 554 bytes of canonical JSON as TEXT — never jsonb, same rule as
+`settlement_evidence`, same reason. `recordBinding` is idempotent on `claim_id` so a retried commit
+re-records rather than colliding.
+
+**What Unit 7 calls:** `checkBinding(reportHash)` → evidence or `BindingRefused`, then
+`recordBinding(claimId, evidence)` before submitting, then `recordArcTransaction(claimId, hash)`
+after it lands. ⚠️ The claims row must exist first — `binding_evidence.claim_id` is a foreign key
+into it — which matches 005's design of writing the row before the chain call.
+
+⚠️ **The contract cannot help and never will.** To `AlphaMarket`, `reportHash` is 32 arbitrary bytes;
+an analyst could commit the hash of a report that does not exist, was never tokenized, or belongs to
+somebody else, and `commitPrediction` would accept all three. This unit stops that **for us**, not
+for everyone.
