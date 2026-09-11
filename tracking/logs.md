@@ -7080,3 +7080,164 @@ if a limit is ever wanted it should come from a scoring result rather than from 
 is the loop working rather than something to tidy away. Unit 15 will score it, and a first real
 prediction that was wrong for a reason we can name is worth more to this project than one quietly
 replaced.
+
+---
+
+## 2026-09-11T07:00Z — Orientation pass, no code. What the tracking says versus what the repo holds.
+
+A cold session read the four tracking documents in order, ran the two checks, and verified every
+claim against the code, the chain and the database. **Nothing was written, spent or deployed.**
+`npx tsc -p tsconfig.json --noEmit` exits 0. `scripts/ops/migrate.ts` is a clean no-op across all six
+migrations, thirteen tables. Market state was read by `eth_call` and `SELECT` only.
+
+⚠️ **`PHASE-4.md` is stale by six units and it is the document this task says to read first.** Its
+status table was last touched at Unit 4's commit (`b113010`). It marks Unit 4 as **NEXT**, and its
+*What is deployed* section still says **"Nothing from Phase 4"** — while `AlphaMarket` has been live
+at `0x003e7Cb791257B529bb5f9F6D17A846264d48044` since Unit 6, and Units 5, 5b, 6, 6b, 6c, 7 and 8 have
+all landed since. A session that trusts the table starts from a false picture of its own deadline.
+The narrative in this file is accurate; the state table is not.
+
+⚠️ **`DECISIONS.md`'s last entry is 2026-09-07, before Phase 4 began.** At least six decisions taken
+this phase are rewrite-to-undo by `CLAUDE.md`'s own test and live only in `PHASE-4.md` and here: the
+immutable resolver, issuance-not-holding as the binding criterion, the attestation as a committed
+file rather than a database row, `SubmitInput` as a discriminated union, idempotency keys derived
+from the call bytes, and the side rule reading `settle()` rather than the report.
+
+**Three open items closed themselves since they were written** — Arc's EVM version (Prague,
+confirmed three ways in Unit 6), `ARC_RPC_URL` (exists in `.env` and `.env.example`), and
+`buildEvidence`'s missing destination (Unit 8). **Item 2 has not**: the Circle wallet-set spend cap
+is still an unperformed console action, and `spend_ledger` has **zero rows and no writer anywhere in
+`src/`** — so cut-list item 4 has been taken by default rather than decided, and there is no spend
+guard in code or console.
+
+⚠️ **Two hard clock facts that the calendar section does not state in these terms.** Both live
+markets close at **2026-09-11T23:59:00Z**, about seventeen hours from this entry — after which no
+human can stake in either, and §5.3's *"a stranger can browse, read previews, stake"* has nowhere
+live to happen. And neither can be resolved before **2026-09-13T01:00:00Z**: `observationEnd` plus
+`FRESHNESS_MARGIN_SECONDS`, which is Sunday, submission day. **The plan's fallback is in effect and
+it has no spare, exactly as the calendar warned.**
+
+⚠️ **A rehearsal cannot be manufactured through `market.ts`** — `spec.ts` forces the observed day
+into the future, which is the honesty property Unit 7 recorded. Unit 6 built its rehearsals through
+ethers with the deployer key, bypassing `spec.ts`. So Unit 9's live proof either reuses that path or
+waits for Sunday. Worth settling before Unit 9 is written rather than discovered inside it.
+
+**Smaller things found, none urgent:** `CRON_SECRET` exists nowhere — not in `.env`, `.env.example`
+or the code — and Units 10 and 11 both need it. `marketsAwaitingCommit` currently returns **empty**:
+both markets are directed at the analyst and both already carry claims, so Unit 10's live proof has
+no work to find unless a third market is created. `ARC_WALLET` is still in `.env`, still absent from
+`.env.example`, and now carries a warning in `arc.ts` about never being read as the analyst.
+`stakes`, `scores`, `settlement_evidence`, `payouts` and `spend_ledger` are all empty.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 9: `src/arc/resolve.ts`, the outcome onto the chain, rehearsed
+
+`src/arc/resolve.ts` and `scripts/ops/resolve-market.ts`. **28 assertions pass on live Arc testnet**,
+`npx tsc -p tsconfig.json --noEmit` exits 0, and **nothing reverted**. Both paths landed: chain market
+8 **resolved TRUE** on 2026-09-10's real snapshot, chain market 9 **voided** after a deadline that
+passed in 2021. **Total 0.0064005594 USDC** across four transactions.
+
+| | who | gas |
+|---|---|---|
+| createMarket 2026-09-10 | deployer, ethers | 0.002203212 |
+| **resolve** | **analyst, Circle** | **0.0012214575** |
+| createMarket 2021-01-01 | deployer, ethers | 0.002203212 |
+| **voidMarket** | **analyst, Circle** | **0.0007726779** |
+
+⚠️ **The analyst's two writes cost LESS than the deployer's creates here, which reverses Unit 6's
+finding.** Unit 6 measured Circle at a premium — 0.0043–0.0058 against ethers' 0.00375 for an
+identical `commitPrediction`. These are not identical calls: `resolve` writes three words to an
+existing struct and `createMarket` writes a new one, so the premium is not disproven, it is swamped
+by the work. **The number worth carrying forward is that a resolve is cheap** — about 0.0012, well
+under Unit 7's 0.05 headroom.
+
+⚠️ **Markets 6 and 7 were not touched**, verified after the run from the chain and the store: both
+still `resolved=false voided=false`, both pools 0.01 TRUE, both rows with null landmarks.
+
+### ⚠️ Why this got a rehearsal instead of waiting for Sunday
+
+The live markets cannot legally settle before **2026-09-13T01:00:00Z** — `observationEnd` plus
+`spec.ts`'s freshness margin — which is submission day, and **there is no second window**. So both
+paths were driven today against throwaway markets, for the same reason Unit 6 existed. The rehearsal
+markets are created through **ethers with the deployer key**, because `market.ts` structurally cannot
+build one: `questionCore` requires `closeTime <= dayStart(observedDay)` and the contract's `_open`
+requires `closeTime > now`, so every market that module can make is a forecast. ⚠️ **Their ids are
+prefixed `m/rehearsal-` and `directed_at` is NULL**, so no query and no cron can mistake them for the
+real thing. They are a machinery proof and never a forecast.
+
+### The refusals, each proven to fire at the guard it names
+
+Six, all reaching the guard under test: **not in the store** · **no `settlement_evidence` row** (Unit
+8 has not run) · **never landed on chain** · **the stored bytes no longer hash** · **already settled
+in the store** · **too early to void**. The two mutating tests use Unit 6c's pattern — change one
+column, test, restore in a `finally`, then assert the restore.
+
+⚠️ **The tamper test was wrong first and would have passed while proving nothing.** The first draft
+added whitespace to the stored TEXT. `verifyStoredEvidence` **parses the row before hashing**, so the
+space canonicalizes straight back out and both checks would have returned true. It now changes one
+digit inside `record.raw` — the response bytes the hash is actually there to defend — which breaks
+`responseHash` and the record hash over it at once. **Caught by reading `verifyStoredEvidence` rather
+than by the test failing**, which is the only reason it was caught at all: a green tick is exactly
+what a tamper test that does not tamper looks like.
+
+### ⚠️ Two guards that are deliberately unreachable, and they are NOT claimed as proven
+
+- **`TooEarlyToResolve`.** To reach it a market would need an evidence row carrying an outcome for a
+  day that has not finished, and `settle()` throws `SettlementTooEarly` rather than producing one. It
+  can only fire on state that disagrees with itself. **Kept anyway, because a revert costs USDC.**
+- **`NotResolver`.** The analyst *is* the immutable resolver, and reaching the guard needs a second
+  Circle wallet this project does not have. Unit 7's cold-child-process trick does not help: a wrong
+  `CIRCLE_WALLET_ID` makes `analystIdentity()` throw inside `arc.ts`, one guard above.
+
+Both are stated in the file. Asserting a branch that never runs is the failure mode this phase has
+paid for four times, and pretending to reach these two would have been a fifth.
+
+### `reconcile` — the crash-recovery case, which was not in the brief and closes a real hole
+
+A run that submits and dies before its `UPDATE` leaves the chain settled and the row saying
+otherwise — and Unit 11's find-work query is `WHERE resolved_at IS NULL`, so **that row would be
+retried every day forever**. `prepare()` reads the chain before planning, and when the chain is
+already settled it returns `action: 'reconcile'`: the landmark is written from **what the chain
+says**, and nothing is submitted. Proven with a second store row observing chain market 8 after it
+resolved — no gas, correct outcome and hash.
+
+⚠️ **A reconciled void writes `voided_by` NULL.** The `Market` struct records no voider — only the
+`Voided` event does — so there is no honest answer from a state read, and writing the wallet this
+process happens to hold would have been a guess recorded as a fact.
+
+### ⚠️ Two things this unit could not do, said rather than reached around
+
+- **R17's republished-deployment void is NOT built.** It voids a market whose subgraph deployment was
+  republished after creation, and **nothing stores the creation-time deployment to compare against**:
+  not the `markets` row, not `spec_json` (a spec names a `slug`, never a deployment id), and so not
+  `specHash` either. The settlement evidence carries `deployment`, but that is the read at
+  settlement, not at creation. ⚠️ **It needs a column, which is a migration, which this unit was told
+  not to write.** The brief for this unit named exactly one void trigger — MISSING_OBSERVATION past
+  the deadline — and that is what was built.
+- **The idempotency key is derived and not stored, because there is no column.** `markets` carries
+  `create_idempotency_key` and 006 added `void_tx` and `voided_by` but no key. Survivable only
+  because the key is `sha256` over the call bytes: a retry recomputes the identical value with
+  nothing to remember. ⚠️ It would **not** have been survivable under the old stored-random scheme.
+
+### Smaller things
+
+⚠️ **The never-landed fixture is dated 2026-09-20 on purpose.** It never gets a landmark, and
+`marketsAwaitingResolve` is `observation_end <= asOf AND resolved_at IS NULL` — so a past-dated
+fixture would have been handed to Unit 11's cron every day forever. A future day keeps the row
+consistent with itself and invisible to the query. Confirmed after the run: **the find-work query
+returns nothing.**
+
+⚠️ **`landed()` is duplicated from `market.ts`** rather than exported from it. It is private there and
+this unit was told not to modify that file; eleven lines of receipt-waiting is the cheaper cost.
+`prepare()` also takes `now` from **the chain's latest block timestamp, never `Date.now()`** — the
+contract compares `block.timestamp`, and a local clock slightly ahead would pass our guard and revert
+on theirs.
+
+⚠️ **`resolve.ts` is ~178 non-comment lines, over the ~120 guideline, and I did not flag it before
+writing.** Most of it is the ten refusal messages, which are multi-line sentences rather than logic.
+It is one subsystem and one commit's worth of reading; recorded because the rule says to say so.
+
+**The operational path is the same script:** `--market=<id>` prints the plan and spends nothing,
+`--send` spends. ⚠️ It **refuses chain markets 6 and 7 unless `--live` is passed**, so settling a
+real one on Sunday is a deliberate gesture rather than a default.
