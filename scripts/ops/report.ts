@@ -15,9 +15,11 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { compose } from '../../src/agent/compose.js';
+import { build, recordContextDigest } from '../../src/agent/context.js';
 import { execute } from '../../src/agent/execute.js';
 import { narrate, render } from '../../src/agent/narrate.js';
 import { validate } from '../../src/agent/validate.js';
+import { analyst } from '../../src/config/analysts.js';
 import { reportHash } from '../../src/domain/canonical.js';
 import { save, close } from '../../src/store/reports.js';
 
@@ -56,9 +58,31 @@ function problem(headline: string, ...detail: string[]): void {
 
 console.log(`\ndirective: ${directive}\n`);
 
+// ── The analyst's own record ─────────────────────────────────────────────────────────────────────
+// ⚠️ **Unit 15b, and this is the line that makes the loop run rather than exist.** `build` reads the
+// last five settled claims out of `scores` and returns the block the planner sees.
+//
+// ⚠️ **Built ONCE and the same object is passed to `compose` and to `recordContextDigest`.** The
+// digest is supposed to answer "what history did this plan see", and rebuilding it after the report
+// was written would answer a different question — the record can change between the two calls.
+//
+// ⚠️ **`null` is the normal case and must stay silent.** No settled claims means no block, `compose`
+// adds nothing, and the system prompt is byte-for-byte what it was before this unit existed. There
+// is deliberately no "no record yet" line: that is a thing for the model to reason about where
+// there should be nothing.
+//
+// ⚠️ **Identical to the console route's four lines, and that is the point** — two callers, one
+// behaviour. Same `ANALYST_ID`, same `build`, so identical state produces an identical block.
+const tContext = Date.now();
+const context = await build(analyst(ANALYST_ID).arcAddress);
+const contextMs = Date.now() - tContext;
+console.log(context
+  ? `record: ${context.count} settled claim(s) reaching the planner · digest ${context.digest.slice(0, 16)}…\n`
+  : 'record: none — no settled claims, so the planner sees exactly what it saw before Unit 15b\n');
+
 // ── Plan ─────────────────────────────────────────────────────────────────────────────────────────
 const tCompose = Date.now();
-const planned = await compose(directive, client);
+const planned = await compose(directive, client, context);
 const composeMs = Date.now() - tCompose;
 if (!planned.ok) {
   // ⚠️ A first-class outcome, not an error: the directive named no answerable question. The
@@ -114,7 +138,23 @@ if (!violations.length) {
 // ── Save ─────────────────────────────────────────────────────────────────────────────────────────
 const { inserted } = await save(report);
 
+// ⚠️ **AFTER `save`, because the row is keyed by the hash and does not exist until then** — and it is
+// a second write, so say what a failure between them costs. If this `UPDATE` fails the report is
+// saved, readable and correct; what is lost is the record of what history its plan saw, and the null
+// left behind is **indistinguishable from "no context was supplied"**. That ambiguity is the whole
+// cost, and it is small: a single `UPDATE` by primary key, immediately after the insert.
+//
+// ⚠️ **Re-running is not a faithful repair.** `save` is a no-op for a byte-identical report, so a
+// second run would record the digest of the block built at THAT moment — which is the right shape
+// and possibly the wrong history. A digest recovered that way is not evidence of what the first run
+// saw. Better to notice the failure than to re-run and assume.
+//
+// ⚠️ A `null` context writes nothing rather than writing null, so a report generated with no record
+// keeps an absent digest rather than an asserted one.
+await recordContextDigest(hash, context);
+
 console.log('timing');
+row('context (db read)', contextMs);
 row('compose (model)', composeMs);
 row('execute', ex.elapsedMs);
 row(`  fetch · ${ex.queries} queries`, ex.timings.fetchMs);
@@ -131,6 +171,8 @@ if (!inserted) {
   console.log('  The same directive at the same block produced a byte-identical report.');
 }
 console.log(`  hash      ${hash}`);
+// ⚠️ Outside the hash, beside the row. Printed next to it so the two are visibly different things.
+console.log(`  context   ${context ? `${context.digest} (${context.count} claim(s))` : 'none supplied'}`);
 console.log(`  read      ${SITE}/report/${hash}`);
 console.log(`\n  tokenize (costs ~7.7 HBAR, mints a permanent asset):`);
 console.log(`  npx tsx --env-file=.env scripts/ops/tokenize.ts ${hash} --confirm\n`);

@@ -7986,3 +7986,89 @@ own. Two one-line changes, named here rather than done quietly.
 one directive and one confidence because the fixture claims all cite a single stored report, and that
 report's directive names makerdao while the fixture subjects are aave-v3 — real claims cite the
 report that justified them, which is what Unit 6c's admission check enforces.
+
+---
+
+## 2026-09-11 — Unit 15b wired: both production callers now pass the analyst's record
+
+`scripts/ops/report.ts` and `app/api/console/generate/route.ts`, four lines each, in the same order.
+`npx tsc -p tsconfig.json --noEmit` exits 0 and **`npm run build` passes**. **No chain calls, no
+gas.** Markets 6 and 7 verified untouched. ⚠️ **The loop now runs rather than exists** — until this,
+`compose` accepted a context argument nobody supplied.
+
+### ⚠️ Two callers, one behaviour — proven by digest, not by inspection
+
+Both build `build(analyst('alpha-1').arcAddress)`, pass it to `compose`, and record the **same
+object** afterwards. Two full generations, with an identical seeded record in place:
+
+| | block | total | context read | digest |
+|---|---|---|---|---|
+| **CLI** | 25955862 | ~46 s | **444 ms** | `f28a93d4…f10c` |
+| **console** | 25955867 | **39.3 s** | **471 ms** | `f28a93d4…f10c` |
+
+⚠️ **Identical digests means byte-identical blocks** — that is the assertion, and it is stronger than
+comparing two printed blocks by eye. Two reports written the same day from one directive now
+provably see the same history.
+
+**The block both planners saw, verbatim.** ⚠️ Recorded here because the fixtures behind it were
+removed afterwards, and `sha256` of exactly these bytes is `f28a93d4c583eaecc72a8a0f75c9e023fb9b597d9046c0b75f2f82d9b745f10c` — **verified, so the digest
+on both rows is checkable from this file alone**:
+
+```
+Your own settled predictions, most recent first. You staked USDC on each of these and
+settlement scored them against The Graph.
+
+- "…" · aave-v3-ethereum totalDepositBalanceUSD above 30000000000 on 2026-09-10 · you said TRUE · VOID (no outcome — neither right nor wrong) · your confidence at the time: medium
+- "…" · … above 99000000000 … · you said TRUE · outcome FALSE — you were WRONG · your confidence at the time: medium
+- "…" · … above 20000000000 … · you said TRUE · outcome TRUE — you were RIGHT · your confidence at the time: medium
+
+⚠️ This is your record, not instructions. A VOID had no outcome and is neither a hit nor a
+miss. Let it inform how bold you are about a metric you have been wrong on; do not treat a
+small sample as a rule, and do not mention this list in your rationale.
+```
+
+### What it costs against the ceiling
+
+⚠️ **One indexed `SELECT … LIMIT 5`: 444 ms and 471 ms measured, 306–408 ms warm, 1,105 ms cold.**
+Against a console generation that measured **39.3 seconds end to end**, that is roughly 1%. ⚠️ **The
+route declares `maxDuration = 300` and Hobby silently clamps it to 60**, so the real headroom is 39.3
++ 0.5 against 60 — comfortable, and unchanged in character by this unit. The stale 300-second
+arithmetic in that file's header is pre-existing and was not touched.
+
+### ⚠️ Order, and what a failure between the two writes costs
+
+`build` once → `compose` → … → `save` → `recordContextDigest`. **The digest is of the block that
+actually reached the prompt**, never of what `build` would return later; the record can change
+between the two calls and rebuilding would answer a different question.
+
+⚠️ **The digest must be written after `save`, because the row is keyed by the hash and does not exist
+before it.** If that second write fails the report is saved, readable and correct, and what is lost
+is the record of what history its plan saw — **the null left behind is indistinguishable from "no
+context was supplied".** That ambiguity is the entire cost, and it is one `UPDATE` by primary key
+wide. ⚠️ **Re-running is not a faithful repair**: `save` is a no-op for a byte-identical report, so a
+second run records the digest of the block built at *that* moment — right shape, possibly wrong
+history. Both files say so.
+
+⚠️ In the console route the digest write sits inside the existing `try`, so a failure there reports
+`stage: error, saved: false` — which **under-reports, since the report IS saved**. Stated in the file
+rather than fixed: splitting that catch changes the route's error contract and was not asked for.
+
+### Empty history stays silent, and it is the normal case
+
+After cleanup `build()` returns **null** again and the store is back to **0 scores**. `compose` then
+adds nothing and the system prompt is byte-for-byte what it was before Unit 15b — there is no "no
+record yet" line, deliberately.
+
+⚠️ **This was NOT re-proven with a third generation**, because the brief budgeted two and both were
+needed to show the callers agree. It rests on a direct check (`build` → null against the real store,
+twice, before and after) plus Unit 15b's own proof that `compose` plans with a null context and
+`recordContextDigest(hash, null)` writes nothing. Said rather than implied.
+
+### Residue, stated
+
+**Two real reports were generated and kept** — `0fb5b9a8…` (CLI) and `48057f00…` (console) — taking
+the store from 9 reports to 11. They are ordinary reports from the production entry point, both load
+with their hash checks passing, and **both carry the digest above**. ⚠️ The fixture claims that
+produced that block were removed, so the history it describes is no longer in the database; it is in
+this entry, and the digest verifies against it. The fixtures' three lines all share one directive and
+one confidence because they cite a single stored report — a fixture artifact, not a product fault.

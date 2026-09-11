@@ -31,9 +31,11 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { compose } from '../../../../src/agent/compose.js';
+import { build, recordContextDigest } from '../../../../src/agent/context.js';
 import { execute, DEFAULT_BUDGET } from '../../../../src/agent/execute.js';
 import { narrate, render } from '../../../../src/agent/narrate.js';
 import { validate } from '../../../../src/agent/validate.js';
+import { analyst } from '../../../../src/config/analysts.js';
 import { reportHash } from '../../../../src/domain/canonical.js';
 import { save } from '../../../../src/store/reports.js';
 // ⚠️ Empty is missing. One guard, shared; was a local copy until 2026-09-09.
@@ -69,9 +71,33 @@ export async function POST(request: Request): Promise<Response> {
           executeBudgetMs: DEFAULT_BUDGET.maxWallClockMs, functionCapMs: 300_000,
         });
 
+        // ── The analyst's own record ────────────────────────────────────────────────────────────
+        // ⚠️ **The same four lines `scripts/ops/report.ts` carries, in the same order, against the
+        // same `ANALYST_ID` — two callers, one behaviour.** If the CLI and this route supplied
+        // different history, two reports written the same day from one directive could see
+        // different pasts and nothing would say why.
+        //
+        // ⚠️ **One `build`, and the same object reaches `compose` and `recordContextDigest`.** The
+        // digest answers "what history did this plan see"; rebuilding it after the fact answers a
+        // different question.
+        //
+        // ⚠️ **A database read, and it is small enough not to matter against the ceiling** — one
+        // indexed SELECT with `LIMIT 5`, measured at single-digit to low-tens of milliseconds
+        // against a generation that takes 34–47 seconds. It is emitted below rather than assumed.
+        //
+        // ⚠️ **`null` stays silent.** No settled claims means no block and no added prompt bytes.
+        const tContext = Date.now();
+        const context = await build(analyst(ANALYST_ID).arcAddress);
+        emit({
+          stage: 'context', status: 'ok', ms: Date.now() - tContext,
+          claims: context?.count ?? 0,
+          digest: context?.digest ?? null,
+          note: context ? undefined : 'no settled claims — the planner sees no record section',
+        });
+
         // ── Plan ────────────────────────────────────────────────────────────────────────────────
         emit({ stage: 'compose', status: 'start' });
-        const planned = await compose(asked, client);
+        const planned = await compose(asked, client, context);
         if (!planned.ok) {
           // A first-class outcome, not an error: the directive named no answerable question.
           emit({
@@ -122,8 +148,22 @@ export async function POST(request: Request): Promise<Response> {
 
         // ── Save ────────────────────────────────────────────────────────────────────────────────
         const { inserted } = await save(report);
+
+        // ⚠️ **After `save`, because the row is keyed by the hash and does not exist before it.** A
+        // failure between the two leaves the report saved and correct with a null digest, which is
+        // **indistinguishable from "no context was supplied"** — that ambiguity is the cost, and it
+        // is one `UPDATE` by primary key wide. ⚠️ Re-running is not a faithful repair: `save` is a
+        // no-op for a byte-identical report, so a second run records the digest of the block built
+        // at THAT moment, which is the right shape and possibly the wrong history.
+        //
+        // ⚠️ Inside the same `try` as everything else, so a failure here reports as `stage: error`
+        // with `saved: false` — which under-reports, since the report IS saved. Said rather than
+        // hidden; splitting the catch is a change to this route's error contract and was not asked
+        // for.
+        await recordContextDigest(hash, context);
         emit({
           stage: 'save', status: 'ok', hash, inserted, facts, block: report.block,
+          contextDigest: context?.digest ?? null,
           // Not a failure: the hash IS the id, so the same directive at the same block is the
           // same report and `save` is a no-op by design.
           note: inserted ? undefined : 'byte-identical to a report already stored',
