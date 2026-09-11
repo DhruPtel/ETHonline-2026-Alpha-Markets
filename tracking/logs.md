@@ -7339,3 +7339,91 @@ Bad hash → 400. Unknown market → 404. A real mined transaction carrying no `
 driven with Unit 9's `voidMarket` hash from chain market 9 — a genuinely mined transaction on the
 same contract with the wrong event — rather than an invented one, so the guard was reached for the
 right reason.
+
+---
+
+## 2026-09-11 — Phase 4 Unit 10: `app/api/cron/commit/route.ts` — the analyst on a schedule
+
+`app/api/cron/commit/route.ts`, the first `crons` entry in `vercel.json`, and `CRON_SECRET` added to
+`.env.example`. `npx tsc -p tsconfig.json --noEmit` exits 0 and **`npm run build` passes** with the
+route listed. ⚠️ **A2 is not closed yet** — it closes when a `vercel-cron/1.0` request appears in the
+Vercel log with nobody watching, and that needs a deploy. Everything up to that is proven.
+
+**Proven locally against the production build:** no header → 401 · wrong secret → 401 · correct
+secret with nothing outstanding → a clean `{"outstanding":0}` in 832 ms. ⚠️ **An empty result is the
+normal case on most days and reports cleanly rather than looking like a failure** — anything that
+read as an error here would train an operator to ignore the one that matters.
+
+### ⚠️ `prepare()` needs two things a market row does not carry, and both were decided in the open
+
+`marketsAwaitingCommit` returns the question, the times and the contract. It does **not** return
+which report justifies the claim or how much to stake, and neither exists anywhere in `store/` or
+`config/` — `market.ts` refuses to invent the second on purpose: *"No default — nobody commits a
+default stake size."* Stopped and asked rather than assuming. Both answers taken by the operator:
+
+- **the report** — the newest tokenized report carrying a fact for the market's metric. ⚠️ The pick
+  is **verified rather than trusted**: `prepare()` refuses an untokenized report at Unit 6c's
+  admission check, and `decideSide` refuses a report with no fact for the metric, so a wrong query
+  causes a refusal and can never cause a commit against a report that does not qualify. It is also
+  the "agent decides" half of the design — the human directs the *market*, the analyst picks which of
+  its own published work backs the claim. **The dry run picked a 39-hour-old report, not the oldest**,
+  which is the rule doing something the hardcoded script did not.
+- **the stake** — `0.01 USDC` as a constant in the route. A configurable one would be a sixth
+  environment variable that can be present-but-blank; a constant cannot fail at runtime.
+
+⚠️ **The derived market id round-trips, which is what makes reuse safe.** `prepare()` computes
+`idFor('m', {specHash, core, contractAddress})`, and fed a row's own spec and times it lands back on
+that row — verified against markets 6 and 7 before anything was written, and again in the dry run
+against the seeded market. Had it not, `create()` would have INSERTed a second row and left the
+directed one uncommitted forever.
+
+### ⚠️ A guard added after finding a daily gas burn that nobody had named
+
+`marketsAwaitingCommit` has **no `closeTime` predicate** and `prepare()` has **no past-close
+refusal** — its step 3 checks `closeTime <= dayStart(observedDay)`, never `closeTime > now`. So a
+market whose staking window shut before a run reached it stays outstanding **for good**, and every
+subsequent run would `create()` it on chain (spending) and then revert `StakingClosed` on `commit()`
+(spending again). **Daily, forever, for a market that can never be committed.**
+
+The route now refuses a closed market before touching anything. ⚠️ Refused rather than hidden: the
+row stays outstanding and visible and nothing is spent. Found while reasoning about what happens if
+tonight's deploy slips — which is exactly the case that would have triggered it.
+
+### Reconciliation, and why a double delivery is safe
+
+Vercel's cron delivery is best-effort **in both directions** — a run can silently not happen, and the
+same run can arrive twice. The route asks what is outstanding *now*, from scratch, with no cursor and
+no high-water mark. A duplicate delivery is safe because `create()` returns a market that already
+landed instead of creating a second one and `commit()` returns a claim that already landed instead of
+staking twice. A run that exceeds its budget marks the rest **deferred**, not failed, and the next
+run finds them still outstanding.
+
+`maxDuration = 60`, which is the real Hobby ceiling — a route declaring nothing gets roughly ten
+seconds and a declared `300` is silently clamped with no API that will say so. New markets stop being
+started at 45 s so a submit is never cut off mid-flight.
+
+⚠️ **Auth compares SHA-256 digests through `timingSafeEqual`**, which throws on a length mismatch —
+on raw strings that would be an oracle for the secret's length. `requiredEnv` is the guard on the
+secret itself, because `process.env.X ?? y` falls back on undefined and never on the empty string.
+
+### The seeded market, and the clock on it
+
+⚠️ **`marketsAwaitingCommit` returned empty** — both live markets already carry the analyst's claim,
+and `commit-market.ts` has no create-only flag, so there was no way to leave work behind. With the
+operator's agreement one directed, uncommitted row was seeded: **`m/9e1469c4fa950754e2791734`**, asking
+whether `aave-v3-ethereum.totalDepositBalanceUSD` is above **22,871,036,910** on 2026-09-12 — 95% of
+the 2026-09-10 snapshot, a genuinely different question from markets 6 and 7 so it gets its own
+`specHash` and its own row. Not on chain, no claim. **The cron creates it and commits it.**
+
+A dry run of the exact cron path — `prepare()` only, which spends nothing — resolves cleanly: one
+market outstanding, report picked, plan id matching the seeded row, side **TRUE**, stake 0.01 USDC,
+no refusals. ⚠️ So the 22:00 run is de-risked as far as it can be without spending.
+
+⚠️ **The seeded market closes at 2026-09-11T23:59:00Z.** The cron is `0 22 * * *`; Hobby fires once
+daily with per-hour precision and can drift up to an hour, so a 22:00 fire lands by 22:59 at worst —
+inside the window. **If the deployment does not exist by then the window shuts**, the new guard
+refuses the row harmlessly, and there is no A2 evidence tonight.
+
+⚠️ **The schedule runs on Vercel, not here.** The live deployment is still Phase 3's, so the route,
+the `crons` entry and `CRON_SECRET` in the Vercel project environment all have to land there before
+22:00 UTC. Nothing is committed and that deploy is the operator's.
