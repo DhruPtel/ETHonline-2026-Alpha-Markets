@@ -10575,3 +10575,81 @@ report page**. The three that do cover all three states, which is what the state
 means every listed report has a row and `load()` answers for all of them. Worth knowing now so the
 404s are not mistaken for a broken link when clicking through after commit 8.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 5: `/markets`, the market index
+
+196 lines. `next build` exit 0, route table **17 → 18**, `/markets` 200, backend unchanged. One
+`<Link>` became `<a href>`; nothing else changed.
+
+### ⚠️ The class-token comparison, and why the raw numbers mislead
+
+```
+reference markets route : 266 tokens, 121 distinct
+served /markets         : 100 tokens,  32 distinct
+```
+
+A 121-to-32 gap reads like most of the screen is missing. **It is not, and the split is the whole
+point.** Of the reference's 121 classes, only **23 are defined in `globals.css`** — the actual design
+system — and the other **98 are compiled Tailwind v4 and shadcn plumbing** hanging off the Radix Tabs
+and Select widgets. `front-end-design/README.md` records that exactly: *"~135 KB of compiled Tailwind
+v4 and shadcn plumbing. Left. The shipped app has no framework and no CSS dependency."*
+
+```
+reference design classes (defined in globals.css)   23
+  missing from our page                              0    ← every one present
+reference plumbing (undefined anywhere)             98    group/tabs · flex · gap-2
+                                                          data-[orientation=…] · dark:* · …
+absent icon-library leftovers                        6    lucide · lucide-search · lucide-clock
+                                                          lucide-chevron-down · lucide-arrow-right
+                                                          lucide-check
+ours, not in the reference                           9    tab-list · tab · line · line-true
+                                                          line-false · dot-true · dot-false
+                                                          choice-value · inert
+  all nine defined in globals.css                  YES
+```
+
+⚠️ **Zero structural absences.** The nine additions are the de-Tailwinded replacements for the Radix
+tab list and select (`tab-list`, `tab`, `choice-value`), the design's own two-side colour classes
+(`dot-*`, `line-*` — §9.3 of the manifest turned the reference's inline `style` loop into fixed
+classes because the pair is fixed), and `.inert`.
+
+### What it looks like
+
+`CONVICTION MEETS THE MARKET` over a 46px serif **Prediction markets**, with `5 OPEN MARKETS ·
+Settlement on Arc` right-aligned. A filter bar carrying a search field, four category chips, a status
+select and a **My positions** tab marked `.inert`. Then a three-across `.prediction-grid` of cards,
+each: category left and an Open/Resolved badge right, a 28px serif claim on a `min-height` that keeps
+the chart tops aligned across a row, the criterion, a compact two-line probability chart, the
+`TRUE`/`FALSE` rows with round dots and percentages, a `volume USDC vol. · N reports` footer, and
+*View market & stake →* — or *View market results →* on the resolved one.
+
+### CUT items, verified absent
+
+```
+<select 0 · type="radio" 0 · >Back< 0 · >Outcome< 0 · "Other" 0
+TRUE rows 6 · FALSE rows 6  across 6 cards — exactly two sides each, never three
+badges: 5 open · 1 resolved
+```
+
+⚠️ **The three multi-outcome markets the design drew are already binary here**, restated as claims
+about the leading name — *"Aave leads lending by end-2027"*, *"USDC grows the most of any stablecoin
+in 2027"*, *"Uniswap leads DEX volume in Q4 2026"* — with the non-leading outcomes summed into FALSE.
+`MANIFEST.md` §8 records the mapping and no probability was invented. **That is D4 applied in the
+source rather than by us cutting markup**, and it is the right shape: the contract is binary.
+
+### MARKED, not cut
+
+`My positions` (`class="tab inert"`) and the header's `Connect wallet`. Search, the category chips
+and the status select are the design's own controls and are live-but-local in `MarketFilters` —
+they hold state and filter nothing yet, which is commit 11's job.
+
+### The slug links, flagged and not yet a problem
+
+All six cards link to slugs — `/markets/lending-2027`, `/markets/dex-volume`, and so on. ⚠️ **They
+404 until commit 6 lands the detail page, and after commit 6 they resolve against the demo
+`Record`.** They break for real only if they outlive the demo const: this repo's markets are numeric
+and `/api/markets/[id]/refresh` enforces `/^\d+$/`. **Commit 12 replaces the const and the slugs go
+with it.** Nothing to do now.
+
