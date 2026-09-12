@@ -1,8 +1,8 @@
 'use client';
 
-import {Fragment, useRef, useState} from 'react';
+import {useRef, useState} from 'react';
 import {useRouter} from 'next/navigation.js';
-import {useSecret} from './ConsoleSecret.js';
+import {useSecret, type Evidence} from './ConsoleSecret.js';
 import {useFitPanel} from '../hooks/useFitPanel.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, CheckCircle, Database, FileText, Terminal} from './Icons.js';
 
@@ -17,7 +17,6 @@ export type AtlasData = {
   run: string;
   idleMessage: string;
   status: {label: string; value: string}[];
-  evidence: {label: string; value: string}[];
   terminal: {stamp: string; text: string}[];
   promptLimit: number;
 };
@@ -81,7 +80,15 @@ function describe(e: Event): string {
   }
 }
 
-export function AtlasPanel({atlas}: {atlas: AtlasData}) {
+export function AtlasPanel({
+  atlas,
+  reportEvidence,
+}: {
+  atlas: AtlasData;
+  /** ⚠️ The displayed report's own provenance, server-rendered. The context overrides it when
+   *  someone presses a source read; otherwise this is what the block shows. */
+  reportEvidence: Evidence | null;
+}) {
   const [mode, setMode] = useState<'agent' | 'terminal'>('agent');
   const [prompt, setPrompt] = useState('');
 
@@ -99,7 +106,8 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
   // and the run that just finished all survive it. Named imports from `next/navigation.js` are the
   // ones that work here; see `ConsoleSecret.tsx`'s sibling note about `next/link`.
   const router = useRouter();
-  const {setRun} = useSecret();
+  const {setRun, source, evidence: override, setTab} = useSecret();
+  const evidence = override ?? reportEvidence;
   const started = useRef(0);
 
   // ⚠️ **The stamp is computed HERE, not inside the updater.** React runs the updater when it
@@ -199,8 +207,11 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
     }
   }
 
+  // ⚠️ **The link goes somewhere now.** It opens the viewer's Source data tab — the fuller view this
+  // five-row block cannot hold: all 28 deployments, the schema version each one REPORTED, the
+  // document and response hashes, and the poisoned-revenue notice.
   function onReadSource() {
-    // Opens the source-data tab on the viewer beside this panel.
+    setTab('data');
   }
 
   const {frameRef, contentRef, contentStyle} = useFitPanel();
@@ -237,7 +248,7 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
           <div className="atlas-inner">
             <div className="atlas-top">
               <span>
-                ATLAS <small>/ {atlas.run}</small>
+                ATLAS <small>/ {saved ? saved.hash.slice(0, 10) : atlas.run}</small>
               </span>
               <div className="tab-list" role="tablist">
                 <button
@@ -309,18 +320,71 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
               })}
             </div>
 
+            {/* ⚠️ **Five rows, and the design allows five — not restructured.** What changed is that
+                every value is read rather than invented, and the eyebrow names WHICH read it
+                describes. `THE GRAPH / QUERY EVIDENCE` under five mockup values is the single most
+                discrediting thing on this page: a judge looking for proof of live data finds
+                `DEMO-lending-eth` and stops believing the rest.
+                ⚠️ **The four fields that do not fit are behind the link**, not dropped —
+                `documentHash`, `responseHash`, `completeness` and `requestedBlock` live in the
+                Source data tab beside the roster they describe. */}
             <div className="query-evidence">
-              <span className="eyebrow">THE GRAPH / QUERY EVIDENCE</span>
+              {/* ⚠️ **The eyebrow names the claim, because two different ones share this space.**
+                  `THIS REPORT'S READ` is evidence for the document on the left — its own stored
+                  provenance. `SOURCE READ` is the roster query someone just pressed. A block that
+                  switched between them silently would be worse than one left blank. */}
+              <span className="eyebrow">
+                {evidence === null
+                  ? 'THE GRAPH / QUERY EVIDENCE'
+                  : evidence.kind === 'report'
+                    ? "THE GRAPH / THIS REPORT'S READ"
+                    : 'THE GRAPH / SOURCE READ'}
+              </span>
               <dl>
-                {atlas.evidence.map((row) => (
-                  <Fragment key={row.label}>
-                    <dt>{row.label}</dt>
-                    <dd>{row.value}</dd>
-                  </Fragment>
-                ))}
+                {evidence ? (
+                  <>
+                    <dt>Subgraph</dt>
+                    <dd>{evidence.subgraph}</dd>
+                    <dt>Deployment</dt>
+                    <dd>
+                      {evidence.deployment.length > 20
+                        ? `${evidence.deployment.slice(0, 18)}…`
+                        : evidence.deployment}
+                    </dd>
+                    {/* ⚠️ For a source read this is off the response's own `_meta`; for a report it
+                        is the COMMON block every figure was read at, from the stored record. Neither
+                        is our clock and neither is recomputed. `requestedBlock` is null: nothing is
+                        pinned. */}
+                    <dt>Block</dt>
+                    <dd>{evidence.block.toLocaleString('en-US')}</dd>
+                    <dt>Records</dt>
+                    <dd>{evidence.records}</dd>
+                    <dt>Retrieved</dt>
+                    <dd>
+                      {evidence.kind === 'report'
+                        ? `${evidence.fetchedAt.slice(0, 10)} ${evidence.fetchedAt.slice(11, 19)} UTC`
+                        : `${evidence.fetchedAt.slice(11, 19)} UTC`}
+                    </dd>
+                  </>
+                ) : (
+                  /* ⚠️ **An em dash and a stated absence, never a plausible value.** Before a read
+                     this block has read nothing and says so. */
+                  <>
+                    <dt>Subgraph</dt>
+                    <dd>not read</dd>
+                    <dt>Deployment</dt>
+                    <dd>—</dd>
+                    <dt>Block</dt>
+                    <dd>—</dd>
+                    <dt>Records</dt>
+                    <dd>—</dd>
+                    <dt>Retrieved</dt>
+                    <dd>—</dd>
+                  </>
+                )}
               </dl>
               <button className="text-link" type="button" onClick={onReadSource}>
-                Inspect source data <ArrowUpRight size={14} />
+                {source ? 'All 28 deployments' : 'Inspect source data'} <ArrowUpRight size={14} />
               </button>
             </div>
 

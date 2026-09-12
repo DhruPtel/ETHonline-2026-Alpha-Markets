@@ -12635,3 +12635,217 @@ one outside it.**
 **So the honest position is unchanged and now has a second measurement behind it: live generation is
 not demonstrable against the deployed URL.** Recorded in `lessons.md` rather than only here.
 
+
+---
+
+## 2026-09-12 — The Query Evidence block reads, and the console stops inventing anything
+
+`app/components/{AtlasPanel,ConsoleViewer,ConsoleSecret}.tsx`, `app/console/page.tsx`. `next build`
+exit 0, root `tsc` exit 0. **No new class. Block not restructured — five rows, as the design allows.**
+
+### ⚠️ Which read it describes, and how a reader can tell
+
+**The Source data roster, and only that.** The obvious choice would be the generation run's own
+Graph stage, since the block sits beside the composer — but `/api/console/generate`'s `execute` event
+emits only `{elapsedMs, queries, block, timings}`. ⚠️ **It carries no deployment, no retrieval time
+and no row count**, so four of five rows could not be filled from it without inventing them, **which
+is the exact fault this block existed to fix.** `/api/console/source` returns a whole `buildEvidence`
+record and is the only read in this console that can fill all five honestly.
+
+⚠️ **So the block names its own subject.** The eyebrow reads `THE GRAPH / QUERY EVIDENCE` before any
+read and **`THE GRAPH / SOURCE READ`** after one. A reader is never left to attach it to whatever
+happens to be on screen.
+
+### Which fields are in the block, which are behind the link
+
+```
+IN THE BLOCK (five, design-fixed)      BEHIND THE LINK (the Source data tab)
+  Subgraph    aave-v3-ethereum           requestedBlock  null   ← nothing is pinned
+  Deployment  QmcXE5QVcBcvcaJddP…        documentHash    1414cbcc7fdd754c
+  Block       25,963,223                 responseHash    da2abe58991a3588b481…
+  Records     22 of 28 answering         completeness    null
+  Retrieved   18:47:44 UTC               the 28-row roster · five schema versions
+```
+
+⚠️ **`Block` and `Retrieved` come off the response's own `_meta`, never our clock**, and
+`requestedBlock` is `null` — which is how a reader knows it is a live head read rather than a pinned
+one. **Before any read: `not read` and four em dashes.** It never shows a plausible value it did not
+read.
+
+### ⚠️ `Inspect source data ↗` now goes somewhere
+
+It was a no-op stub. It opens the viewer's **Source data** tab — the fuller view the five rows cannot
+hold. Its label becomes **All 28 deployments** once a read has happened, so it says what it leads to.
+
+### ⚠️ The sweep found four more invented values, all the same fault
+
+The brief asked about one block. Grepping the served HTML for what it would have shown found the same
+lie in four more places in the same panel, and leaving them beside a now-honest block would have been
+worse than leaving all of them:
+
+```
+                    before  after
+DEMO-lending-eth        1      0
+24,800,000              1      0
+14:02:08                5      0   ← the terminal, "[14:02:08] Snapshot loaded · 120 records"
+120 records             1      0
+Data retrieved          1      0   ← never rendered, but travelled in the RSC payload
+RUN 042                 2      0   ← the panel's own run label
+```
+
+⚠️ **`Data retrieved` is the instructive one.** The status rows already derived their values from the
+run and showed *"no run yet"* before one — so it never appeared on screen — **but the placeholder
+still travelled in the flight payload, where a grep finds it.** Nothing invented should be in the
+bytes at all. The run label now shows the saved report's own hash prefix once there is one.
+
+### ⚠️ What a judge should click, in order
+
+**1 · `http://localhost:3000/console`.** The Atlas panel's evidence block reads `not read` and em
+dashes. The terminal says *No run yet*. **Nothing on the page claims anything yet** — which is the
+point, and is checkable before a single click.
+
+**2 · Viewer toolbar → `Source data` → `Read the roster`.** All 28 registered Ethereum lending
+deployments, four columns: deployment, the schema version **each one reported**, whether it is
+answering, and the block. **22 answering, 6 with no indexers.** Under the table, one line:
+*"One query document, 5 live schema versions — 3.1.0 · 3.0.1 · 3.0.0 · 2.0.1 · 1.3.0."*
+
+⚠️ **That is the standardized-schema claim, shown rather than asserted.** One document, unchanged,
+across five versions — because they share Messari's standardized lending schema. The schema column is
+read from `lendingProtocols[0].schemaVersion`, **the deployment's own answer**, never from our config
+— `protocols.ts` says its declared value *"is not authoritative"*.
+
+**3 · Back to the Atlas panel.** The evidence block is now filled with that read. **Check the block
+number against any Ethereum explorer** — it should be within a block or two of head. Press **Read
+again**: the block advances ~5 for every minute elapsed, which is Ethereum's ~12s cadence. A pinned
+or cached read could not do that.
+
+**4 · `All 28 deployments ↗`** in the block returns to the roster, with the document and response
+hashes beneath it.
+
+**5 · Type a directive and press Generate.** ⚠️ **This is the AI-tooling claim, and the terminal is
+the surface that makes it legible** — not a page about it. The run prints its own stages with real
+numbers: `compose ok · metric.totalDepositBalanceUSD · checks chain-corroboration`, `execute ok in
+1.8s · 10 queries · block 25963044`, `narrate ok · 6 facts`, `validate · digit guard clean`, `save ·
+SAVED`, then the full report hash. **A directive became a plan, the plan ran against live
+deployments at one common block, the figures were checked, and the model wrote a report it cannot
+type a digit into** — each of those is a line you can watch arrive.
+
+**6 · The left panel.** The report the run just wrote, titled by the narrator, every figure a
+substituted `{fact:}` placeholder.
+
+⚠️ **Nothing here is a section labelled "evidence for track X".** These are the console's own
+surfaces doing their own work; the roster is what the agent reads from, and the terminal is what it
+did.
+
+### Proof
+
+```
+DEMO · 24,800,000 · 14:02:08 · 120 records · Data retrieved · RUN 042   all 0 in the served HTML
+structure   113 tokens, 81 distinct · every class defined · no new class
+live        block 25,963,223 · requestedBlock null · retrieved 18:47:44 UTC
+```
+
+⚠️ **113/81 against the earlier 111/80**: the extra is `.muted`, used by the terminal's stated
+absence. Defined, and not a new class.
+
+
+---
+
+## 2026-09-12 — The Query Evidence block fills from the report on screen
+
+`app/console/page.tsx`, `app/components/{AtlasPanel,ConsoleViewer,ConsoleSecret}.tsx`. `next build`
+exit 0, root `tsc` exit 0. **Block not restructured — five rows.** No new class.
+
+### ⚠️ It is in the FIRST BYTES, not filled in after hydration
+
+My first attempt published the report's evidence from a `useEffect` in `ConsoleViewer`. That works in
+a browser and **leaves the served HTML showing em dashes** — so the one surface labelled as evidence
+was still empty to anything that reads the page without running JavaScript, and a grep could not
+prove it. **Moved to the server**: `app/console/page.tsx` builds the record and passes it to
+`AtlasPanel` as a prop. The context overrides it when someone presses a source read.
+
+Served HTML, cold, no JS:
+
+```
+<span class="eyebrow">THE GRAPH / THIS REPORT'S READ</span>
+  <dt>Subgraph</dt>   <dd>aave-v3-ethereum</dd>
+  <dt>Deployment</dt> <dd>QmcXE5QVcBcvcaJddP…</dd>
+  <dt>Block</dt>      <dd>25,963,125</dd>
+  <dt>Records</dt>    <dd>140 figures</dd>
+  <dt>Retrieved</dt>  <dd>2026-09-12 18:27:47 UTC</dd>
+```
+
+⚠️ **That is report `65fb085d26627840…`, "Aave v3 Ethereum Market Overview"** — the document rendered
+in the panel beside it, 140 figures at block 25,963,125. **The evidence and the report on screen are
+the same read.**
+
+### ⚠️ How a reader tells the two claims apart
+
+Two different claims share one five-row space, so **the eyebrow names which**:
+
+```
+nothing yet          THE GRAPH / QUERY EVIDENCE        not read · — · — · — · —
+on load / after a run  THE GRAPH / THIS REPORT'S READ  the displayed report's own provenance
+after Read the roster  THE GRAPH / SOURCE READ         the 28-deployment probe
+```
+
+⚠️ **A block that switched silently would be worse than one left blank.** *"Evidence for the report
+you are looking at"* and *"the read you just pressed"* are different assertions and the block says
+which it is making.
+
+⚠️ **After a run the two converge, and that is not a fudge.** The run saves, `router.refresh()` makes
+the new report the displayed one, and `THIS REPORT'S READ` then describes exactly the run just
+watched. During the run it continues to describe the previous report — matching the document panel's
+own banner, which already says the sheet below is the previous one.
+
+### Multi-deployment, and what the rows actually say
+
+Every report in the store today is single-deployment, but multi-deployment reports exist in the
+shape. So:
+
+| row | single deployment | several |
+|---|---|---|
+| Subgraph | `aave-v3-ethereum` | `3 deployments` |
+| Deployment | the subgraph id | `3 subgraphs` |
+| Block | ⚠️ **`report.block` — the COMMON block** | the same, and it is the honest single number |
+| Records | `140 figures` | the same |
+| Retrieved | `report.observedAt` | the same |
+
+⚠️ **The common block is the right answer because it is the thing the pipeline guarantees** — every
+figure in a report is read at one block, and that guarantee is what a multi-deployment report rests
+on. Naming one deployment's block instead would be picking a winner; showing three would be showing
+something the report does not claim.
+
+### From the stored record, never recomputed
+
+`Subgraph`, `Deployment` and `Retrieved` come off the facts' own `slug`, `deployment` and the
+report's `observedAt`. ⚠️ **No query runs to fill this block.** It is evidence about a read that
+happened; a fresh read dressed as an old one would be the same class of lie as the DEMO values it
+replaced. `requestedBlock` stays `null`.
+
+### ⚠️ What a judge clicks, without running anything
+
+**1 · `http://localhost:3000/console`.** The document panel holds a real report — *Aave v3 Ethereum
+Market Overview*, a table of figures, a provenance line, the full hash in the byline. **Beside it the
+evidence block is already populated**, headed `THIS REPORT'S READ`, naming the same deployment and
+the same block the report was measured at. **Two surfaces, one read, agreeing — before a single
+click.**
+
+**2 · Cross-check the block number.** `25,963,125` against any Ethereum explorer puts the report at a
+real block on a real chain at a real time.
+
+**3 · `Inspect source data ↗`** → the viewer's Source data tab. Press **Read the roster**: 28
+deployments, 22 answering, and one line — *"One query document, 5 live schema versions."* The
+evidence block re-heads itself `SOURCE READ` and shows that query's own block, which will be higher
+than the report's because it is being read now.
+
+⚠️ **Those two states side by side are the demonstration**: the same block can describe a stored
+report's read or a live one, and it always says which.
+
+**4 ·** Only then is a generation worth running, and it is the only step that costs anything.
+
+```
+DEMO in served HTML     0
+structure               113 tokens, 81 distinct · no new class
+```
+

@@ -41,11 +41,62 @@ import {createContext, useContext, useState, type ReactNode} from 'react';
  */
 export type RunState = 'idle' | 'running' | 'saved' | 'failed';
 
+/**
+ * ⚠️ **The evidence record from the console's last Graph read, shared with the Atlas panel.**
+ *
+ * ⚠️ **WHICH READ: the Source data roster, and only that one.** The block sits in the Atlas panel
+ * beside a generation run, so the obvious choice would be the run's own Graph stage — but
+ * `/api/console/generate`'s `execute` event emits only `{elapsedMs, queries, block, timings}`.
+ * **It carries no deployment, no retrieval time and no row count**, so four of the block's five rows
+ * could not be filled from it without inventing them, and inventing them is the exact fault this
+ * block exists to fix. `/api/console/source` returns a whole `buildEvidence` record, so it is the
+ * only read in this console that can honestly fill all five.
+ *
+ * ⚠️ **The block therefore names its own subject** — the eyebrow reads THE GRAPH / SOURCE READ, not
+ * a bare "QUERY EVIDENCE" that a reader would attach to whatever is on screen. Evidence that does
+ * not say what it is evidence of is not evidence.
+ */
+export type Evidence = {
+  /**
+   * ⚠️ **Which read this describes, and the block SAYS it.** Two different claims share one
+   * five-row space: *"the evidence for the report you are looking at"* and *"the read you just
+   * pressed"*. A block that switched between them silently would be worse than one left blank.
+   */
+  kind: 'report' | 'source';
+  subgraph: string;
+  deployment: string;
+  block: number;
+  requestedBlock: number | null;
+  fetchedAt: string;
+  records: string;
+};
+
+export type SourceEvidence = {
+  subgraph: string;
+  deployment: string;
+  block: number;
+  requestedBlock: number | null;
+  fetchedAt: string;
+  rowCount: number | null;
+  documentHash: string;
+  responseHash: string;
+  answering: number;
+  total: number;
+  versions: number;
+};
+
 type Secret = {
   secret: string;
   setSecret: (s: string) => void;
   run: RunState;
   setRun: (r: RunState) => void;
+  source: SourceEvidence | null;
+  setSource: (e: SourceEvidence) => void;
+  evidence: Evidence | null;
+  setEvidence: (e: Evidence) => void;
+  /** The viewer's open tab, here so the Atlas panel's "Inspect source data" can switch it. */
+  tab: 'report' | 'data';
+  setTab: (t: 'report' | 'data') => void;
 };
 
 const Ctx = createContext<Secret | null>(null);
@@ -53,7 +104,14 @@ const Ctx = createContext<Secret | null>(null);
 export function SecretProvider({children}: {children: ReactNode}) {
   const [secret, setSecret] = useState('');
   const [run, setRun] = useState<RunState>('idle');
-  return <Ctx.Provider value={{secret, setSecret, run, setRun}}>{children}</Ctx.Provider>;
+  const [source, setSource] = useState<SourceEvidence | null>(null);
+  const [evidence, setEvidence] = useState<Evidence | null>(null);
+  const [tab, setTab] = useState<'report' | 'data'>('report');
+  return (
+    <Ctx.Provider value={{secret, setSecret, run, setRun, source, setSource, evidence, setEvidence, tab, setTab}}>
+      {children}
+    </Ctx.Provider>
+  );
 }
 
 export function useSecret(): Secret {

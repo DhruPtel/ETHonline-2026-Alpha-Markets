@@ -136,7 +136,6 @@ const BASE_WIDTH = 690;
 const BASE_ZOOM = 90;
 
 export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | null}) {
-  const [tab, setTab] = useState<'report' | 'data'>('report');
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(BASE_ZOOM);
 
@@ -144,7 +143,7 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
   // ⚠️ **The secret is still read and still sent, and it is currently always `''`.** The six console
   // routes have `locked()` commented out, so the header is ignored — but keeping the send means
   // re-wiring the lock is a change in `lock.ts`'s callers and nothing here. See DECISIONS.md.
-  const {secret, run} = useSecret();
+  const {secret, run, setSource, setEvidence, tab, setTab} = useSecret();
   const router = useRouter();
   const [roster, setRoster] = useState<Roster | null>(null);
   const [busy, setBusy] = useState(false);
@@ -200,6 +199,32 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
       // ⚠️ Block and time come off the responses' own `_meta`, never off our clock — which is what
       // makes them move between presses and what makes them evidence rather than decoration.
       const blocks = rows.map((r) => r.block).filter((b): b is number => b !== null);
+      // ⚠️ The evidence record, published to the Atlas panel's Query Evidence block. Every field
+      // comes off the response — `block` and `fetchedAt` from the subgraph's own `_meta`, never our
+      // clock — which is what makes them evidence rather than decoration.
+      const ev = j.evidence as Record<string, unknown>;
+      setSource({
+        subgraph: String(j.subgraph),
+        deployment: String(ev.deployment),
+        block: Number(ev.block),
+        requestedBlock: (ev.requestedBlock as number | null) ?? null,
+        fetchedAt: String(ev.fetchedAt),
+        rowCount: (ev.rowCount as number | null) ?? null,
+        documentHash: String(ev.documentHash),
+        responseHash: String(ev.responseHash),
+        answering: j.answering as number,
+        total: j.total as number,
+        versions: (j.schemaVersions as string[]).length,
+      });
+      setEvidence({
+        kind: 'source',
+        subgraph: String(j.subgraph),
+        deployment: String(ev.deployment),
+        block: Number(ev.block),
+        requestedBlock: (ev.requestedBlock as number | null) ?? null,
+        fetchedAt: String(ev.fetchedAt),
+        records: `${j.answering} of ${j.total} answering`,
+      });
       setRoster({
         rows,
         answering: j.answering as number,
