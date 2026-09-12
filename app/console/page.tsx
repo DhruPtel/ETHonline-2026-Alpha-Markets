@@ -1,10 +1,12 @@
 import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
 import {ConsoleViewer} from '../components/ConsoleViewer.js';
-import {TokenizeForm, type Listing} from '../components/TokenizeForm.js';
+import {TokenizeForm, type Listing, type TokenTarget} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
 import {SecretProvider, type Evidence} from '../components/ConsoleSecret.js';
 import {list, load} from '../../src/store/reports.js';
+import {tokenFor} from '../../src/store/tokens.js';
+import {REPORT_PRICE_HBAR} from '../../src/config/pricing.js';
 import {render} from '../../src/agent/narrate.js';
 
 /**
@@ -181,6 +183,22 @@ export default async function Console() {
   // ⚠️ **Built on the SERVER so the evidence is in the first bytes**, not filled in after hydration.
   // A judge opening `/console` cold sees the block populated; a grep of the served HTML finds the
   // values. Every field is read off the stored record — no query runs here.
+  // ⚠️ **What the tokenize form works on: the report on screen.** Same hash, same document — so the
+  // form never asks anyone to find a 64-character string that is already rendered above it.
+  const token = doc ? await tokenFor(doc.meta.hash) : null;
+  const target: TokenTarget | null = doc && {
+    hash: doc.meta.hash,
+    heading: doc.meta.heading,
+    factCount: doc.meta.factCount,
+    // ⚠️ **HBAR, not USDC.** `pricing.ts` records why a dollar price cannot simply be typed in:
+    // `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no HBAR entry, so
+    // a "$0.50" price throws rather than converting. The USDC cutover belongs to mainnet.
+    priceHbar: REPORT_PRICE_HBAR,
+    token: token
+      ? {proxyAddress: token.proxyAddress, isin: token.isin, issuedAt: token.issuedAt.toISOString()}
+      : null,
+  };
+
   const reportEvidence: Evidence | null = doc && {
     kind: 'report',
     // A report may span several deployments; the row says how many rather than picking one.
@@ -245,7 +263,7 @@ export default async function Console() {
               ))}
             </div>
 
-            <TokenizeForm listing={listing} />
+            <TokenizeForm listing={listing} target={target} />
           </div>
 
           <aside className="listing-preview dark-panel">

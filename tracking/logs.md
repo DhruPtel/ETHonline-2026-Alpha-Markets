@@ -12937,3 +12937,142 @@ did not add it. The affordance is carried by **`↗`**, the design's own externa
 by this block's footer link. Both links also carry a `title` saying what they lead to and that they
 open in a new tab, and both are `target="_blank" rel="noreferrer"`.
 
+
+---
+
+## 2026-09-12 — Tokenization wired, and one report minted for real
+
+`app/components/TokenizeForm.tsx`, `app/console/page.tsx`. `next build` exit 0. No `src/`, route or
+schema change — the route worked as it was.
+
+### ⚠️ The hash problem: the form takes the report from the panel above it
+
+The report is rendered directly above this form, so **nobody types a 64-character string**. The page
+passes the displayed report down as `target` — same hash, same document. When no report exists the
+source row reads *"No report generated yet — ask Atlas for one above; this form tokenizes whatever is
+in the panel"* and the button reads **No report to tokenize**, disabled.
+
+### Per field: what is real and what is marked
+
+| field | |
+|---|---|
+| **Report title** | ⚠️ **REAL and read-only.** The narrator writes it (migration 008). An editable box the route ignores is worse than one showing the truth |
+| Source · *Use generated report* | ⚠️ **REAL** — the report on screen, by hash |
+| Source · *Upload your report* | ⚠️ **MARKED, not removed.** *"A report's identity is its canonical form — the 32 bytes the token commits to. An uploaded PDF has none, so there is nothing to hash."* |
+| Description | **MARKED** — no column, route takes none |
+| Category · Related market | **MARKED** `.inert`, as they already were — no columns |
+| Access price | ⚠️ **REAL, and it is HBAR.** The form said *5 USDC*; it now says **0.001 HBAR per unlock** |
+
+⚠️ **The price is the one that would have been a lie.** `pricing.ts`: a USD-denominated price
+**throws** on testnet because `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table
+with no HBAR entry, and the USDC cutover belongs to mainnet where four things move in one commit.
+Per-report pricing is marked, with the reason: it needs a `reports` column and a decision about
+whether a price sits inside the report's hash — **it must not, because a price is not part of what a
+report is.**
+
+### ⚠️ Two presses, and the first spends nothing
+
+The route already had the split — no `confirm` returns `mode: 'dry'` — and the surface uses it,
+matching the CLI, which is dry by default:
+
+```
+press 1  "Price this tokenization"   → spends NOTHING. Returns the ISIN, the estimate,
+                                        the balance and the floor, and says so
+press 2  "Confirm — spend ~7.71 HBAR" → the only control that spends. Cancel sits beside it
+```
+
+Before the second press a person sees: **"This will spend about 7.71195 HBAR and mint a permanent
+asset. Balance 1056.47975691 HBAR, floor 15.42390151. Nothing has been spent yet."**
+
+### ⚠️ Already tokenized shows its receipt, never an offer to mint
+
+`report_tokens.report_hash` is the primary key and the route refuses a second attempt, so **a button
+that exists only to be refused is worse than no button.** The whole spend control is absent and the
+receipt renders instead. Verified in the served HTML: `already tokenized`.
+
+⚠️ **But such a receipt is incomplete, and it says so.** `report_tokens` holds `report_hash`,
+`proxy_address`, `isin`, `issued_at` — **no transaction columns.** The three creation transactions
+come back from the route at mint time only. So a report tokenized in an earlier session shows its
+ISIN and its contract and states plainly that *"the three creation transactions are returned at mint
+time and are not stored… the contract above is the durable record."* Not faked, not hidden.
+
+### The real mint — report `65fb085d26…`, "Aave v3 Ethereum Market Overview"
+
+```
+proxyAddress  0x420d723C4c6c73B5D10e14E13B185c20DfA8d5EB
+isin          XXZ3KOQKJVW4
+deployTx      0xea63324942c222cd7cd7c712aa87679901b00b31871547600a40a3c644cdca00
+grantRoleTx   0xa9e95512566e0cc7b17ae765df7ffa212691c14d3c4f88a5a0545c0d330db971
+issueTx       0x4170530667d72b0220e996e7acd6bd6ad3a01f6934f445c394cfba8ab5cb577d
+emittedInfo   alpha:65fb085d266278408d14b6e0dabd3cbbe5b6365abd23fe94361cdeaf7b635bac
+
+[PASS] EquityDeployed carries alpha:<hash>
+[PASS] the emitted hash equals the report hash from the store — byte-identical
+[PASS] balanceOf(0x32838fe9…) == 1
+[PASS] report_tokens row written — XXZ3KOQKJVW4
+```
+
+**What it cost, measured from the account, not estimated:**
+
+```
+deployEquity   7.65489138 HBAR   gas 6,714,817
+grantRole      0.20514186 HBAR   gas   179,949
+issue          0.51404424 HBAR   gas   450,916
+TOTAL          8.37408   HBAR    ← against a 7.71195 estimate
+```
+
+### ⚠️ The central claim, and this is the first surface it is visible on
+
+The receipt renders, in a `.notice` under the transactions:
+
+> **EquityDeployed carries** `alpha:65fb085d266278408d14b6e0dabd3cbbe5b6365abd23fe94361cdeaf7b635bac`
+> — the same 32 bytes an Arc market commits as its `reportHash`. One identifier in two places; there
+> is no bridge and none is claimed.
+
+⚠️ **Stated as what it is.** `docs/research/cross-chain-binding.md` established there is no messaging
+layer — Arc is not on LayerZero's deployed list — so the tie is one identifier appearing twice. That
+is weaker than a bridge **and checkable**, which a bridge would not be.
+
+### ⚠️ HashScan could not be verified by HTTP status, and here is what I did instead
+
+```
+https://hashscan.io/              200
+https://hashscan.io/testnet       404   ← a path that must exist
+https://hashscan.io/testnet/contract/<any address>   404
+```
+
+**HashScan is a client-routed SPA: its server 404s every deep path, including `/testnet` itself.**
+A status code proves nothing either way, so I did not treat 404 as a dead link **and did not treat
+the shape as verified either.** What I verified is the **entities**, on Hedera's public mirror node —
+the same data HashScan renders:
+
+```
+GET /api/v1/contracts/0x420d723C…     contract_id 0.0.10508138 · created 2026-09-12T19:13:37Z
+GET /api/v1/contracts/results/0xea63…  status 0x1 · gas 6,714,817 · to 0xd1f118a40f… (the factory)
+GET /api/v1/contracts/results/0xa9e9…  status 0x1 · gas   179,949 · to 0x420d723c4c… (the proxy)
+GET /api/v1/contracts/results/0x4170…  status 0x1 · gas   450,916 · to 0x420d723c4c… (the proxy)
+```
+
+⚠️ **All three succeeded on chain and the last two are addressed to the contract the first one
+deployed.** The URL shape shipped is the one this project already used in Phase 4 and in
+`trash/app/report/[hash]/ledgers.tsx`.
+
+### What to press, in order
+
+1. **`/console`** → scroll to **Tokenize your report**. The source row names the report above.
+2. **Price this tokenization** — spends nothing; the estimate, balance and floor appear.
+3. **Confirm — spend ~7.71 HBAR** — the only control that spends. *Cancel* is beside it.
+4. The receipt opens: ISIN, contract, three transactions, the `alpha:<hash>` line, four PASS checks.
+
+### What a judge clicks to verify
+
+1. **The ResolverProxy link** → HashScan shows contract `0.0.10508138`, created 2026-09-12.
+2. **Deploy / Grant ISSUER / Issue** → three successful transactions; the last two are addressed to
+   the contract the first deployed.
+3. ⚠️ **Compare `alpha:…` in the receipt against the report hash in the document's byline above** —
+   the same 64 characters, on screen twice, one of them committed on Hedera.
+
+```
+DEMO 0 · "5 USDC" 0 · structure 108 tokens, 80 distinct
+```
+
