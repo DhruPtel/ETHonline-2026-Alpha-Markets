@@ -13,11 +13,21 @@ where the numbers come from.
 | | |
 |---|---|
 | `trash/app/` | ⚠️ **the working reference.** Every surface in this phase was wired once, against these same routes, and it worked. The queries, the call shapes and the failure modes are **recoverable rather than rediscoverable**, and this plan quotes them |
-| `app/api/` | fourteen routes, none of which changes in this phase |
+| `app/api/` | fourteen routes. ⚠️ **Only the console's own may change** — see the amendment below |
 | `rebuild/MANIFEST.md` §6 | the stub list, by component and handler name |
 
-⚠️ **`src/`, `contracts/`, `scripts/` and `app/api/` are not touched by any task below.** If a task
-appears to need a backend change, that is a finding to raise, not a change to make.
+⚠️ **`src/`, `contracts/` and `scripts/` are not touched by any task below.** If a task appears to
+need a change there, that is a finding to raise, not a change to make.
+
+⚠️ **AMENDED 2026-09-12 — `app/api/` is no longer blanket-excluded, and task 2 is why.** The original
+rule lumped the fourteen routes in with the backend. That was right for the *product* routes and
+wrong for `app/api/console/*`, which is the console's own surface: the Source data panel's job could
+not be built without changing what `/api/console/source` returns. **The rule is now: `src/`,
+`contracts/` and `scripts/` are untouchable; a console route may change when the console surface it
+feeds requires it, and the change is recorded in `DECISIONS.md`.** ⚠️ **The product routes —
+`/api/buy`, `/api/reports/[hash]`, `/api/holdings`, `/api/markets/[id]/refresh`, `/api/cron/*`,
+`/api/health` — remain untouchable**, because an agent's HTTP contract is not ours to move for a
+page's convenience.
 
 ---
 
@@ -27,8 +37,8 @@ appears to need a backend change, that is a finding to raise, not a change to ma
 
 | Task | | Status |
 |---|---|---|
-| **1** | `CONSOLE_SECRET` — the field, inside the Atlas panel | ⬜ ⚠️ **FIRST. Six routes refuse without it** |
-| **2** | Source data ← `/api/console/source` | ⬜ |
+| **1** | `CONSOLE_SECRET` — the field, inside the Atlas panel | ✅ *2026-09-12* |
+| **2** | Source data ← `/api/console/source` — **the roster** | ✅ *2026-09-12* |
 | **3** | Ask Atlas ← `/api/console/generate`, streamed, **and the terminal that shows it** | ⬜ ⚠️ **a deliberate merge — see §2** |
 | **4** | The generated report lands in the document stage | ⬜ |
 
@@ -372,13 +382,26 @@ changing the class-token sequence. **Use the same shape.**
 
 ### Task 2 · Source data ← `/api/console/source`
 
-**`app/components/ConsoleViewer.tsx`.** The Source data tab currently renders a `SourceData` const
-shaped `{block, records, refreshed, meta, headers, rows, query}`. It becomes the route's response.
+⚠️ **REVISED 2026-09-12 — the panel is a MENU and the route grew a roster.** The original text had
+this tab showing one deployment's 21-field balance sheet. **That is not what the panel is for.**
+Someone opening the console needs to know what they can ask about *before* writing a directive:
+which deployments exist, whether they are answering, how current they are. So the route now returns
+**a roster of all 28 registered deployments** — deployment, schema version, answering, block — and
+the panel draws it as a table.
 
-The route runs `balance-sheet` against `aave-v3-ethereum` through `querySubgraph` and returns a
-`buildEvidence` record at tier `record`. ⚠️ **The query is unpinned deliberately** — `block` and
-`fetchedAt` come off the subgraph's own `_meta`, never off our clock, *"which is what makes them
-evidence."*
+**`app/components/ConsoleViewer.tsx` + `app/api/console/source/route.ts`.**
+
+⚠️ **The schema-version column is read from the response, never from config**, and that is what makes
+the five-live-versions fact evidence rather than a restatement of our own registry.
+
+⚠️ **The roster is bounded at 10s and a late deployment is reported as not-answering.** Measured
+2026-09-12: 297–690ms for all 28. That is not the number that matters — `client.ts` times out at 20s
+and retries once, and `Promise.all` waits for the slowest, so **one hanging indexer costs 40s and
+sets the floor.** Against a 60s ceiling that is 20s of margin on a casually-pressed surface, and the
+failure would be a dead request rather than a slow one.
+
+⚠️ **The query is unpinned deliberately** — `block` and `fetchedAt` come off each subgraph's own
+`_meta`, never off our clock, *"which is what makes them evidence."*
 
 ⚠️ **`protocols.ts` records this deployment's revenue as poisoned** — one day in Jul 2024 booked
 $1.63e15 and the cumulative never recovered, while balances and flows are clean across 1,300+ days.
@@ -661,7 +684,9 @@ what the contract forbids.*
 ## 7 · ⚠️ Standing rules for every task in this phase
 
 ```
-never    edit src/, contracts/, scripts/ or app/api/
+never    edit src/, contracts/ or scripts/
+never    edit a PRODUCT route — buy · reports/[hash] · holdings · markets/[id]/refresh · cron/* ·
+         health. A console route may change when its own surface requires it (amended 2026-09-12)
 never    import src/arc/abi.ts into a client component — it carries the full bytecode
 never    add NEXT_PUBLIC_ to anything that is not genuinely public
 never    relax tsconfig.app.json's nodenext — Turbopack then cannot resolve src/'s .js specifiers

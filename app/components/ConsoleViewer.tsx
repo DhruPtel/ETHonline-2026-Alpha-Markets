@@ -2,6 +2,7 @@
 
 import {useState} from 'react';
 import {useFitPanel} from '../hooks/useFitPanel.js';
+import {useSecret} from './ConsoleSecret.js';
 import {ReportPaper, type Paper} from './ReportPaper.js';
 import {
   ChevronLeft,
@@ -23,14 +24,32 @@ import {
  *
  * The sheet is scaled to the column by useFitPanel.
  */
-export type SourceData = {
+/**
+ * One row of the roster. ⚠️ **`schemaVersion` is what the deployment REPORTED**, not what
+ * `config/protocols.ts` declares — that file's own header says the declared value *"is not
+ * authoritative"* and that `adapter.ts` dispatches on the live one. A column filled from config
+ * would restate our assumption; this is evidence.
+ */
+export type RosterRow = {
+  slug: string;
+  schemaVersion: string | null;
+  declared: string | null;
+  answering: boolean;
+  block: number | null;
+  lagSeconds: number | null;
+  reason: string | null;
+};
+
+/** What `/api/console/source` returns, reduced to what this panel draws. */
+export type Roster = {
+  rows: RosterRow[];
+  answering: number;
+  total: number;
+  schemaVersions: string[];
+  truncated: boolean;
+  budgetMs: number;
   block: string;
-  records: string;
-  refreshed: string;
-  meta: {label: string; value: string}[];
-  headers: string[];
-  rows: string[][];
-  query: string;
+  readAt: string;
 };
 
 const BASE_WIDTH = 690;
@@ -40,16 +59,59 @@ export function ConsoleViewer({
   fileName,
   paper,
   pages,
-  source,
 }: {
   fileName: string;
   paper: Paper;
   pages: number;
-  source: SourceData;
 }) {
   const [tab, setTab] = useState<'report' | 'data'>('report');
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(BASE_ZOOM);
+
+  // ── The roster ────────────────────────────────────────────────────────────────────────────────
+  const {secret} = useSecret();
+  const [roster, setRoster] = useState<Roster | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const total = 28;
+
+  async function onReadRoster() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/console/source', {
+        method: 'POST',
+        headers: {'content-type': 'application/json', 'x-console-secret': secret},
+        body: JSON.stringify({}),
+      });
+      const j = await res.json();
+      // ⚠️ 401 and 500 are different facts and the panel must not flatten them. `lock.ts` runs
+      // `requiredEnv` BEFORE it compares, so 500 means the secret is absent or blank in the
+      // environment and 401 means it is set and this one is wrong.
+      if (res.status === 401) throw new Error('Console secret rejected — check what you typed.');
+      if (res.status === 500) throw new Error('CONSOLE_SECRET is not set on the server.');
+      if (j.stop || j.fail) throw new Error(String(j.stop ?? j.fail));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const rows = j.roster as RosterRow[];
+      // ⚠️ Block and time come off the responses' own `_meta`, never off our clock — which is what
+      // makes them move between presses and what makes them evidence rather than decoration.
+      const blocks = rows.map((r) => r.block).filter((b): b is number => b !== null);
+      setRoster({
+        rows,
+        answering: j.answering as number,
+        total: j.total as number,
+        schemaVersions: j.schemaVersions as string[],
+        truncated: j.truncated as boolean,
+        budgetMs: j.budgetMs as number,
+        block: blocks.length ? Math.max(...blocks).toLocaleString('en-US') : '—',
+        readAt: String(j.evidence?.fetchedAt ?? '').slice(11, 19) + ' UTC',
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const {frameRef, contentRef, contentStyle} = useFitPanel((zoom / BASE_ZOOM) * BASE_WIDTH);
 
@@ -71,10 +133,6 @@ export function ConsoleViewer({
 
   function onAddNote() {
     // Attaches an analyst note to the open report.
-  }
-
-  function onRefreshSnapshot() {
-    // Re-reads the source snapshot and restamps the evidence block.
   }
 
   function onReadSource() {
@@ -165,63 +223,90 @@ export function ConsoleViewer({
           <div className="tab-panel source-panel">
             <div className="section-title">
               <div>
-                <span className="eyebrow">THE GRAPH / SOURCE EXPLORER</span>
-                <h2>Follow the evidence.</h2>
+                <span className="eyebrow">THE GRAPH / LENDING DEPLOYMENTS</span>
+                <h2>What you can ask about.</h2>
               </div>
-              <button className="btn outline" type="button" onClick={onRefreshSnapshot}>
+              <button className="btn outline" type="button" onClick={onReadRoster} disabled={busy || !secret}>
                 <RefreshCw size={15} />
-                Refresh snapshot
+                {busy ? 'Reading…' : roster ? 'Read again' : 'Read the roster'}
               </button>
             </div>
 
-            <p className="muted">A common-block sample dataset behind the open report.</p>
+            {!secret && (
+              <p className="muted">
+                Paste <code>CONSOLE_SECRET</code> in the Atlas panel first — a read spends Graph
+                quota, so this route is locked for the same reason Generate is.
+              </p>
+            )}
 
-            <div className="source-stats">
-              <div>
-                <span>SNAPSHOT BLOCK</span>
-                <strong>{source.block}</strong>
-              </div>
-              <div>
-                <span>RECORDS RETRIEVED</span>
-                <strong>{source.records}</strong>
-              </div>
-              <div>
-                <span>LAST REFRESH</span>
-                <strong>{source.refreshed}</strong>
-              </div>
-            </div>
+            {error && <p className="notice">{error}</p>}
 
-            <div className="source-meta">
-              {source.meta.map((row) => (
-                <p key={row.label}>
-                  <span>{row.label}</span>
-                  <code>{row.value}</code>
+            {!roster && !busy && !error && (
+              <p className="muted">
+                Nothing read yet. This asks all {total} registered Ethereum lending deployments
+                whether they are answering, and what schema version each one reports. Nothing is
+                written and no chain is touched.
+              </p>
+            )}
+
+            {roster && (
+              <>
+                {/* ⚠️ The stat blocks were three unstyled divs — `.source-stats` has no rule in
+                    globals.css. They are `.badge` chips now, which is a class that exists and whose
+                    inline-flex makes a row without one. */}
+                <p className="button-row">
+                  <span className="badge">{roster.answering} of {roster.total} answering</span>
+                  <span className="badge">block {roster.block}</span>
+                  <span className="badge">read {roster.readAt}</span>
+                  <span className="badge">{roster.schemaVersions.length} schema versions</span>
                 </p>
-              ))}
-            </div>
 
-            <table className="financial-table">
-              <thead>
-                <tr>
-                  {source.headers.map((h) => (
-                    <th key={h}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {source.rows.map((row) => (
-                  <tr key={row[0]}>
-                    {row.map((cell, i) => (
-                      <td key={i}>{cell}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                {roster.truncated && (
+                  <p className="notice">
+                    Some deployments did not answer within {roster.budgetMs / 1000}s and are listed as
+                    not answering. The roster is bounded so one hanging indexer cannot take the whole
+                    read down; press again to retry them.
+                  </p>
+                )}
 
-            <pre className="query-code">{source.query}</pre>
+                <div className="table-scroll">
+                  <table className="financial-table">
+                    <thead>
+                      <tr>
+                        <th>Deployment</th>
+                        <th>Schema</th>
+                        <th>Answering</th>
+                        <th>Block</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roster.rows.map((row) => (
+                        <tr key={row.slug}>
+                          <td>{row.slug}</td>
+                          {/* ⚠️ The version the deployment REPORTED, never the one config declares.
+                              config records what we expected; this records what is true. */}
+                          <td>{row.schemaVersion ?? '—'}</td>
+                          <td>
+                            {row.answering ? (
+                              <span className="badge">live</span>
+                            ) : (
+                              <span className="badge off">{row.reason}</span>
+                            )}
+                          </td>
+                          <td>{row.block === null ? '—' : row.block.toLocaleString('en-US')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-            <p className="source-disclaimer">Sample records for this demo. A live Graph integration is not connected.</p>
+                <p className="muted">
+                  One query document, {roster.schemaVersions.length} live schema versions —{' '}
+                  <code>{roster.schemaVersions.join(' · ')}</code>. Block and read time come off each
+                  response&rsquo;s own <code>_meta</code>; nothing is pinned.
+                </p>
+              </>
+            )}
           </div>
         )}
       </div>

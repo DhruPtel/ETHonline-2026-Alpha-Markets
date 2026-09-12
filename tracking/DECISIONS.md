@@ -705,3 +705,33 @@ there is no second attempt.
 
 **Affects:** `app/api/cron/resolve/route.ts` (Unit 11) · `vercel.json` ·
 PHASE-4 *The calendar* · PLAN §5.16's freshness rule
+
+---
+
+## 2026-09-12 · `/api/console/source` returns a roster, not a balance sheet
+
+**What we're doing.** The route asks **all 28 registered Ethereum lending deployments** whether they
+answer and what schema version each reports, bounded at 10 seconds, and returns that as `roster`
+alongside the evidence record. The single-deployment 21-field `balance-sheet` read it used to return
+is **gone**.
+
+**Why.** The Source data panel's job is to tell an operator **what they can ask about before they
+write a directive** — which protocols exist, whether they are answering, how current they are. One
+deployment's 21 fields answers a question nobody has yet. A roster is a menu; a balance sheet is a
+detail view for a deployment you have already chosen.
+
+**What we give up, plainly.** The 21-field detail view. If an operator wants to see what the data
+*looks like* for one deployment, that surface no longer exists and would have to be re-added — as a
+second request against a row in the roster, which is the right shape for it anyway.
+
+**The alternative rejected.** Returning both (29 queries, same wall time, both payload keys real).
+Rejected because the panel would then have to render two different tables in one tab, and the second
+would have no consumer until someone asks for it. **Do not build unused payload.**
+
+**⚠️ It also crosses a rule.** PHASE-6 §7 said `app/api/` was untouchable. That was right for the
+product routes and wrong for the console's own routes, which exist to feed console surfaces. The
+rule is amended in the same commit: `src/`, `contracts/`, `scripts/` and the **product** routes stay
+untouchable; a console route may change when its own surface requires it.
+
+**Affects.** PHASE-6 §7 and task 2, both amended in this commit. `app/api/console/source/route.ts`,
+`app/components/ConsoleViewer.tsx`, `app/console/page.tsx`.

@@ -128,6 +128,12 @@ textarea { resize: vertical; }
 .panel { border: 1px solid #e1e7ed; background: #ffffffcc; border-radius: 9px; }
 .dark-panel { background: var(--charcoal); color: var(--paper); border-radius: 9px; }
 .dark-panel .badge { background: #ffffff12; color: #c6c8cc; }
+/* ⚠️ THE ONE CLASS PHASE 6 ADDS. A roster where an unavailable deployment looks like an available
+   one is a menu that misleads — the same bug MANIFEST §9 recorded when a resolved market read
+   identically to an open one. `.badge.resolved` exists but is scoped to `.prediction-card-meta`, so
+   it does not reach the source panel. Muted rather than alarming: a deployment with no indexers is
+   a fact about availability, not an error anyone here caused. */
+.badge.off { background: #f2eeea; color: #9b8e83; }
 
 .field, .choice {
   width: 100%; min-height: 42px;
@@ -865,7 +871,10 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
    ------------------------------------------------------------------------ */
 .holdings-panel { padding: 27px; margin-top: 26px; }
 .holdings-panel > .section-title { margin-bottom: 28px; }
-.holdings-panel .table-scroll { overflow-x: auto; }
+/* ⚠️ Widened from `.holdings-panel .table-scroll` in Phase 6 task 2 — NOT a new class, the same
+   rule given the scope its name always implied. The source panel's roster is the second consumer,
+   which is the check §1 of PHASE-5 asked for: a class used by two page groups belongs unscoped. */
+.table-scroll { overflow-x: auto; }
 .holdings-panel .financial-table { width: 100%; min-width: 680px; }
 .holdings-panel td { font-size: 14px; padding: 15px 10px; white-space: nowrap; }
 .holdings-panel td:first-child { white-space: normal; }

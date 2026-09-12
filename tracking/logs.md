@@ -11165,3 +11165,135 @@ served HTML carries no secret value, and the input is `type="password"` with `au
 console-secret field 1 · type=password 1 · composer follows it · secret in HTML 0
 ```
 
+
+---
+
+## 2026-09-12 — Phase 6 task 2: the Source data panel becomes a roster of every deployment
+
+`app/api/console/source/route.ts`, `app/components/ConsoleViewer.tsx`, `app/console/page.tsx`, and
+**one new rule** in `globals.css`. `next build` exit 0, root `tsc` exit 0, `/console` 200, the route
+401/401/200 across the three doorlock states. ⚠️ **`src/`, `contracts/` and `scripts/` untouched.**
+
+### What it shows
+
+All 28 registered Ethereum lending deployments, four columns, read live:
+
+```
+aave-v3-ethereum            3.1.0   live          25,962,607
+morpho-blue                 3.0.0   live          25,962,607
+morpho-aave-v3-ethereum     3.0.1   live          25,962,607
+makerdao-ethereum           2.0.1   live          25,962,607
+euler-finance-ethereum      1.3.0   live          25,962,607
+aave-amm-ethereum           —       no-indexers   —
+…                                                 22 of 28 answering
+```
+
+⚠️ **The schema column is the deployment's own answer, never config's.** `protocols.ts` says
+`declaredSchemaVersion` *"is not authoritative"* and that `adapter.ts` dispatches on the live value.
+Filled from config it would restate our assumption; filled from `lendingProtocols[0].schemaVersion`
+it is evidence — **and the five versions in that column are five versions one query document
+reached.** The panel says so in one line under the table and does not explain it further.
+
+**Declared-vs-reported disagreements today: none.** Worth recording because the column exists to make
+one visible if it appears.
+
+### ⚠️ The bound, and why 40s was the number that mattered
+
+Measured before building, four runs of all 28: **297–690ms.** ⚠️ **That is not the number the ceiling
+cares about.** `client.ts` sets `TIMEOUT_MS = 20_000` and retries once on timeout, and
+`querySubgraphs` is `Promise.all` — so **one hanging indexer costs 40 seconds and sets the floor for
+the whole request.** Against a 60s ceiling that is 20 seconds of margin on a surface someone presses
+casually, and the failure would be a dead request rather than a slow one.
+
+**So the roster has a 10s deadline on the SET, not per slug** — one shared timer, raced per
+deployment, cleared in a `finally`. A deployment past the budget is a row reading `late`, not an
+exception. ⚠️ **The budget deliberately pre-empts `client.ts`'s own retry** — at 10s no second
+attempt can have run. That is the right trade for a menu: a fast partial answer beats a slow complete
+one, and the next press retries. The response carries `truncated` so a reader can tell *"these have
+no indexers"* from *"these did not answer in ten seconds"*, which are different facts.
+
+### ⚠️ It is live, and the proof is that the numbers move
+
+Two presses, 34 seconds apart:
+
+```
+16:43:18.745Z   block 25,962,604   22/28   truncated false   requestedBlock null
+16:43:52.482Z   block 25,962,607   22/28   truncated false   requestedBlock null
+```
+
+**Three blocks in 34 seconds is ~11.3 s/block, which is Ethereum's cadence.** `requestedBlock` is
+`null` on both, which is how a reader knows nothing was pinned. Block and time come off each
+response's own `_meta`, never off our clock.
+
+### ⚠️ The roster is a menu, and it says something a static list cannot
+
+```
+2026-09-07  docs/protocol-inventory.md   25 of 28 answered
+2026-09-12  measured today               22 of 28 answered
+```
+
+`aave-amm-ethereum`, `goldfinch-ethereum` and `uwu-lend-ethereum` **lost their indexers in five
+days** and now return *no allocations*, on top of the three `protocols.ts` already records as null.
+**An operator about to write a directive about UwU Lend needs to know it cannot be read right now**,
+and nothing in the committed config says so — config records what we expected, the gateway records
+what is true.
+
+### The layout: three classes with no rules were the problem
+
+`.source-panel`, `.source-stats` and `.source-meta` have **no rule anywhere in `globals.css`** — the
+three stat blocks were unstyled divs in default block flow, which is most of why the panel read
+badly. **They are gone.** The panel now uses only classes that exist:
+
+| was | now |
+|---|---|
+| `.source-stats` — three unstyled divs stacked | ⚠️ **a `.button-row` of `.badge` chips** — `answering`, `block`, `read at`, `schema versions`. `.button-row` is `flex; gap:10px; flex-wrap:wrap` and already existed; `.badge` is `inline-flex` |
+| `.source-meta` — unstyled label/code pairs | dropped; the roster table carries it |
+| a bare `<table className="financial-table">` | **`.financial-table` inside `.table-scroll`** |
+| `.query-code` / `.source-disclaimer` — no rules | dropped. The disclaimer said *"A live Graph integration is not connected"*, which is now false |
+
+**Every class the panel uses is defined**, checked with postcss against `globals.css`.
+
+### ⚠️ Two changes to `globals.css`, and both are named rather than quiet
+
+1. ⚠️ **ADDED — `.badge.off`**, one rule. The not-answering chip. `.badge.resolved` exists but is
+   scoped `.prediction-card-meta > .badge.resolved` and does not reach this panel. **Muted, not
+   alarming** — a deployment with no indexers is a fact about availability, not an error anyone here
+   caused. This is the bug `MANIFEST.md` §9 already recorded once, where *"a resolved market read
+   identically to an open one"*.
+2. **WIDENED — `.holdings-panel .table-scroll` → `.table-scroll`.** ⚠️ **Not a new class**: the same
+   rule given the scope its name always implied. The roster is its second consumer, which is exactly
+   the check PHASE-5 §1 asked for — *a class used by two page groups belongs unscoped*.
+
+### ⚠️ A rule of my own plan, broken on instruction, and amended in the same commit
+
+PHASE-6 §7 said `app/api/` was untouchable. **The panel's job could not be built without changing
+what `/api/console/source` returns**, and the owner directed the bound to live in the route.
+
+**The rule was wrong as written, not merely inconvenient.** It lumped the console's own routes in
+with the product's. `app/api/console/*` exists to feed console surfaces; `/api/buy` and
+`/api/reports/[hash]` are an agent's HTTP contract and are not ours to move for a page's
+convenience. **PHASE-6 §7 and task 2 are amended in this commit, and `DECISIONS.md` carries the
+entry** — the balance-sheet read is gone, and what we give up is the 21-field detail view.
+
+### ⚠️ Still showing DEMO values, and it is a different slot
+
+`DEMO-lending-eth`, `DEMO-deploy-01` and `24,800,000` remain on `/console` — **in `atlas.evidence`,
+the Query Evidence block in the dark panel**, not in the Source data tab. The route already returns
+everything that block needs (`evidence.deployment`, `.block`, `.fetchedAt`, `.rowCount`).
+**Not reached for: it is a different surface and this task was the roster.** It is the smallest
+remaining piece of the console's demo content.
+
+### Proof
+
+```
+doorlock        no secret 401 · wrong secret 401 · correct 200
+roster          22 of 28 answering · 6 no-indexers · budget 10000ms · truncated false
+versions        3.1.0 · 3.0.1 · 3.0.0 · 2.0.1 · 1.3.0   from ONE query document
+live            block 25,962,604 → 25,962,607 across 34s · requestedBlock null on both
+classes         every class in the panel defined in globals.css · one added (.badge.off)
+scope           src/ contracts/ scripts/ unchanged
+```
+
+⚠️ **A press costs Graph quota only — 29 queries, one per deployment plus the flagship.** Nothing is
+spent on chain, nothing is written, no model tokens are used. Safe to press repeatedly.
+

@@ -1,5 +1,5 @@
 import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
-import {ConsoleViewer, type SourceData} from '../components/ConsoleViewer.js';
+import {ConsoleViewer} from '../components/ConsoleViewer.js';
 import {TokenizeForm, type Listing} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
 import {type Paper} from '../components/ReportPaper.js';
@@ -22,7 +22,6 @@ type Workspace = {
   fileName: string;
   pages: number;
   paper: Paper;
-  source: SourceData;
   atlas: AtlasData;
   listing: Listing;
   listingPreview: {title: string; subtitle: string; preview: PreviewChart; marketId: string};
@@ -66,35 +65,6 @@ const WORKSPACE: Workspace = {
         text: 'Competition in lending is likely to depend on risk management, capital efficiency and the ability to attract sustainable activity. Outstanding loans and recurring revenue should be evaluated together.',
       },
     ],
-  },
-  source: {
-    block: '24,800,000',
-    records: '120',
-    refreshed: '14:02:08 UTC',
-    meta: [
-      {label: 'Subgraph', value: 'DEMO-lending-eth'},
-      {label: 'Deployment ID', value: 'DEMO-deploy-01'},
-      {label: 'Query', value: 'protocolFinancials'},
-      {label: 'Network', value: 'Ethereum · Sample snapshot'},
-    ],
-    headers: ['Protocol', 'Total loans (USDC)', 'Revenue (USDC)', 'Borrowers'],
-    rows: [
-      ['Aave', '12.4B', '18.2M', '318,000'],
-      ['Morpho', '5.8B', '7.6M', '142,000'],
-      ['Compound', '4.1B', '4.9M', '111,000'],
-      ['Spark', '3.6B', '4.2M', '96,000'],
-    ],
-    query: `query ReportSnapshot {
-  protocolFinancials(
-    block: { number: 24800000 }
-    first: 120
-  ) {
-    protocol
-    totalLoansUSD
-    revenueUSD
-    activeBorrowers
-  }
-}`,
   },
   atlas: {
     run: 'RUN 042',
@@ -145,7 +115,7 @@ const WORKSPACE: Workspace = {
 };
 
 export default function Console() {
-  const {fileName, pages, paper, source, atlas, listing, listingPreview, steps} = WORKSPACE;
+  const {fileName, pages, paper, atlas, listing, listingPreview, steps} = WORKSPACE;
 
   return (
     <main className="console-page">
@@ -154,7 +124,7 @@ export default function Console() {
           **renders no DOM element at all** — see `ConsoleSecret.tsx`. */}
       <SecretProvider>
         <div className="workspace">
-          <ConsoleViewer fileName={fileName} paper={paper} pages={pages} source={source} />
+          <ConsoleViewer fileName={fileName} paper={paper} pages={pages} />
           <AtlasPanel atlas={atlas} />
         </div>
       </SecretProvider>
