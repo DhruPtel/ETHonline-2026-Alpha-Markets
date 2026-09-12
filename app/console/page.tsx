@@ -4,7 +4,7 @@ import {ListingPreviewText, TokenizeForm, type Listing, type TokenTarget} from '
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
 import {SecretProvider, type Evidence} from '../components/ConsoleSecret.js';
-import {list, load} from '../../src/store/reports.js';
+import {list, load, publish} from '../../src/store/reports.js';
 import {tokenFor} from '../../src/store/tokens.js';
 import {db} from '../../src/store/db.js';
 import {REPORT_PRICE_HBAR} from '../../src/config/pricing.js';
@@ -66,8 +66,10 @@ const WORKSPACE: Workspace = {
     // is sent, which is why the tokenize form can show it in the plan.
     tokenIdState: 'Derived from the report hash',
     transactionState: 'Not submitted',
-    // ⚠️ Not 'Awaiting publication'. Nothing is awaited: the marketplace reads the store.
-    publishState: 'Listed as soon as it is minted',
+    // ⚠️ Reversed again by 009. This was 'Awaiting publication' (wrong: nothing was awaited), then
+    // 'Listed as soon as it is minted' (true only while `/` showed every row). The badge now reports
+    // the report's actual landmark, filled at the render site — this literal is the no-report case.
+    publishState: 'No report selected',
   },
   listingPreview: {
     title: 'Lending protocols / Q2 2026',
@@ -76,16 +78,21 @@ const WORKSPACE: Workspace = {
     marketId: 'lending-2027',
   },
   steps: [
-    // ⚠️ **STEP 03 USED TO READ "Publish · Make it available" AND THERE IS NO SUCH STEP.**
-    // Minting writes `report_tokens`; `/` is `force-dynamic` and reads the store on every request,
-    // so a report is listed the moment the row exists. A third step implied a button that would fire
-    // and change nothing, which is worse than a step that says it happens by itself. ⚠️ Step 02 was
-    // "Set access & details", which also overstated things: `/api/console/tokenize` accepts
-    // `{reportHash, confirm}` and nothing else, so the title, description and price are a preview of
-    // the card and are never stored. `TokenizeForm` says the same thing where the person types them.
-    {number: '01', title: 'Report', hint: 'The research being tokenized', complete: true},
+    // ⚠️ **STEP 03 HAS NOW BEEN WRONG IN BOTH DIRECTIONS, AND THIS RECORDS WHY.** It first read
+    // "Publish · Make it available" while no publish step existed, so it promised a control that was
+    // not there. I then corrected it to "Listed · Automatic — minting is what lists it", which was
+    // true of a marketplace that rendered every row in the store. **Migration 009 makes that false
+    // again**: `/` lists published reports only, so publishing is a decision and there is a control
+    // for it below. ⚠️ Step 02's hint survives both reversals because it was never about publishing:
+    // `/api/console/tokenize` accepts `{reportHash, confirm}` and nothing else, so the title,
+    // description and price are a preview of the card and are never stored.
+    //
+    // ⚠️ **The `complete` flags are now READ FROM STATE rather than hardcoded** — they were `true,
+    // false, false` on every render regardless of what had happened, which is decoration pretending
+    // to be a status. Filled at the render site below.
+    {number: '01', title: 'Report', hint: 'The research being listed', complete: false},
     {number: '02', title: 'Listing', hint: 'Preview only · these fields are not stored', complete: false},
-    {number: '03', title: 'Listed', hint: 'Automatic — minting is what lists it', complete: false},
+    {number: '03', title: 'Publish', hint: 'Puts it in the marketplace · tokenizing is separate', complete: false},
   ],
 };
 
@@ -137,6 +144,8 @@ export type DocMeta = {
   slugs: string[];
   /** Distinct subgraph deployment ids — what a slug does not identify. */
   deploymentIds: string[];
+  /** ⚠️ When the author listed it, or null. Migration 009 — a column beside the report, not in it. */
+  publishedAt: string | null;
 };
 
 /** Cut a long directive to a heading-sized phrase at a word boundary. No ellipsis mid-word. */
@@ -191,7 +200,10 @@ async function latestDoc(
   }
 
   const facts = Object.values(report.facts);
-  const title = (await list(50)).find((r) => r.hash === hash)?.title ?? null;
+  // ⚠️ One lookup, two columns. `title` and `published_at` both live beside the report rather than
+  // inside it, so `load()` — which returns the hashed object — knows about neither.
+  const listed = (await list(500)).find((r) => r.hash === hash);
+  const title = listed?.title ?? null;
 
   return {
     // ⚠️ The hash is passed, so the rendered document carries its own identity — the 32 bytes an ATS
@@ -220,6 +232,7 @@ async function latestDoc(
       observedAt: report.observedAt,
       slugs: [...new Set(facts.map((f) => f.slug))],
       deploymentIds: [...new Set(facts.map((f) => f.deployment))],
+      publishedAt: listed?.publishedAt?.toISOString() ?? null,
     },
   };
 }
@@ -273,6 +286,40 @@ export default async function Console({
       : null,
   };
 
+  // ── ⚠️ PUBLISHING: A SERVER ACTION, NOT A ROUTE ───────────────────────────────────────────────
+  //
+  // ⚠️ **A deliberate first for this repo, and the constraint forced it rather than taste.** Every
+  // other mutation here is an API route under `app/api/`; this unit may touch `app/console/` and
+  // nothing else, so a route was not available. A `'use server'` function reached by a plain `<form
+  // action={…}>` is the mechanism Next 16 provides for exactly this, it needs no client component
+  // and no new dependency, and the form works without JavaScript.
+  //
+  // ⚠️ **It is NOT behind `locked()`** — and neither is any other console route today; the doorlock
+  // has been unwired since 2026-09-12 (see `app/api/console/lock.ts`). ⚠️ **Unlike its neighbours
+  // this action spends nothing**: it writes one timestamp. `generate` burns Anthropic budget and
+  // `tokenize` mints for ~7.7 HBAR; publishing is free and reversible only in the sense that it
+  // cannot be reversed — see `publish()`'s own note.
+  //
+  // ⚠️ **No `revalidatePath`.** Both `/` and `/console` are `force-dynamic`, so neither has a cache
+  // to bust: Next re-renders this route when the action resolves, and `/` re-reads the store on its
+  // next request. Adding a revalidate call would be ceremony that does nothing.
+  async function publishReport(formData: FormData): Promise<void> {
+    'use server';
+    const hash = String(formData.get('hash') ?? '');
+    // ⚠️ The hash comes from this page's own target, so this guard is for a hand-crafted POST. A
+    // malformed one does nothing rather than reaching the store with a bad key.
+    if (!/^[0-9a-f]{64}$/.test(hash)) return;
+    await publish(hash);
+  }
+
+  // ⚠️ **The author's unpublished reports, and this is the answer to "where do they see them".**
+  // The console targets one report at a time by hash, which is enough for the report someone has
+  // just generated — it is already on screen — and useless for one written last week, whose hash
+  // nobody has memorised. ⚠️ **This is NOT a second marketplace**: no cards, no prices, no previews,
+  // no thumbnails. A collapsed list of headings, each loading that report into this console. The
+  // marketplace is the place that sells things, and it stays the only one.
+  const unlisted = (await list(500)).filter((r) => r.publishedAt === null);
+
   const reportEvidence: Evidence | null = doc && {
     kind: 'report',
     // A report may span several deployments; the row says how many rather than picking one.
@@ -323,16 +370,24 @@ export default async function Console({
         <div className="tokenize-heading">
           <span className="eyebrow">FROM RESEARCH TO CONVICTION</span>
           <h1>Tokenize your report.</h1>
-          {/* ⚠️ "Publish your research" named a step that does not exist. Minting is the only
-              action on this page, and listing follows from it. */}
-          <p>Mint the security. The marketplace lists it on the next request.</p>
+          {/* ⚠️ Reversed by 009: listing no longer follows from minting. Two independent actions,
+              named as two. */}
+          <p>Mint a security if you want one. Publish when the market should see it.</p>
         </div>
 
         <div className="tokenize-grid">
           <div>
+            {/* ⚠️ The flags describe this report, not a mock-up: 01 is done when a document is
+                loaded, 02 when the listing preview has something to preview, 03 when the landmark
+                is set. A status indicator that never changes is decoration. */}
             <div className="publish-steps">
-              {steps.map((step) => (
-                <div key={step.number} className={step.complete ? 'complete' : undefined}>
+              {steps.map((step, i) => (
+                <div
+                  key={step.number}
+                  className={
+                    (i === 2 ? doc?.meta.publishedAt != null : doc !== null) ? 'complete' : undefined
+                  }
+                >
                   <b>{step.number}</b>
                   <span>
                     <strong>{step.title}</strong>
@@ -344,12 +399,111 @@ export default async function Console({
             </div>
 
             <TokenizeForm listing={listing} target={target} />
+
+            {/* ── ⚠️ THE PUBLISH CONTROL ────────────────────────────────────────────────────── */}
+            {/* ⚠️ **It acts on the report in the document panel above**, the same target the
+                tokenize form uses, so nobody has to find a 64-character string that is already on
+                screen. A server component with a plain form: no client state, no fetch, and it
+                works with JavaScript off. */}
+            <section className="tokenize-form">
+              <div className="section-title">
+                <h2>Publish</h2>
+                <span className="eyebrow">MARKETPLACE LISTING</span>
+              </div>
+
+              {!doc ? (
+                <p className="notice">
+                  <Info size={16} />
+                  <span>
+                    No report is loaded. Ask Atlas for one above, or open an existing report with{' '}
+                    <code>/console?report=&lt;hash&gt;</code>.
+                  </span>
+                </p>
+              ) : doc.meta.publishedAt ? (
+                <>
+                  <p className="notice">
+                    <Info size={16} />
+                    <span>
+                      <strong>Listed.</strong> Published{' '}
+                      {doc.meta.publishedAt.slice(0, 10)}{' '}
+                      {doc.meta.publishedAt.slice(11, 19)} UTC. It is on the marketplace now.
+                    </span>
+                  </p>
+                  {/* ⚠️ **THERE IS NO UNPUBLISH, AND THE PAGE SAYS SO RATHER THAN HIDING IT.**
+                      `published_at` is a landmark: writing NULL back would not record a withdrawal,
+                      it would erase the fact that the report was ever listed — and five reports in
+                      this store have settled x402 purchases against them, which is money that moved
+                      on Hedera against something that was for sale. A withdrawal is its own column
+                      if it is ever wanted. `store/reports.ts publish()` carries the reasoning. */}
+                  <p className="muted">
+                    Listing is one-way. A report that was for sale was for sale, and a purchase
+                    settled against it cannot be un-made by hiding the row — withdrawing a listing
+                    would be its own record, not the absence of this one.
+                  </p>
+                  <a className="text-link" href={`/report/${doc.meta.hash}`}>
+                    See it as a buyer does <ArrowUpRight size={14} />
+                  </a>
+                </>
+              ) : (
+                <>
+                  <p className="muted">
+                    <strong>{doc.meta.heading}</strong> is in the store and not in the marketplace.
+                    Publishing lists it on <code>/</code> and nothing else: it does not mint a token,
+                    it does not move money, and the report&rsquo;s own page and paywall already work.
+                  </p>
+                  {/* ⚠️ Said before the press, because it cannot be undone afterwards. */}
+                  <p className="notice">
+                    <Info size={16} />
+                    <span>
+                      <strong>One-way.</strong> There is no unpublish — the landmark records that
+                      this report was listed, and a report that has been sold must not be able to
+                      claim it never was.
+                    </span>
+                  </p>
+                  <form action={publishReport}>
+                    <input type="hidden" name="hash" value={doc.meta.hash} />
+                    <button className="btn primary full" type="submit">
+                      Publish to the marketplace <ArrowUpRight size={15} />
+                    </button>
+                  </form>
+                </>
+              )}
+
+              {/* ⚠️ **HOW AN AUTHOR FINDS A DRAFT WHOSE HASH THEY DO NOT KNOW.** Collapsed, headings
+                  only, each link loading that report into this console. Not a marketplace — there is
+                  exactly one of those and it sells things. */}
+              {unlisted.length > 0 && (
+                <details className="integration-detail">
+                  <summary>
+                    <span>{unlisted.length} report{unlisted.length === 1 ? '' : 's'} not listed</span>
+                    <span className="badge off">unpublished</span>
+                  </summary>
+                  <p>
+                    In the store, not on the marketplace. Open one here to read it and decide.
+                  </p>
+                  {unlisted.map((r) => (
+                    <div key={r.hash}>
+                      <a className="text-link" href={`/console?report=${r.hash}`}>
+                        {r.title ?? r.directive.slice(0, 54)}
+                        {!r.title && r.directive.length > 54 ? '…' : ''} <ArrowUpRight size={13} />
+                      </a>
+                    </div>
+                  ))}
+                </details>
+              )}
+            </section>
           </div>
 
           <aside className="listing-preview dark-panel">
             <div className="section-title">
               <h2>Marketplace preview</h2>
-              <span className="badge">{listing.publishState}</span>
+              <span className={doc?.meta.publishedAt ? 'badge' : 'badge off'}>
+                {doc
+                  ? doc.meta.publishedAt
+                    ? `Listed ${doc.meta.publishedAt.slice(0, 10)}`
+                    : 'Not listed'
+                  : listing.publishState}
+              </span>
             </div>
 
             <MiniDocument

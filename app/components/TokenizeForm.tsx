@@ -515,12 +515,15 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
         )}
       </div>
 
-      {/* ⚠️ **There is no separate "publish".** The marketplace at `/` lists reports from the store
-          and reads their token state with `tokensFor`, so a minted report is listed the moment the
-          row exists. Minting IS publishing, and no button here should imply a second step. */}
+      {/* ⚠️ **REVERSED BY MIGRATION 009, AND THE OLD COPY WAS TRUE WHEN IT WAS WRITTEN.** This read
+          "Minting lists it … there is no separate publish step", because `/` rendered every row in
+          the store. It now renders published rows only, so minting and listing are two decisions
+          and this must not imply otherwise. ⚠️ They are genuinely independent in both directions: a
+          tokenized report can stay unlisted (the ATS security exists on Hedera whatever our
+          shopfront shows) and a listed report needs no token (x402 sells a read without one). */}
       <p className="muted">
-        Minting lists it. <code>/</code> reads the store and shows a report as tokenized once the row
-        exists — there is no separate publish step.
+        Minting does not list it. <code>/</code> shows published reports only — publishing is the
+        control below, and it is a separate decision from tokenizing.
       </p>
     </div>
   );

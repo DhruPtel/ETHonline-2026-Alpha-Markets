@@ -14074,3 +14074,141 @@ the receipt renders both.
 in `git status` from LAST task's `.notice` scope widening and was not touched this task** — checked:
 the diff is those six lines only. No `src/`, no routes, no schema, no dependencies. **I bought
 nothing.**
+
+---
+
+## 2026-09-12 — publishing: a report is in the marketplace because its author put it there
+
+Two stages, each green before the next: the column and the store, then the surfaces. (Both staged in
+the working tree; no commits, as asked.)
+
+### Stage one — migration 009 and the store
+
+`reports.published_at TIMESTAMPTZ NULL`, a partial index on the non-null rows, and a one-time
+backfill. ⚠️ **Outside the hash**, for the reason 007 and 008 both give: a field on `Report` changes
+the canonical bytes of every report and **four report hashes are committed in ATS creation events on
+Hedera**, where nothing can amend them. And it would be wrong even if it were free — two runs of one
+directive at one block are the same report whether or not somebody chose to sell one of them. What a
+report IS cannot depend on that.
+
+⚠️ **A landmark, not a boolean, and `quotes.state` is why.** That column is in this same database:
+specified, indexed, never written by anything, so all 22 of its rows still read their initial value.
+A state column must be maintained; a landmark is set once and is then a fact. `published_at` has
+exactly one writer — `publish()` — and exactly one caller.
+
+#### The backfill: 7 of 19, and neither obvious default was honest
+
+Nineteen rows existed and none had ever been *published*, because there was nothing to publish with.
+
+- **All NULL** empties the marketplace and retroactively unlists five reports carrying **twelve
+  settled x402 purchases** between them, plus one backing two live Arc markets — including market 6,
+  which holds 1.00 USDC from a human wallet. Our index would then contradict two public chains.
+- **All published** makes the column inert on arrival and asserts that an analyst chose to list
+  twelve drafts it chose nothing about. Absence of a control is not consent.
+
+⚠️ **So the backfill is keyed to evidence a stranger can already check**: a token, a settled
+purchase, or an on-chain claim. Measured first — **7 qualify, 12 do not** — and the timestamp is
+`created_at`, not `now()`, because there was no publication event to date and `created_at` is when
+the row became visible under the old behaviour. `now()` would claim they were listed today.
+
+⚠️ **The cutoff literal in that UPDATE is load-bearing.** `scripts/ops/migrate.ts` runs every `.sql`
+file on every invocation, so without an upper bound the statement would fire again later and silently
+publish a *future* report that happened to get tokenized, overriding an author who left it unlisted.
+The literal is the newest `created_at` among the nineteen. Verified: re-running the whole migration
+set leaves it at 7.
+
+#### Does publishing relate to tokenizing?
+
+⚠️ **Both states are meaningful and neither implies the other.** Tokenized-and-unlisted is real: the
+ATS security exists on Hedera whatever our shopfront shows, and an author may mint and hold.
+Published-and-untokenized is the common case — 12 of 19 have no token and x402 sells a read without
+one. **The backfill's use of `report_tokens` is a one-time historical inference about rows that
+pre-date the column, not a rule**, and the migration says so where someone would otherwise read a
+link into it.
+
+#### Store surface
+
+`ListedReport.publishedAt`, plus `listPublished()` and `publish()`. ⚠️ **A second function rather than
+a flag on `list()`**: `list()` has four other callers — the console's document panel, its title
+lookup, `/api/console/state` and two demo scripts — and every one wants *every* report. The console
+is where drafts are worked on; filtering it would hide the reports someone opens the console to
+publish. `listPublished()` orders by `published_at`, because a shopfront is ordered by when things
+were put in the window.
+
+`save()` needed no change: a new report arrives with the column at its default, which is unlisted.
+
+### Stage two — the surfaces
+
+`/` calls `listPublished()`. The meta line now reads **"8 published · 6 tokenized on Hedera · 11 not
+listed"** — ⚠️ the held-back count is stated rather than hidden, because 8 of 19 with no explanation
+reads as a broken query, and it is also the honest answer to "where did my report go".
+
+⚠️ **Two empty states, because they are different problems.** "No reports yet" told an analyst with
+twelve drafts to go and generate another one. An empty store now says that; a store with nothing
+listed says **"Nothing published yet — N reports are in the store and none has been listed"** and
+links to the console. *Not exercised:* with 8 rows published and no unpublish, this branch is
+unreachable in this database. It is the fresh-database state it was written for.
+
+#### The control
+
+⚠️ **A server action, and the constraint forced it rather than taste.** Every other mutation here is
+an API route; this stage could touch `app/console/` and nothing else, so a route was not available.
+A `'use server'` function reached by a plain `<form action={…}>` needs no client component and no new
+dependency — and the served markup is a real no-JS form: `<form action="" encType="multipart/form-data"
+method="POST">` with the action id and the hash as hidden inputs. It spends nothing; it writes one
+timestamp. No `revalidatePath`: `/` and `/console` are both `force-dynamic`, so there is no cache to
+bust and adding one would be ceremony.
+
+⚠️ **The three-step indicator has now been wrong in both directions and this records it.** It first
+read "Publish · Make it available" while no publish step existed; I corrected it to "Listed ·
+Automatic — minting is what lists it", true of a marketplace that showed every row; 009 makes that
+false again. It now reads **01 Report / 02 Listing / 03 Publish · Puts it in the marketplace ·
+tokenizing is separate** — and the `complete` flags are read from state instead of being hardcoded
+`true,false,false`. Verified off the class attributes: unpublished report → 01 ✓ 02 ✓ 03 ✗; published
+→ all three.
+
+Three other strings reversed with it: the section standfirst, the preview badge (now the report's own
+landmark — "Listed 2026-09-12" or "Not listed"), `TokenizeForm`'s "Minting lists it … there is no
+separate publish step" → **"Minting does not list it"**, and `/`'s heading button "Tokenize a report"
+→ **"Publish a report"**.
+
+#### Where an author finds a draft
+
+⚠️ **The console's one-report-by-hash targeting is enough for the report just generated and useless
+for one written last week**, whose hash nobody memorised. So the publish panel carries a collapsed
+list: *"11 reports not listed"*, headings only, each link loading that report into this console.
+**Not a second marketplace** — no cards, no prices, no previews, no thumbnails. The marketplace is the
+thing that sells, and there is still exactly one.
+
+#### Can a published report be unpublished?
+
+⚠️ **No, and the page says so before the press rather than hiding it.** Writing NULL back does not
+record a withdrawal — it erases the fact that the report was ever listed, and five reports here have
+settled purchases against them. A withdrawal is its own landmark (`withdrawn_at`) beside this one if
+it is ever wanted, never the absence of this one.
+
+#### Published, then bought — does anything break?
+
+**No, and nothing could.** `/api/reports/[hash]` reads `quote()` and `load()`; neither consults
+`published_at`, so the paywall is unaffected. `purchases` rows are untouched. ⚠️ **`/report/[hash]`
+deliberately does NOT require publication** — it is what a purchase link points at, and 404ing a page
+someone paid against would break the receipt trail. Publishing controls the index, not the document.
+Measured on two unlisted reports: absent from `/`, their report page **200**, their gate **402**.
+
+### Proof
+
+```
+before          7 published · 12 not listed        / rendered 7 cards
+press Publish   POST /console?report=f2285b4e…     HTTP 200
+after           8 published · 11 not listed        / rendered 8 cards, the new hash among them
+```
+
+⚠️ The report published was **f2285b4e…, which has no token** — so "6 tokenized" stayed 6 while the
+published count rose, which is the two axes being independent, demonstrated rather than asserted.
+
+Idempotence, checked properly after a first sloppy check compared two empty strings and proved
+nothing: `publish()` again returns `changed: false` with the **same** timestamp
+(`2026-09-12T21:26:19.068Z` before and after), and `publish(<unknown hash>)` returns `null`.
+
+`npx tsc -p tsconfig.json --noEmit` exit 0 and `npx next build` exit 0 at the end of **both** stages,
+`.next` cleared before each build. Migration re-run: still 7 before the press. Nothing spent.

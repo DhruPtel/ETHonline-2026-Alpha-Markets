@@ -43,12 +43,18 @@ export interface ListedReport {
    */
   readonly block: number;
   readonly createdAt: Date;
+  /**
+   * ⚠️ **When the author listed it, or `null` for a report nobody has published.** A landmark, not
+   * a flag — the shape `purchases.settled_at` and `markets.resolved_at` use. `null` does not mean
+   * the report is unavailable: its page and its x402 gate both work. It means it is not on `/`.
+   */
+  readonly publishedAt: Date | null;
 }
 
 interface ReportRow {
   hash: string; analyst: string; directive: string; title: string | null;
   canonical_json: string;
-  block: string; observed_at: Date; created_at: Date;
+  block: string; observed_at: Date; created_at: Date; published_at: Date | null;
 }
 
 /**
@@ -157,9 +163,66 @@ export async function load(hash: string): Promise<Report | null> {
  */
 export async function list(limit = 50): Promise<ListedReport[]> {
   const rows = await db()<ReportRow[]>`
-    SELECT hash, analyst, directive, title, block, created_at
+    SELECT hash, analyst, directive, title, block, created_at, published_at
     FROM reports ORDER BY created_at DESC LIMIT ${limit}`;
-  return rows.map((r) => ({
+  return rows.map(toListed);
+}
+
+/**
+ * The marketplace's own query: **published reports only, most recently listed first.**
+ *
+ * ⚠️ **A SECOND FUNCTION RATHER THAN A FLAG ON `list()`, AND THE CALLERS ARE WHY.** `list()` has
+ * four other callers — the console's document panel, its title lookup, `/api/console/state` and two
+ * demo scripts — and every one of them wants *every* report, including the unpublished ones. The
+ * console is where an author works on a draft; filtering it would hide the very reports someone
+ * opens the console to publish. So `list()` keeps meaning "what is in the store" and this one means
+ * "what is for sale", and neither can be mistaken for the other at a call site.
+ *
+ * ⚠️ **Ordered by `published_at`, not `created_at`.** A shopfront is ordered by when things were put
+ * in the window. An old report published today is new to the market and belongs at the top.
+ */
+export async function listPublished(limit = 50): Promise<ListedReport[]> {
+  const rows = await db()<ReportRow[]>`
+    SELECT hash, analyst, directive, title, block, created_at, published_at
+    FROM reports WHERE published_at IS NOT NULL
+    ORDER BY published_at DESC LIMIT ${limit}`;
+  return rows.map(toListed);
+}
+
+/**
+ * List a report in the marketplace. Returns the landmark and whether this call set it.
+ *
+ * ⚠️ **IDEMPOTENT, AND THE `IS NULL` GUARD IS THE WHOLE POINT.** Publishing twice must not move the
+ * timestamp: the landmark records *when* a report was listed, and a second press is not a second
+ * listing. `changed: false` with the original date is the honest answer to "publish this again".
+ *
+ * ⚠️ **There is no `unpublish`, deliberately.** 009's header carries the reasoning: writing NULL
+ * back does not record a withdrawal, it erases the fact that the report was ever listed — and five
+ * reports in this store have settled x402 purchases against them, which is money that moved on
+ * Hedera against something that was for sale. A withdrawal is its own landmark if it is ever wanted.
+ *
+ * ⚠️ **Publishing is not tokenizing and neither implies the other.** A tokenized report can be
+ * unlisted — the ATS security exists on Hedera whether or not our index shows it — and a published
+ * report needs no token, which is the common case: x402 sells a read without one.
+ *
+ * Returns `null` when there is no such report, which a caller must not silently treat as success.
+ */
+export async function publish(reportHash: string): Promise<{ publishedAt: Date; changed: boolean } | null> {
+  const [updated] = await db()<{ published_at: Date }[]>`
+    UPDATE reports SET published_at = now()
+     WHERE hash = ${reportHash} AND published_at IS NULL
+     RETURNING published_at`;
+  if (updated) return { publishedAt: updated.published_at, changed: true };
+
+  // Either it was already published or the hash is unknown — and those are different answers.
+  const [existing] = await db()<{ published_at: Date | null }[]>`
+    SELECT published_at FROM reports WHERE hash = ${reportHash}`;
+  if (!existing) return null;
+  return { publishedAt: existing.published_at!, changed: false };
+}
+
+function toListed(r: ReportRow): ListedReport {
+  return {
     hash: r.hash,
     analyst: r.analyst,
     directive: r.directive,
@@ -169,5 +232,6 @@ export async function list(limit = 50): Promise<ListedReport[]> {
     // this value never re-enters a hashed object — `load` is the only path back to a `Report`.
     block: Number(r.block),
     createdAt: r.created_at,
-  }));
+    publishedAt: r.published_at ?? null,
+  };
 }

@@ -1,7 +1,7 @@
 import {MarketplaceFilters} from './components/MarketplaceFilters.js';
 import {MiniDocument} from './components/MiniDocument.js';
 import {ArrowRight, ArrowUpRight} from './components/Icons.js';
-import {list} from '../src/store/reports.js';
+import {list, listPublished} from '../src/store/reports.js';
 import {tokensFor} from '../src/store/tokens.js';
 import {db} from '../src/store/db.js';
 import {REPORT_PRICE_HBAR} from '../src/config/pricing.js';
@@ -34,7 +34,15 @@ export default async function ReportMarketplace() {
   //
   // ⚠️ **A server component reading the store directly — no API route, and none should be added.**
   // A route here would be a second copy of `list()` behind a fetch the server makes to itself.
-  const reports = await list();
+  // ⚠️ **`listPublished()`, NOT `list()` — the whole point of migration 009.** `/` used to render
+  // every row in the store, so generating a report published it and an analyst had no way to keep a
+  // draft out of the market. The marketplace now shows what an author decided to sell.
+  // ⚠️ The counts below need to know how many are held back, and `listPublished` cannot say — so the
+  // store is asked for both. Two cheap queries against nineteen rows; the alternative is a page that
+  // can only say "nothing here" without saying whether that means empty or unlisted.
+  const reports = await listPublished();
+  const inStore = (await list(500)).length;
+  const unpublished = inStore - reports.length;
   const hashes = reports.map((r) => r.hash);
   const tokens = await tokensFor(hashes);
 
@@ -67,18 +75,26 @@ export default async function ReportMarketplace() {
           <h1>Report marketplace</h1>
           <p>Research worth reading. Conviction worth backing.</p>
         </div>
-        {/* ⚠️ **There is no separate "publish".** Minting writes `report_tokens` and this page reads
-            it, so a report is listed the moment the row exists. The button said "Publish a report",
-            which implied a step that does not exist; it names what actually happens instead. */}
+        {/* ⚠️ **REVERSED BY MIGRATION 009.** This button said "Tokenize a report" and carried a note
+            that there was no separate publish step, which was true while this page listed every row
+            in the store. There is now a publish step and it is the one that puts a report here, so
+            the button names it again. Tokenizing is still a different decision, taken in the same
+            console section. */}
         <a href="/console#tokenize" className="btn outline">
-          Tokenize a report <ArrowUpRight size={16} />
+          Publish a report <ArrowUpRight size={16} />
         </a>
       </div>
 
       <MarketplaceFilters categories={['All']} activeCategory="All" />
 
       <div className="results-meta">
-        <span>{reports.length} reports · {tokenized} tokenized on Hedera</span>
+        {/* ⚠️ **The held-back count is stated, not hidden.** A marketplace showing 7 of 19 with no
+            explanation reads as a broken query. Saying how many are unlisted is also the honest
+            answer to "where did my report go" for the analyst who just generated one. */}
+        <span>
+          {reports.length} published · {tokenized} tokenized on Hedera
+          {unpublished > 0 ? ` · ${unpublished} not listed` : ''}
+        </span>
         {/* ⚠️ HBAR, one constant, every report. A USD-denominated price THROWS on testnet —
             `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no HBAR
             entry — and the USDC cutover belongs to mainnet. The design's six different USDC prices
@@ -86,11 +102,29 @@ export default async function ReportMarketplace() {
         <span>{REPORT_PRICE_HBAR} HBAR each · x402 on Hedera testnet</span>
       </div>
 
+      {/* ⚠️ **TWO DIFFERENT EMPTIES, AND THEY MUST NOT SHARE A MESSAGE.** "No reports yet" told an
+          analyst with twelve unpublished drafts to go and generate another one, which is the wrong
+          instruction and reads as data loss. An empty store and a store where nothing has been
+          listed are different problems with different next actions. */}
       {reports.length === 0 && (
         <div className="empty-state">
-          <h2>No reports yet</h2>
-          <p>Generate one in the console and it appears here on the next request.</p>
-          <a className="btn primary" href="/console">Open the console</a>
+          {inStore === 0 ? (
+            <>
+              <h2>No reports yet</h2>
+              <p>Generate one in the console and publish it, and it appears here.</p>
+              <a className="btn primary" href="/console">Open the console</a>
+            </>
+          ) : (
+            <>
+              <h2>Nothing published yet</h2>
+              <p>
+                {inStore} report{inStore === 1 ? '' : 's'} {inStore === 1 ? 'is' : 'are'} in the
+                store and none has been listed. Publishing is a decision the analyst makes, one
+                report at a time, in the console.
+              </p>
+              <a className="btn primary" href="/console#tokenize">Publish a report</a>
+            </>
+          )}
         </div>
       )}
 
