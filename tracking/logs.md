@@ -10653,3 +10653,91 @@ All six cards link to slugs — `/markets/lending-2027`, `/markets/dex-volume`, 
 and `/api/markets/[id]/refresh` enforces `/^\d+$/`. **Commit 12 replaces the const and the slugs go
 with it.** Nothing to do now.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 6: `/markets/[id]`, one market
+
+465 lines, the largest single change in this sequence, landed whole because ~300 of it is
+`MARKETS_BY_ID` and a page cannot be split from the const it reads. `next build` exit 0, route table
+**18 → 19**, all six markets 200, unknown id 404, backend unchanged. Four `<Link>` became `<a href>`.
+
+### ⚠️ The class-token diff found the three cuts on its own, which is the best result available
+
+```
+reference prediction-stablecoins-2027 : 199 tokens, 116 distinct
+served /markets/stablecoins-2027      :  74 tokens,  59 distinct
+
+reference DESIGN classes (in globals.css)  45
+  missing from ours                         3   outline · choice · position-disclaimer
+  missing — lucide-* icon leftovers         7
+  missing — Tailwind/shadcn plumbing       64
+ours, not in the reference               17   all defined in globals.css
+```
+
+**All three "structural" absences are the three things that had to be cut.** Opening each in the
+reference settles it:
+
+| class | what it is in the reference | why it is absent |
+|---|---|---|
+| `position-disclaimer` | `<p>Demo funds only. No transaction will be broadcast.</p>` | ⚠️ **CUT by D6 by name.** The opposite is true — a stake here is a real Arc transaction |
+| `choice` | the Radix `role="combobox"` select trigger | ⚠️ **CUT by D3** — this is the Outcome select |
+| `outline` | `<button class="btn outline">Back` | ⚠️ **CUT by D3** — the per-row Back button |
+
+⚠️ **This is a much stronger result than "no structural absences".** The diff did not need to be told
+what to look for: the only design classes the page does not carry are exactly the side picker, the
+per-row Back button and the demo-funds disclaimer. Nothing else in the design is missing.
+
+The 17 additions are the chart's axis furniture (`chart-grid`, `chart-axis-y`, `chart-plot`,
+`chart-axis-x` — the chart is inline SVG with `preserveAspectRatio="none"`, so labels are HTML
+outside it), the fixed two-side colour classes (`dot-*`, `line-*`, `pct-*`), `outcome-state`,
+`stake-side`, `attached-report`, `switch`/`switch-thumb`/`on`, and `inert`. All defined.
+
+### CUT, verified zero in source and served
+
+```
+<select 0 · type="radio" 0 · >Back< 0 · >Outcome< 0 · "Other" 0
+"Demo funds only" 0 · "No transaction will be broadcast" 0 · position-disclaimer 0
+outcome rows: exactly 2
+```
+
+⚠️ **The side is text, not a choice.** `.stake-side` renders the side derived from the claim the
+backing report cites; there is nothing to pick, which is the contract's own shape —
+`stake(marketId, claimId)` takes no side and `_add(m, marketId, c.side, msg.value)` reads it off the
+claim.
+
+### What it looks like
+
+A back link to `/markets`, then a two-column `.market-detail-grid`. Left: the claim as an `h1` with
+its criterion and a closes-at clock; a chart panel carrying `IMPLIED PROBABILITY`, the 1D/1W/1M/All
+range buttons with three marked `.inert`, a full two-line probability chart with axis furniture, a
+`.market-statline`, and the two `.outcome-row`s — TRUE and FALSE, with a `chosen` modifier on the
+side the backing report takes and an `.outcome-state` third column stating each side's standing
+instead of offering a Back button. Then supporting research rows with thumbnails, and a
+`.resolution-rules` `<details>`. Right: the dark `.position-panel` — the side as text, the amount
+field and four preset shortcuts, the attach-report switch, the payout estimate, the stake button,
+and `ARC / ONCHAIN EVIDENCE` with a marked *View contract* and a live *My holdings*.
+
+### ⚠️ Two things in the position panel are NOT in this file, and both need a decision at commit 15
+
+Both live in `app/components/StakeControl.tsx`, which this commit is constrained out of. **Neither is
+a side picker and neither blocks the page**, but both currently assert a capability the product does
+not have, and both are *live* rather than inert:
+
+1. ⚠️ **"Attach supporting report" is a working toggle, defaulted on** (`useState(true)`, a real
+   `role="switch"`). **PHASE-5 D6 lists it as CUT** — *"a stake carries no report, only a claim cites
+   one, and `claims.report_hash` is a foreign key the analyst writes."* ⚠️ **The plan and the old
+   code already disagreed here**: `trash/app/markets/[id]/stake.tsx` MARKED it
+   (`Unbuilt label="Attaching a report to a stake"`) rather than cutting it. So there are three
+   positions on this control and they need reconciling — cut it, mark it, or amend D6.
+2. **The payout estimate renders a computed figure** — `value / (sidePct/100)`, showing `217.39
+   USDC`. D6 lists it as **MARKED**, and the old code marked it. It is arithmetic over a demo
+   percentage, so it is not wrong yet, but it will read as a promise once real pools drive it.
+
+**Not reached for, per the brief.** Recorded for commit 15.
+
+### The slugs
+
+All six resolve now. They are demo `Record` keys and die with the const in commit 12; this repo's
+markets are numeric and `/api/markets/[id]/refresh` enforces `/^\d+$/`.
+
