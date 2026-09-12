@@ -62,9 +62,12 @@ const WORKSPACE: Workspace = {
     fileName: 'lending-protocols-q2-2026.pdf',
     filePages: 4,
     marketClaim: 'Aave leads lending by end-2027',
-    tokenIdState: 'Created after publishing',
+    // ⚠️ Not 'Created after publishing'. The ISIN is derived from the report hash before anything
+    // is sent, which is why the tokenize form can show it in the plan.
+    tokenIdState: 'Derived from the report hash',
     transactionState: 'Not submitted',
-    publishState: 'Awaiting publication',
+    // ⚠️ Not 'Awaiting publication'. Nothing is awaited: the marketplace reads the store.
+    publishState: 'Listed as soon as it is minted',
   },
   listingPreview: {
     title: 'Lending protocols / Q2 2026',
@@ -73,9 +76,16 @@ const WORKSPACE: Workspace = {
     marketId: 'lending-2027',
   },
   steps: [
-    {number: '01', title: 'Report', hint: 'Choose your research', complete: true},
-    {number: '02', title: 'Listing', hint: 'Set access & details', complete: false},
-    {number: '03', title: 'Publish', hint: 'Make it available', complete: false},
+    // ⚠️ **STEP 03 USED TO READ "Publish · Make it available" AND THERE IS NO SUCH STEP.**
+    // Minting writes `report_tokens`; `/` is `force-dynamic` and reads the store on every request,
+    // so a report is listed the moment the row exists. A third step implied a button that would fire
+    // and change nothing, which is worse than a step that says it happens by itself. ⚠️ Step 02 was
+    // "Set access & details", which also overstated things: `/api/console/tokenize` accepts
+    // `{reportHash, confirm}` and nothing else, so the title, description and price are a preview of
+    // the card and are never stored. `TokenizeForm` says the same thing where the person types them.
+    {number: '01', title: 'Report', hint: 'The research being tokenized', complete: true},
+    {number: '02', title: 'Listing', hint: 'Preview only · these fields are not stored', complete: false},
+    {number: '03', title: 'Listed', hint: 'Automatic — minting is what lists it', complete: false},
   ],
 };
 
@@ -313,7 +323,9 @@ export default async function Console({
         <div className="tokenize-heading">
           <span className="eyebrow">FROM RESEARCH TO CONVICTION</span>
           <h1>Tokenize your report.</h1>
-          <p>Set the terms. Publish your research. Let the market read it.</p>
+          {/* ⚠️ "Publish your research" named a step that does not exist. Minting is the only
+              action on this page, and listing follows from it. */}
+          <p>Mint the security. The marketplace lists it on the next request.</p>
         </div>
 
         <div className="tokenize-grid">

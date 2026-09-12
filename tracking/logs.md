@@ -13535,3 +13535,542 @@ and a market on each. What is here is nineteen real reports at a real price, mos
 and showing the question they answer. **No slot was filled with an invented number to make it look
 fuller.**
 
+
+---
+
+## 2026-09-12 — `/report/[hash]` reads the store, and the paywall is probed again
+
+**One file changed: `app/report/[hash]/page.tsx`.** It rendered a `REPORTS_BY_HASH` const holding
+three invented hashes, so every one of the nineteen marketplace cards 404'd. It now loads the report
+named in the URL. `npx next build` (`.next` cleared first) exits 0 and the route table reads
+`ƒ /report/[hash]`.
+
+### What I took from `trash/app/report/[hash]/page.tsx`
+
+Its **shape**: `load(hash)` or `notFound()`, with **the integrity throw left uncaught**. Its own
+header is the clearest statement of why in this repo — a row whose stored JSON no longer
+canonicalizes to its own primary key is not a report with a caveat, it is a report whose identity is
+unknown, and that hash is what an ATS token commits and an Arc market settles against. *"An HTTP 500
+and no document is the honest outcome. `notFound()` is for the different case of a hash nobody ever
+stored."* There is no `try` in the new file.
+
+Its **public field set**: the directive whole and never truncated, the real analyst address, the real
+block, the real `observedAt`, all 64 characters of the hash, and the coverage counts — which can be
+shown precisely because a count discloses no figure. Its **locked block drawn from nothing**. And the
+substance of its `Ledgers` panel: the disclaimer first, then one identifier in two places.
+
+**Its paywall guarantee, which was stated more precisely there than this repo usually manages, and
+which I have kept verbatim in the new header:** the page *does* call `load()`. It never calls
+`render()` — the one function that substitutes `{fact:…}` placeholders and emits the paid body. No
+body field is passed as a prop and none is rendered. Nothing is rendered-then-hidden with CSS, and
+nothing body-shaped is inlined into the RSC payload. ⚠️ *"A CSS-hidden table is not a paywall"* — the
+blurred block has no text under it.
+
+Checked mechanically, not just asserted: the page source contains `render` only inside comments, and
+`.next/server/app/report/[hash]/page.js` contains **zero** occurrences of `narrate` or of the
+`fact:` placeholder prefix. `render()` is not reachable from this route's compiled code.
+
+**What I did not take: its layout.** It composed `.report-layout`, `.report-aside`, `.identity`,
+`.mono`, `.break`, `.no-durable`, `.locked-rows` and `.locked-stamp` — **all eight have zero
+occurrences in `app/globals.css`**, and globals.css was out of scope. The same facts are composed
+from classes the rebuild does have: `.report-excerpt`, `.financial-table`, `.locked-preview`,
+`.purchase-bar`, `.receipt-grid`, `.supporting-row`, and `.query-evidence` on a `.dark-panel`
+(that block is styled for a dark ground because it lives in the Atlas panel; sitting it on a dark
+card was cheaper and more honest than restyling a file I was told not to touch).
+
+### The new paywall probe
+
+⚠️ **Not obtained through `/api/console/report`.** `load()` and `render()` were called in-process and
+the comparison values written to a scratch file; the HTML came from a plain unauthenticated `GET`,
+which includes the RSC flight payload, so the grep covers the DOM *and* anything handed to a client
+component.
+
+Run over **all nineteen reports**, not one. Needles per page: every fact value as stored, every fact
+value **as `render()` prints it** (`$24.63B`, `67.3%`, …), every fact label, every narrated paragraph,
+every 6-word shingle of the filled assessment and of each narrated paragraph, every check rationale,
+and every line of the rendered body over 12 characters.
+
+```
+19 pages · 9,084 needles · 0 hits · control OK on all 19
+```
+
+The control is the directive and the hash, which must be present — both found on every page, so the
+probe demonstrably finds things when they are there. On the deepest report (`24041ca2…`, 140 facts)
+the 6-word-shingle sweep alone was 441 shingles of paid prose at zero, against 11 control shingles of
+the directive at eleven found.
+
+⚠️ **One honest caveat, and it is a collision rather than a leak.** In the first pass I did not
+exclude one- and two-character values, and the raw value `"0"` — carried by 26 withheld-as-zero facts
+— matched 345 times, all inside asset filenames in `<head>`. The form a reader would actually see for
+those facts, `$0.00`, occurs **zero** times. The all-pages run excludes values under three characters
+and says so in its own comment.
+
+⚠️ **A second thing I will not pretend is absent.** A backed report prints its market's question,
+including the threshold: `… be above $24,387,198,586 on 2026-09-12`. That is not a report figure —
+the probe proves no fact value is on the page — but it is **within 1.01% of one**. It is a parameter
+committed on Arc, public in the contract, and already rendered on `/` and `/markets`. It is not ours
+to withhold, but a reader can infer an approximation from it and that should be said out loud.
+
+### What the page shows
+
+Public: the narrator's title (or the directive shortened when there is none), the directive whole,
+analyst, block, `observedAt`, all 64 characters of the hash, six coverage counts, the token's ISIN
+and ResolverProxy with a HashScan link and the `alpha:<hash>` creation-event string, the price, and
+every market the report backs with the side, the analyst's stake and the claim's standing.
+
+Behind the wall: the figures, the fact table, the narrated sections, the assessment, the check
+rationales and `verdict.call`.
+
+⚠️ **Sixteen of the nineteen have no title** (three do). Those show the directive shortened at a word
+boundary as the `h1` — the same rule `/` and `/console` use — with the full directive directly
+beneath it, and the preview paragraph says so in words: *"This report pre-dates analyst-written
+titles, so the heading above is the question it answers."* No report renders a blank heading.
+
+### The Ledgers panel: its substance lands now, the component does not
+
+It is on the page — the disclaimer first, the 32 bytes printed whole, the Hedera half with ISIN,
+proxy and `alpha:<hash>`, the Arc half listing both markets `24041ca2…` backs with stakes and
+standings. What waits is the old **file**: its markup is built on the eight classes that do not exist
+here, and the per-claim commit-transaction and market-contract links on arcscan belong with the
+`/markets` wiring that owns claim rendering.
+
+### Proofs
+
+- **All nineteen cards resolve.** Scraped the 19 distinct `/report/<hash>` hrefs out of the served
+  marketplace HTML and fetched each: **19 × 200, zero 404s.** This closes the regression the previous
+  task opened.
+- **Refusals.** A well-formed hash nobody stored → 404. Uppercase → 404. `0x`-prefixed → 404. Too
+  short → 404. The design's old slug `lending-q2-2026` → 404. The demo hash `9f2c4a7e1b8d3056` this
+  page used to serve → 404.
+  ⚠️ **No normalisation in the route, deliberately.** Stripping `0x` and folding case here would give
+  one report several working addresses; that belongs in a field a human types into, not in a URL.
+- **Both branches rendered and read.** `24041ca2…` (no title, tokenized, two markets) and
+  `1343bb3f…` (titled, untokenized, no market).
+
+### Left alone
+
+`app/components/BuyControl.tsx` is now unused: the purchase bar states the real price
+(`0.001 HBAR`, `REPORT_PRICE_HBAR`) with an `.inert` control. ⚠️ **A press of the real button spends
+testnet HBAR through the buyer agent**, and wiring `/api/buy` is the next task — an enabled button
+that did nothing would be worse than a stated price. Nothing was bought in this task.
+
+---
+
+## 2026-09-12 — the 404 was a stale server, and the buy control is now real
+
+### ⚠️ The diagnosis: both reports were true, of different builds
+
+The previous entry's "19 of 19 resolve 200" and the browser's 404 were **two servers**.
+
+```
+pid 66961   next start   booted 12:55:57   port 3000   ← the browser
+pid 68094   next start   booted 13:19      port 3111   ← last task's probe
+```
+
+`next start` loads its manifests at boot and does not watch files. **66961 was serving the build that
+existed at 12:55 — commit `742fe68`, the demo `REPORTS_BY_HASH` page.** I rebuilt `.next` at 13:20
+underneath it, which changed the files on disk and nothing in its memory. Every proof last task ran
+went to 3111.
+
+**The discriminator that settles it beyond argument.** Against :3000, before any change:
+
+```
+/report/65fb085d…  (a real hash, scraped from :3000's OWN marketplace HTML)   404
+/report/3d81e6f09c24ab75   (an invented demo hash from commit 742fe68)        200
+/report/b570c93a4e12d8f6   (an invented demo hash from commit 742fe68)        200
+/report/9f2c4a7e1b8d3056   (the third demo hash)                              500
+```
+
+A server that serves invented hashes and refuses real ones is running the demo page. ⚠️ The 500 on the
+third is the *stale `.next`* hazard itself: that record is the only one with `access: 'paywall'`, so it
+is the only one that renders the `BuyControl` client component — and its client chunk had been
+replaced on disk by my 13:20 rebuild. **Inference from which record differs, not something I read in a
+log**, but it is the one of the three that reaches for a file that no longer exists.
+
+I also touched `app/report/[hash]/page.tsx` and waited: no recompile, 404 unchanged. Not `next dev`.
+
+**Fix for this class of fault:** killed 66961, `rm -rf .next`, `npx next build`, `next start -p 3000`.
+Everything below was tested against that one server, on the port the browser uses. After the flip the
+same four requests read `200 / 404 / 404 / 404` — exactly inverted.
+
+### The buy control
+
+`app/components/BuyControl.tsx` was a stub with an empty `onBuy` and nothing imported it. It is now
+`BuyAndRead`, and it **owns both the locked block and the purchase bar**, because the bought body
+replaces the first while the button sits under the second and both change on one event — the same
+call `trash/app/report/[hash]/buy.tsx` made. No new file, nothing deleted.
+
+⚠️ **The status-first read, because this repo has got it wrong before.** `res.json()` on a 500 throws
+on an empty body and surfaces as "Unexpected end of JSON input", which tells a reader nothing. It
+reads `res.text()`, tries `JSON.parse` in a `try`, and reports the status when that fails. Four
+distinct failures are named separately: `refused` (the spend controls fired before signing), a
+`stop`/`fail`/`error` string, a dry plan returned when one was not asked for, and settled-with-no-body.
+
+Every field it reads was checked against `app/api/buy/route.ts`'s own `NextResponse.json`, not
+assumed: `purchase.{paymentId,settledTransaction,payer,payTo,amountHbar}`, `body.markdown`,
+`moved.{networkFeeHbar,feeBearer}`, `links.hashscan`. ⚠️ `moved` is `{note}` rather than a record when
+the Mirror Node has not ingested within 20s — the fee line says so instead of showing a blank.
+
+⚠️ **`.transaction-receipt` was NOT used** even though it is the design's receipt class: it is
+`#adbfcf` on `#ffffff07`, authored for a dark panel, and this panel is white. `.receipt-grid` is the
+light one and `TokenizeForm` already uses it for receipts.
+
+### What a person sees
+
+**Before pressing** — observed in the served HTML: the blurred thumbnail over *"The figures, the
+market table and the analyst's assessment"*, the line *"Not hidden — not sent"*, a notice reading
+**"An agent pays, not you"** (the server runs the buyer agent, which pays 0.001 HBAR plus network fee
+from its own Hedera account; no wallet connects; you are not charged; x402 ships no Hedera browser
+paywall), and the bar: **0.001 HBAR · x402 · one read, on Hedera testnet** with the button
+**"Have the agent buy this read · 0.001 HBAR"**.
+
+**After** — described from the component and the route's response shape, **not observed, because I did
+not buy**: the locked block is replaced by a green-tick bar *"Paid — 0.001 HBAR, settled on Hedera
+testnet over x402"* with a HashScan link to the settlement; a receipt of payer, paid-to, payment id,
+settled transaction and network fee; the report itself rendered through `app/markdown.tsx` inside the
+same `.report-paper` sheet `/console` uses; and a closing notice that **the read is not saved** —
+refreshing loses it and buying again pays again.
+
+### Proof the button works without buying one
+
+⚠️ **`/api/buy` has a dry mode**: `if (!confirm) return {mode:'dry', plan, spent:false}`. Posting the
+button's exact body with `confirm:false` exercises the whole chain up to signing:
+
+```
+GET  /api/buy                                    405   (path exists, POST only)
+POST /api/buy {reportHash, site, confirm:false}  200   mode "dry", spent false, in 1.5s
+   gateStatus        402      ← the x402 challenge really is there
+   quotedHbar        0.00100000   ← matches the 0.001 HBAR on the page
+   payTo             0.0.10387690
+   buyer             0.0.10387696
+   network           hedera:testnet
+   withinPerPaymentCap  true
+```
+
+And the compiled client chunk carries the real request, verbatim:
+
+```js
+fetch("/api/buy",{method:"POST",headers:{"content-type":"application/json"},
+  body:JSON.stringify({reportHash:e,site:window.location.origin,confirm:!0})})
+```
+
+That chunk (`3eu0i2o0o2i1h.js`) is referenced by `/report/<hash>` and **absent from `/`** — so no card
+on the index can buy anything.
+
+### Unlock
+
+⚠️ **No change was needed and none was made.** Both card controls already point at the report page:
+19 × `class="btn white"` (Preview), 19 × `class="text-link"` (Unlock), 19 × the thumbnail link, all
+`href="/report/<hash>"`. `app/page.tsx` is untouched.
+
+### The paywall, re-probed after wiring
+
+Same 9,084 needles over all nineteen pages — every fact value raw and as `render()` prints it, every
+label, every narrated paragraph, 6-word shingles of the filled assessment, check rationales, every
+body line:
+
+```
+19 pages · 9,084 needles · 0 hits · control OK on 19/19
+```
+
+⚠️ **This time with a positive control that actually proves the probe works.** The same needles and the
+same matcher, pointed at `/console?report=<hash>` — a page that legitimately *does* render the body:
+
+```
+                                        /report/<hash>      /console?report=
+fact values as render() prints them        0 / 111             26 / 111
+assessment 6-word shingles                 0 / 252            252 / 252
+paid body lines                            0 / 19              13 / 19
+```
+
+The probe finds the body when the body is there. On the report page it is not there. ⚠️ That also
+closes the one caveat from the last entry: `$0.00`, the reader-facing form of the 26 zero-valued
+facts, is among the 26 found on the console and is **absent** from the report page.
+
+### Scope
+
+Two files: `app/report/[hash]/page.tsx` and `app/components/BuyControl.tsx`. `app/page.tsx` untouched.
+No `src/`, no routes, no schema, no dependencies. **Nothing was bought; no HBAR moved.**
+
+---
+
+## 2026-09-12 — `/report/[hash]` takes the console's two-panel shape, and the receipt gets real
+
+### The reference: there is none, and `rebuild/` says so itself
+
+⚠️ **Checked before composing anything.** `rebuild/` now contains exactly one file — `MANIFEST.md`;
+every source file was landed into `app/` across commits 1–8. Its own note on this screen:
+
+> **Screen 7, one report** — `.report-excerpt`, `.locked-preview`, `.purchase-bar`, `.unlocked-bar`.
+> The design reached these three states through a modal on the marketplace, so its export never
+> rendered them. Lifted from the mockup.
+
+So the ten design files never drew this page and neither did `rebuild/`; only CSS was carried over.
+Rather than invent a fourth original layout, it borrows the one layout in this repo that **was**
+drawn and is proven at every breakpoint: `/console`'s.
+
+### The shape
+
+`.workspace` (a `minmax(0,1fr)` grid and a 370px rail) · `.viewer` › `.viewer-toolbar` ›
+`.document-stage` › `.paper-scale` › `.report-paper` on the left · `.atlas-console` on the right ·
+the ledgers in a light `.panel` beneath. **Tokenization is below the fold on purpose**: it describes
+what the report already is and must not compete with the one control that sells it.
+
+⚠️ **`.page-container`, not `.console-page`.** The console's shell is 1800px with `padding-bottom: 0`
+because its sheet is a scaled full page and its footer supplies the gutter. This page ends on a light
+panel and needs the 64px bottom padding every other page has.
+
+⚠️ **The directive is no longer printed twice above the fold.** It was in the page heading *and* on
+the sheet. It is now only the sheet's standfirst, where a document's standfirst belongs. Where a
+heading came from is said on the sheet's eyebrow instead — `PREVIEW · HEADING TAKEN FROM THE
+DIRECTIVE, NO ANALYST TITLE STORED` for the sixteen reports that pre-date migration 008.
+
+### ⚠️ The blurred sheet is blurred over nothing, and that is the point
+
+**CSS over present content is not a paywall**, so the sealed block is six `.mini-body` rows of
+`.mini-copy` bars and a filler chart — markup generated in the component, with no report text under
+it at any opacity. The props `BuyAndRead` receives are a hash, a price, a heading, the directive, an
+analyst, a block, a timestamp and six counts. The page still never imports `render()`.
+
+### One scope widening in globals.css, and nothing else
+
+`.notice` has a light treatment and a dark one; the dark one was written for exactly one panel:
+
+```css
+.listing-preview .notice { … }                 /* was: one panel */
+.atlas-console  .notice { … }                  /* added: the same dark panel class, second consumer */
+```
+
+⚠️ **A widening, not a new rule or a new class.** `.atlas-console` is the console's own dark panel and
+`.notice` is already used on it elsewhere (`app/console/page.tsx:383`, inside
+`.listing-preview.dark-panel`). The `.atlas-console` copy drops the 25px top margin because that
+panel stacks children with a 13px flex gap and `.listing-preview` does not.
+
+### What `/api/buy` actually returns — it is enough, and nothing was invented
+
+Read off the route's own `NextResponse.json`:
+
+| field | what the receipt does with it |
+|---|---|
+| `purchase.paymentId` | the x402 payment identifier |
+| `purchase.payer` / `purchase.payTo` | who paid, who was paid |
+| `purchase.amountHbar` | the amount |
+| `purchase.nativeTxId` | signed and recorded **before** broadcast — the id to reconcile with if a settle times out |
+| `purchase.settledTransaction` | the consensus id, and the HashScan link |
+| `moved.result` | `SUCCESS` |
+| `moved.networkFeeHbar` / `moved.feeBearer` | the fee, and who bore it |
+| `moved.transfers` | the full four-line transfer list |
+| `plan.feePayer` | the fee payer the 402 challenge advertised, known before the Mirror Node answers |
+| `links.hashscan` | the explorer URL |
+
+⚠️ **Nothing is missing.** The only value not returned is the Mirror Node URL, and the component
+derives it from `settledTransaction` with the same transform the route uses
+(`0.0.x@s.n` → `0.0.x-s-n`) rather than inventing a field.
+
+⚠️ **`moved` is `{note}` instead of a record when the Mirror Node has not ingested within the route's
+20-second poll.** The receipt then says the fee lines are not known yet and points at the transaction,
+rather than showing a blank or guessing.
+
+### ⚠️ The facilitated-settlement claim is COMPUTED, not asserted
+
+`facilitated = feeBearer ∉ {payer, payTo}`. When it holds, the panel says so and the transfer list
+below it is where a reader checks. When it does not, the panel says *that* instead — a receipt that
+can only produce one answer is not evidence.
+
+### Verified against a real settlement — the user's own, not one I made
+
+⚠️ **I did not buy anything. I did not have to.** The buyer's daily ledger
+(`/tmp/alpha-markets-buyer/0.0.10387696-2026-09-12.json`) showed `100000` tinybars spent today at
+20:40:18Z against `localhost:3000` — **the user pressed the button on last task's build** and it
+settled. That gave a real transaction to verify the receipt against:
+
+```
+transaction_id  0.0.7162784-1789245611-904134112     result SUCCESS   CRYPTOTRANSFER
+  0.0.802         +268368   +0.00268368 HBAR
+  0.0.7162784     -268368   -0.00268368 HBAR   ← the facilitator bears the network fee
+  0.0.10387690    +100000   +0.00100000 HBAR   ← the analyst receives it
+  0.0.10387696    -100000   -0.00100000 HBAR   ← the buyer pays the price and NO gas
+```
+
+Three distinct parties, and the one paying the fee is neither the payer nor the payee. That is the
+whole claim, and it is on the public record.
+
+⚠️ **HashScan was NOT trusted for this and its status code is worse than useless**: the deep path
+`https://hashscan.io/testnet/transaction/0.0.7162784@1789245611.904134112` answers **404** to curl
+while rendering fine in a browser, because it is a client-routed SPA. So the check is the Mirror Node,
+the way the tokenize receipt did it — and the receipt renders **both** links, with the Mirror Node one
+labelled as the record to compare against.
+
+**What a judge compares against what:** the `settled tx` on the page against the transaction id on
+HashScan; the four transfer lines on the page against HashScan's transfer table; and `fee paid by`
+against both `payer` and `paid to` — it must match neither.
+
+### The paywall after restructuring
+
+```
+19 pages · 9,084 needles · 0 hits · control OK on 19/19
+```
+
+Positive control, same needles and matcher against `/console?report=<hash>`, which does render the
+body:
+
+```
+                                        /report/<hash>  (blurred)   /console?report=
+fact values as render() prints them            0 / 111                26 / 111
+assessment 6-word shingles                     0 / 252               252 / 252
+paid body lines                                0 / 19                 13 / 19
+```
+
+### The control, checked without buying
+
+```
+POST /api/buy {reportHash, site, confirm:false}  →  200  mode "dry"  spent false
+   gateStatus 402 · quotedHbar 0.00100000 · payTo 0.0.10387690 · feePayer 0.0.7162784
+```
+
+The compiled chunk carries the real request (`confirm:!0`), reads all twelve receipt fields named
+above, is referenced by `/report/<hash>` and is **absent from `/`**.
+
+All 19 cards: **19 × 200, 19 × `.workspace`, 19 × `.report-paper`, 19 × the buy button.** Refusals
+unchanged — unknown hash, uppercase and a slug all 404.
+
+### Scope
+
+`app/report/[hash]/page.tsx`, `app/components/BuyControl.tsx`, and one widened selector in
+`app/globals.css`. No `src/`, no routes, no schema, no dependencies. `.next` cleared before the build;
+`next build` exit 0. **I bought nothing.**
+
+---
+
+## 2026-09-12 — one cause, both bugs: the console's viewport fit on a page that cannot honour it
+
+### ⚠️ The diagnosis, and it is a single line of CSS
+
+Both faults came from `app/globals.css` `@media (min-width: 761px)`:
+
+```css
+.workspace       { height: calc(100dvh - 140px); min-height: 0; }
+.viewer          { height: 100%; overflow: hidden; }
+.document-stage  { overflow: auto; }
+.atlas-console   { height: 100%; overflow: auto; }
+```
+
+**The console can honour that and this page could not**, for two reasons it does not share:
+
+1. `ConsoleViewer` wraps its stage in `<div className="tabs">`, which `.viewer > .tabs
+   { height:100%; min-height:0 }` bounds. **This page has no `.tabs` wrapper**, so `.document-stage`
+   was auto-height, its own `overflow:auto` never engaged because nothing constrained it, and
+   `.viewer`'s `overflow:hidden` **cut the bought report off at the frame with no scrollbar at all**.
+   A buyer paid 0.001 HBAR and could not reach the rest of the document.
+2. `FitPanel` scales the sheet with a ResizeObserver. There is no script on this page.
+
+And the same rule gave the rail `height:100%; overflow:auto`, so the **buy button sat below an
+internal scroll fold** inside a dark panel whose `scrollbar-width: thin` bar is nearly invisible. The
+price and the blurb were above the fold; the control was not. ⚠️ **That is why the report said
+"nothing to press" while the served HTML contained the button on 19 of 19 pages** — last task's proof
+was true and useless, because "it is in the HTML" is not "a person can see it".
+
+### ⚠️ Scroll, not paginate — and the reason is the failure being fixed
+
+**Chosen: scroll.** The console paginates because it is an *editing* surface — the operator needs a
+page to look like a page while the Atlas panel stays in view beside it. This is a *reading* surface.
+
+Pagination needs in-browser measurement, and **when that measurement is wrong it strands content**.
+This repo has already shipped exactly that: `pages` stayed null, the toolbar read 1/1 and the sheet
+scaled to 0.52. Stranding content is the bug being fixed here, on a document someone has paid for. A
+page that scrolls has no measurement step and therefore no such failure mode. The receipt scrolling
+away with the rail is an acceptable trade; the text is what was bought.
+
+### The fix
+
+Four inline overrides on `.workspace`, `.viewer`, `.document-stage` and `.atlas-console`:
+
+```
+style="height:auto;min-height:0;overflow:visible"
+```
+
+⚠️ **Inline, not a stylesheet edit** — `globals.css` is out of scope this task, and an inline style
+beats a media-query rule without `!important`. It removes the geometry only; every colour, border,
+radius and column proportion still comes from the console's own classes. Checked afterwards that
+nothing else on the ancestor chain can clip: `.page-container` sets `min-height` only, `.paper-scale`
+sets neither, and every `height` on `.report-paper` is a `min-height` that grows the sheet.
+
+### The buy control
+
+It was never missing from the markup; it was below a fold. Beyond the geometry, it is now unmissable:
+
+- **Before** — `Buy this read · 0.001 HBAR`, white on charcoal, full rail width. ⚠️ **The price is in
+  the label**: a button reading just "Buy" next to a price elsewhere on the panel is a button whose
+  cost you have to go and look up. Under it, `One read · not saved · buying again pays again`.
+- **During** — `The agent is paying…`, disabled, with a line naming what is slow: asking the gate for
+  a price, signing, settling, then polling the Mirror Node. Measured round trip 5.3s.
+- **After** — the button is gone. The rail's heading changes from `Buy this read` to `Settled` and
+  the receipt takes its place; the sealed block on the sheet becomes the report.
+
+⚠️ **What a person sees before committing real money, all of it above the button:**
+
+> **An agent pays, not you — and it pays for real.** Pressing this runs our buyer agent on the
+> server, which settles an x402 payment of 0.001 HBAR to the analyst on Hedera testnet, immediately
+> and with no confirmation step. The network fee is borne by the facilitator, not by the buyer and
+> not by you. No wallet is connected and nothing is charged to you.
+
+"Immediately and with no confirmation step" is there because there is no confirm dialog and no undo.
+
+### The console's three steps — copy only, no control
+
+⚠️ **Step 03 read "Publish · Make it available" and there is no such step.** Minting writes
+`report_tokens`; `/` is `force-dynamic` and reads the store per request, so a report is listed the
+moment the row exists. Step 02 overstated things too: `/api/console/tokenize` accepts
+`{reportHash, confirm}` and nothing else, so the title, description and price are a card preview and
+are never stored — which `TokenizeForm` already says where the person types them.
+
+```
+01 Report   The research being tokenized
+02 Listing  Preview only · these fields are not stored
+03 Listed   Automatic — minting is what lists it
+```
+
+Three more strings in the same block asserted the same non-existent step and were corrected with it:
+the standfirst *"Set the terms. Publish your research. Let the market read it."* → **"Mint the
+security. The marketplace lists it on the next request."**; the preview badge *"Awaiting
+publication"* → **"Listed as soon as it is minted"**; and `tokenIdState` *"Created after publishing"*
+→ **"Derived from the report hash"**, which is what `isinFor()` actually does. ⚠️ `tokenIdState` is a
+dead field — nothing renders it — corrected anyway rather than left as a wrong string.
+
+### Proofs
+
+- `.next` cleared, `npx next build` exit 0.
+- **19/19** cards 200 · **19/19** carry `Buy this read · 0.001 HBAR` · **19/19** serve the
+  viewport-fit override.
+- **Paywall unpaid: 19 pages · 9,084 needles · 0 hits**, control (directive + hash + buy button) OK
+  on 19/19. Positive control, same needles against `/console?report=` which does render the body:
+  **26/111** rendered values, **252/252** assessment shingles, **13/19** body lines — zero of all
+  three on the report page.
+- **The control posts correctly, nothing spent:** the compiled chunk carries
+  `fetch("/api/buy",{method:"POST",…confirm:!0})`; a `confirm:false` post returns `mode "dry",
+  spent false, gateStatus 402, quoted 0.00100000 HBAR, payTo 0.0.10387690, feePayer 0.0.7162784,
+  withinCap true`.
+
+### What the receipt will show
+
+Re-verified against the user's own second purchase, `0.0.7162784-1789246992-780706567`, on the Mirror
+Node — SUCCESS, CRYPTOTRANSFER:
+
+```
+0.0.802        +0.00268992 HBAR
+0.0.7162784    -0.00268992 HBAR   the facilitator bears the network fee
+0.0.10387690   +0.00100000 HBAR   the analyst receives the price
+0.0.10387696   -0.00100000 HBAR   the buyer pays the price and NO gas
+```
+
+Plus payment id, native tx id (recorded before broadcast), settled tx, amount, result, and both
+explorer links. ⚠️ HashScan answers **404** to curl on a deep path while rendering fine in a browser —
+it is a client-routed SPA — so the Mirror Node link is the one whose status code means anything, and
+the receipt renders both.
+
+### Scope
+
+`app/components/BuyControl.tsx` and `app/console/page.tsx`. ⚠️ **`app/globals.css` shows as modified
+in `git status` from LAST task's `.notice` scope widening and was not touched this task** — checked:
+the diff is those six lines only. No `src/`, no routes, no schema, no dependencies. **I bought
+nothing.**

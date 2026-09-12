@@ -583,7 +583,13 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
   font-size: 11px; color: #aaaeb4;
 }
 .token-flow b { display: inline-block; font-size: 12px; color: var(--paper); font-weight: 400; margin-top: 6px; }
+/* ⚠️ SCOPE WIDENED, not a new rule. `.notice` has a light treatment (#eaf0f56b on #6d7881) and a
+   dark one, and the dark one was written for exactly one panel. `/report/[hash]` puts notices on
+   `.atlas-console` — the SAME dark panel class the console uses — so the selector names both grounds
+   instead of a second rule being invented. `.atlas-console .notice` gets a smaller top margin: it
+   stacks with a 13px flex gap there, where `.listing-preview` has none. */
 .listing-preview .notice { background: #ffffff06; border: 1px solid #ffffff1c; font-size: 11px; line-height: 1.5; margin-top: 25px; color: #aeb4bb; }
+.atlas-console .notice { background: #ffffff06; border: 1px solid #ffffff1c; font-size: 11px; line-height: 1.5; color: #aeb4bb; }
 
 /* ===========================================================================
    SCREEN 3 — REPORT MARKETPLACE
