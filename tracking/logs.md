@@ -8395,3 +8395,246 @@ who wrote the system reads past an ambiguity that would stop a stranger, and no 
 that. Checks 1 and 2 close every *value*; what nothing available to this project can close is whether
 the *order and the explanations* in the provisioning section are sufficient for someone who has never
 seen it. That is left as an open weakness.
+
+---
+
+## 2026-09-11 — Frontend references assessed, nothing built
+
+A read-only pass over `front-end-design/` against the live app, ahead of any frontend unit. No
+edits, no transactions, no writes. Two checks first: `npx tsc -p tsconfig.json --noEmit` exits **0**,
+and `npx tsx --env-file=.env scripts/ops/migrate.ts` is a clean no-op — **seven migrations**,
+001–007, every notice "already exists, skipping", 13 tables, `PASS`.
+
+⚠️ **The directory is `front-end-design/`, not `frontend-design/`.** Ten HTML files, a README, a font
+licence, one unexplained 1.4 MB PNG, and a `:Zone.Identifier` stream file beside each — Windows
+download markers, not content.
+
+### What the references actually are
+
+Four distinct screens across ten files — console, reports marketplace, markets index, prediction
+detail (×6 variants) — plus `tokenization.html`, which is `console.html`'s `#tokenize` section
+exported again. Every file opens standalone: no `src=`, no external `<link>`, nav hrefs are bare
+filenames.
+
+⚠️ **The CSS is three things, and only one of them is the design.** Line 3 is 437,720 bytes and is
+**byte-identical in all ten files**. 240 KB of it is two base64 OTFs (`Editorial` = Nimbus Roman,
+`Interface` = Nimbus Sans). ~135 KB is compiled Tailwind v4.2.1 plus shadcn token plumbing, mostly
+dead. **~55 KB is the real design system**: 782 rules over 174 hand-written semantic classes
+(`.report-paper`, `.prediction-card`, `.market-chart-panel`, `.position-panel`, `.financial-table`).
+Palette is one `:root` block — `--background:#f3f9fd`, `--foreground:#100f0e`, charts
+`#526bd8`/`#d18a3c`/`#b15c98`. **Zero `prefers-color-scheme`, zero `.dark`** — the references are
+light-only and `globals.css` is dual-scheme, so adopting them drops dark mode or costs new work.
+
+⚠️ **40 of the 174 classes have no markup in any file.** The states that were never exported are
+exactly the ones that matter here: `.locked-preview`, `.unlocked-bar`, `.purchase-bar` (the paywall),
+`.alpha-modal`/`.modal-document` (reading a report), `.positions-panel`, `.empty-state`,
+`.validation-message`, `.transaction-receipt`, `.terminal-large`/`.running` (a live run). **There is
+no report preview or paid-read screen among the ten**, which is the app's central product surface.
+The Outcome `<select>` on every prediction page renders **empty** — a `role="combobox"` button with
+no value and a hidden native select with no options.
+
+### Where the references and the code disagree
+
+⚠️ **The prediction pages let a user choose a side.** An "Outcome" select, and a "Back" button per
+outcome row. `stake(marketId, claimId)` takes no side — `_add` reads `c.side` off the claim, and both
+`markets/[id]/page.tsx` and `stake.tsx` carry headers saying that absence *is the feature*. **The
+design builds the hole the contract closed.**
+
+⚠️ **Reports are priced "5 USDC" / "3 USDC" / "4 USDC".** The app prices one read at **0.001 HBAR**
+from a single constant, and `config/pricing.ts` records that a USD-denominated price *throws* on
+testnet. Arc's USDC on the market pages is correct; the marketplace's is not, and the same word means
+two rails on two screens.
+
+Also asserting capabilities that do not exist: multi-outcome markets (the contract is binary),
+probability-over-time charts (nothing stores a series; there is **1 stake row** in the whole
+database), report upload and "Publish a report" (no product route generates or accepts one, by
+design), "attach a supporting report" to a human stake (only a claim cites a report), per-market
+report counts of 4–12 (one market, one claim, one report), "My positions"/"My reports"
+(`payments/auth.ts` is the declared cut point — there is no identity system), and five-figure USDC
+volumes against a contract holding 1.02 USDC.
+
+⚠️ **The references also drop four things the app says on purpose**: the rehearsal-vs-forecast split,
+the void state, "not on chain yet", and scores shown as absent rather than zero. Each exists because
+showing them alike would be a lie. A restyle that loses them loses more than it gains.
+
+### The deletion that is no longer `rm -r`
+
+`app/console/` and `app/api/console/*` are still the declared throwaway — unauthenticated, spends
+real testnet HBAR from a public URL. ⚠️ **But `app/report/[hash]/buy.tsx` fetches
+`/api/console/buy`**, deliberately, so there is one buyer path. Deleting `app/api/console/` breaks the
+paywall button on the product. That route has to move before the directory goes; `app/README.md`
+still says "delete both directories" and that sentence is wrong today.
+
+### The numbers a designer should know before drawing anything
+
+Read from Neon today: **11 reports, 4 tokenized, 8 markets (6 on chain, 3 resolved, 1 voided),
+2 claims, 1 stake, 0 scores, 10 purchases, 0 payouts, 0 spend_ledger rows.** ⚠️ `scores` being empty
+means `/markets` currently reads *"no forecast has settled yet"* and will until markets 6 and 7
+settle Sunday. Everything that looks abundant in the references will look empty in the app.
+
+**Nothing was planned and nothing was built. This entry is the assessment only.**
+
+---
+
+## 2026-09-11 — Phase 5 planned: `tracking/phases/PHASE-5.md`, seventeen units and six decisions
+
+`tracking/phases/PHASE-5.md` (new, 840 lines). **No code, no page changes, no deletions.** The plan
+follows PHASE-4's shape — a status table, the units in dependency order, the ⚠️ warnings that matter,
+and a proof per unit saying what to watch happen.
+
+### ⚠️ The ordering finding, and it reorders the phase
+
+**The two units that are not about design come first.** Unit 1 moves `/api/console/buy` to
+`/api/buy` and Unit 2 puts a doorlock on the two console routes that spend — before any stylesheet,
+any nav, any page. The reason is that both are safety properties of a surface about to become
+public, and neither depends on a single design decision. ⚠️ **Unit 2 exists because the nav is
+about to make `/console` a linked product page, and `/api/console/generate` is an unauthenticated
+route that burns the Anthropic budget from a public URL.** Putting Console in a nav without that is
+publishing a faucet. It is a shared secret through `requiredEnv`, roughly fifteen lines, and the plan
+says in those words that it is not authentication and must not come near the paywall.
+
+### ⚠️ The cheapest thing in the phase was already paid for
+
+**Every page in `app/` already uses only classes `globals.css` defines** — Units 13, 13b and 14 each
+wrote *"nothing below reaches for a new class"* as a shipping discipline. So Unit 3 rewrites
+`globals.css` and **restyles the entire application without touching one `.tsx` file**. One commit,
+one file in `git diff --stat`, every route visibly redesigned. That was a gift from Phase 4 rather
+than a plan, and it is the single largest reason this phase is affordable.
+
+### The six decisions taken rather than left to a unit
+
+Light-only wins and the dark block is deleted (⚠️ **with `color-scheme` changed to `light` in the
+same commit**, or a dark-mode visitor gets dark form controls painted over a light page — the actual
+bug that decision prevents). **Pricing stays in HBAR**; the USDC cutover is a payments change that
+lands on mainnet under R12's four-things-in-one-commit rule and has no business in a frontend commit,
+and per-report pricing needs a store column this phase does not add. **The outcome rows are display,
+the ACTION column is removed, and two sides is all there is.** `/` stays the marketplace. And the
+line that stops the unbuilt treatment becoming a graveyard: ⚠️ **mark what a reviewer would think we
+forgot; cut what the contract forbids.** The side picker and the third outcome are cuts, not markers
+— marking them would assert a roadmap that cannot exist without a different contract.
+
+### ⚠️ Two things measured that changed the plan
+
+**The font licence is narrower than it looks.** `FONT-LICENSE.txt` is AGPL-3 with an exception that
+covers *"a Postscript or PDF file"* — **it does not mention the web, and a web page is neither**. So
+serving the two faces is plain AGPL-3 distribution. The recommendation is not to serve them at all:
+`Editorial` and `Interface` are renamed **Nimbus Roman and Nimbus Sans**, which are Times and
+Helvetica metric clones, so the fallback stack *is* the design on most machines. Zero bytes, zero
+obligation, and no `public/` directory — **there is none in this repo today.** ⚠️ And if
+self-hosting is chosen instead, **not `next/font/local`**: `next` ships no `exports` map, that
+specifier resolves to a *directory*, and `node_modules/next/font/local/index.js` is a **zero-byte
+file** because the loader is a compile-time transform. Same class of trap that already forced plain
+`<a href>` over `next/link`.
+
+**Streaming is what makes the 60-second ceiling survivable, not what breaks on it.** A routine
+generation is 34.0 s and 46.7 s against a real ceiling of 60 — **13.3 seconds of headroom** — and
+`/api/console/generate` already streams NDJSON with nine stages carrying elapsed milliseconds. Under
+a plain POST a kill at 60 s is a dead request and a blank screen; with the stream, every stage up to
+the kill is already on screen and the client can say truthfully that nothing was saved, because
+`save()` is the last step. ⚠️ **What the ceiling forbids is a resume**, and the surface must not
+offer a retry that implies one.
+
+### What the plan refuses to dress up
+
+The pages are sized against the real numbers — **11 reports, 4 tokenized, 8 markets of which 2 are
+forecasts, 2 claims, 1 stake, 0 scores, 1.02 USDC of volume.** ⚠️ **The market page's chart panel is
+40% of the reference's page height and there is no chart**; a probability series does not exist and
+one stake row cannot make one. The plan puts a **pool bar** in that slot — real, chain-read, and the
+one thing on the page that moves when somebody stakes — and requires it to be *labelled* rather than
+drawn as a race, because every pool is one-sided today and a 100/0 bar implies a landslide of opinion
+when it actually means nobody took the other side. ⚠️ **`scores` has 0 rows, so the record strip must
+be designed for its empty case first**, since the empty case is what ships unless Sunday's resolve
+cron fires before the demo.
+
+### Residue, stated
+
+⚠️ **`app/README.md` still says `rm -r app/console app/api/console` is the whole removal and lists
+`/console` as throwaway. Both are false** — the buy route is load-bearing for the product and the
+console is being built. Unit 13 corrects it, and Unit 13 is deliberately **last**, because what the
+rebuilt console keeps is what decides which routes can go. ⚠️ Also found while reading: **`.env`
+carries `ARC_RPC_URL` and `ARC_MARKET_ADDRESS` twice each**, lines 22–25. Both copies are
+byte-identical so nothing is broken; the trap is that editing the first copy does nothing.
+
+Five things are named as undecidable without building, each with the unit that decides it. The
+largest is whether the orphan CSS — `.locked-preview`, `.purchase-bar`, `.report-paper`, defined in
+the stylesheet and drawn in **none** of the ten reference files — composes into the report page,
+which is the one screen the whole x402 argument rests on and the one screen the reference package
+does not contain.
+
+---
+
+## 2026-09-11 — PHASE-5 rewritten in function order, and the reorder found one missing route
+
+`tracking/phases/PHASE-5.md` rewritten, 1,119 lines. **Documentation only** — no code, no new files,
+no page changes, no deletions. Same scope, same six decisions, same warnings; only the sequence
+changed, and the framing changed with it.
+
+### What was wrong with the first version
+
+It was ordered by the build graph, which gives **four half-wired pages and nothing working until the
+end**. The owner's strategy is the opposite: the design has already made the layout decisions, every
+function already exists, the work is wiring, and it should be sequenced so that **after each unit
+there is one more thing you can actually do**. So the units now follow the product's own flow — The
+Graph, then the agent, then the document, then tokenization, then payments, then the market, then
+Arc.
+
+⚠️ **The rule that reshaped every unit: one function wired to its place, not one page styled.** Unit
+titles now name the function and the place it goes — `querySubgraph` → the source panel,
+`stake(marketId, claimId)` → the market page — rather than naming a page and calling it a restyle.
+The word "restyle" is gone from the unit list.
+
+### ⚠️ The reordering surfaced a route that does not exist, and it is named rather than smuggled
+
+Unit 7 asks for The Graph to be **visible and pressable** first, on the grounds that it has the most
+substance behind it — 25 live deployments — and no visual surface today. ⚠️ **There is no route in
+this repo that serves Graph data outside a generation run.** `/api/console/state` is the store,
+`/api/health` is the facilitator, `settlement_evidence` is settlement-only with three rows. A static
+registry list has nothing to press, and pressing something is this phase's whole criterion. So the
+plan adds **one route, `app/api/console/source/route.ts`**, and says so in a dedicated section rather
+than letting it appear inside a unit. ⚠️ **It also gives `graph/evidence.ts::buildEvidence` its
+second caller** — PHASE-4 records that *"the builder exists and its only caller is a demo script"* —
+so it closes a Phase 4 gap by using something rather than writing something.
+
+### The dependency the new order improved rather than fought
+
+⚠️ **The paper is built once and used twice.** `.report-paper` is the console's document stage (Unit
+9) *and* the bought body behind the paywall (Unit 11). Function order puts the console first, so the
+paper gets proven on a page where a failure costs one panel, and `/report/[hash]` inherits it already
+working. **That splits the phase's biggest unknown in half**: the orphan CSS — `.locked-preview`,
+`.purchase-bar`, `.report-paper`, defined in the stylesheet and drawn in none of the ten reference
+files — is now tried in two places instead of gambled on once. ⚠️ **The consequence is that Unit 9
+puts those two classes in `globals.css`, not `console.css`** — the plan's own *check at the second
+consumer* rule is pre-empted knowingly, because both consumers are known in advance.
+
+Five other ordering constraints are named where they bind: the buyer route move before any deletion,
+the doorlock before the nav links `/console`, the unbuilt marker before the header that consumes it,
+and the two-ledger panel after the market page it links into.
+
+### Every proof is now a testing list
+
+⚠️ **Three parts, always in the same order: LIVE (each control and what it does when pressed),
+MARKED (each affordance that is visibly inert, so a missing one is a bug), DO NOT PRESS (what spends,
+when spending is not the proof).** The point is that a finding reads *"this button did the wrong
+thing"* rather than *"something feels off"*. Two proofs now carry cut-list warnings as well — on
+`/markets/[id]`, an Outcome select or a *Back* button appearing at all **is** the bug, since D3 and D4
+cut them rather than marking them.
+
+### ⚠️ The cost of function order, written into the plan rather than discovered
+
+**Pages arrive finished one at a time, so the ones not yet reached sit in Phase 3's styling under the
+new chrome.** From Unit 6 the nav links `/`, `/markets` and `/holdings`, and those keep the old look
+until Units 12, 14 and 13. That is visible on every visit to the front door and it is the price of
+every unit being a thing that works. ⚠️ **Units 1–6 are deliberately the shape this phase otherwise
+refuses** — Unit 3 restyles everything and wires nothing — because doing it once at the start is what
+makes every later unit a wiring unit instead of a wiring-plus-styling unit.
+
+The cut order was rewritten too, and it inverted: ⚠️ **Units 7, 8, 9 and 11 are the demo** — read The
+Graph, generate a report, see it as a document, pay for it — so cutting any of them cuts the story
+rather than the polish. The market and Arc pages now cut first, because an unreached page is old
+styling rather than a half-wired one. Unit 17's play gap gained a second walk: **go through the
+product in the order the units built it**, which is the demo itself.
+
+Nothing was added and nothing was dropped. The font stack and its AGPL-3-covers-PDF-only finding,
+light-only with `color-scheme` in the same commit, HBAR pricing with one `Price` component, outcome
+rows as display, the mark-versus-cut rule, the 13.3 seconds of streaming headroom, the one-sided pool
+bar needing a label, and the record strip designed for its empty case all carry over unchanged.
