@@ -8879,3 +8879,118 @@ intended ordering and it is how you tell the two apart on the deployment.
 `.env.example`. ⚠️ `lock.ts` sits in `app/api/console/` with no `route.ts`, so **it produces no
 route** — confirmed in the build manifest — and it is deleted along with the directory whenever that
 happens.
+
+---
+
+## 2026-09-11 — Phase 5 Unit 2b: the two remaining console routes closed, and the paywall stated as a property
+
+`/api/console/report` and `/api/console/accounts` both **locked** with Unit 2's `locked()` — no second
+mechanism, one import and two lines each — plus the console page taught to send the secret and to say
+*locked* rather than *broken*. `npx tsc -p tsconfig.json --noEmit` exits **0**, `npm run build`
+passes, and **nothing was spent.** No `src/` change, no gate change, no change to `lock.ts` beyond
+importing it.
+
+### ⚠️ The property, and it is the finding that matters
+
+**There is no unauthenticated path to a paid report body.** Stated as a property and checked against
+every route in `app/api/`, not asserted.
+
+The survey first — which routes can produce a rendered body at all:
+
+| route | body? | reached by |
+|---|---|---|
+| `/api/reports/[hash]` | **the full body** | ⚠️ **x402 only** — a settled on-chain payment. Untouched |
+| `/api/buy` | the full body | ⚠️ **but only after paying for it.** Unauthenticated by design (Unit 1), and with `confirm:true` it settles 0.001 HBAR through the gate before it has anything to return. **Not a bypass — the payment happens.** Its dry run returns none |
+| `/api/console/report` | the full body | ⚠️ **was NOTHING — now `locked()`** |
+| `/api/console/generate` | ⚠️ `render(...).length` **only**, never the string | `locked()` (Unit 2) |
+| `/api/cron/commit` | calls `load()`, returns **no body field** | `CRON_SECRET` |
+| `/api/console/state` | `list()` — the same fields `/` shows publicly | open, correctly |
+
+Then the check. ⚠️ **The oracle is deliberately not `/api/console/report`**, since that is the route
+being closed — Unit 2's probe used it and that was the proof and the hole in one command. Instead
+`load()` + `render()` were called **offline**, the same two functions the gate itself runs, which
+produced `$2214.84B`. (`reports.rendered_md` was dropped in migration 002, so a body is derived, not
+stored — worth knowing before reaching for that column.)
+
+```
+figure present in the response of ─
+  /api/console/report   0     /api/console/generate   0     /api/probe      0
+  /api/console/state    0     /api/console/tokenize   0     /api/holdings   0
+  /api/console/accounts 0     /api/console/transfer   0     /api/health     0
+  /api/buy (dry run)    0     /api/reports/[hash]     0  ← 402 challenge, no body
+  /report/[hash] HTML   0  ← the standing paywall probe, still clean
+```
+
+⚠️ **A lock on one route while another leaks is worse than neither, because it reads as solved.**
+That is why this was run across all fourteen rather than on the two being changed.
+
+### `/api/console/report` — LOCKED, not deleted, and the premise for deleting was wrong
+
+⚠️ **"The console can link to `/report/[hash]` like everyone else" is not a replacement, because
+`/report/[hash]` is the PREVIEW.** That page deliberately never calls `render()` — it serves an
+identity panel and coverage counts and no body, by design. So deletion does not move the capability
+anywhere; it removes it, and the only remaining way for the operator to read a report body becomes
+**paying our own paywall, 0.001 HBAR at a time, to read work we published ourselves.**
+
+Against that, locking gives the exact property the paywall promises. ⚠️ **The promise is about
+strangers**, and `locked()` is **fail-closed** — `requiredEnv` runs before the comparison, so an
+absent or blank `CONSOLE_SECRET` yields **500**, never an open door. A misconfiguration cannot
+reopen this, which was the main argument for preferring deletion and does not survive contact with
+the mechanism. The caller that gets through is the operator, which in this project is the publisher.
+
+**What the console keeps:** *View body (unpaid)*, behind the secret. **What it loses:** nothing —
+except that it now needs the secret typed first. ⚠️ **What must never happen is this shape appearing
+in `app/report/[hash]/` or on any unauthenticated route**, and the route's header now says so where
+it used to say only that it was throwaway.
+
+### `/api/console/accounts` — LOCKED, and ⚠️ the stated reason for flagging it was weaker than advertised
+
+`app/api/holdings/route.ts` calls this *"a configuration disclosure on a public one"*. Measured
+against what the route actually returns, **that overstates it.** The only non-public thing here is
+**two presence booleans** — `keySet` for `HEDERA_SELLER_KEY` and `HEDERA_BUYER_KEY`, via a `soft()`
+helper that is only ever compared to `null`, **never a value**. Everything else is a Hedera account
+id or an on-chain balance, both public.
+
+⚠️ **And `/api/health` is public by design and discloses strictly more**: absent / `EMPTY — set but
+blank` / set, for **four** variables including `HEDERA_SELLER_KEY` and `DATABASE_URL`, at finer
+granularity than this route has. So on the disclosure argument alone the two are not meaningfully
+different, and locking `accounts` for that reason while `/api/health` publishes a superset would be
+incoherent.
+
+**It was locked anyway, for a better reason: a route whose safety rests on an argument about a
+different route is one nobody can reason about locally.** If `/api/health`'s env block is ever
+trimmed — and it arguably should be — `accounts` silently becomes the most disclosing endpoint in the
+app with nothing on it to say so. Locked, that question never has to be asked again. ⚠️ **Deleting it
+was rejected outright**: the panel exists because *"a browser that shows spend buttons and never
+mentions an account invites the reader to assume a wallet is attached"*, so removing it makes the
+spend surface **more** misleading, not less.
+
+⚠️ Its `GET` now takes a `request` parameter, which it did not before — a handler cannot read a
+header it was never handed.
+
+### ⚠️ Five of six console routes are locked, so the secret moved to the top of the page
+
+`Accounts` is the first thing on the console and it fetches on mount. Locking it without moving
+anything would have greeted every operator with a 401 **above** the field where the secret goes, which
+reads as a broken deployment rather than a locked door. Two changes followed:
+
+- The `CONSOLE_SECRET` field moved out of the operations column to the **top of the page**, above
+  `Accounts`, and its copy now names all five locked things.
+- ⚠️ **`Accounts` does not fetch at all until a secret exists** — it renders *"Locked. Paste
+  `CONSOLE_SECRET` above…"* rather than firing a request it knows will fail. It also separates **401
+  (wrong secret)** from **500 (absent or blank in the environment)** in its error text, which is the
+  `requiredEnv`-before-compare ordering surfacing where an operator can act on it.
+
+Open, correctly: `/api/console/state` reads what `/` already shows the public, and `/api/buy` is
+product and must stay reachable by the paywall button.
+
+### The proof
+
+```
+/api/console/report    no secret 401 · wrong 401 · correct 200  ← operator keeps the capability
+/api/console/accounts  no secret 401 · wrong 401 · correct 200
+/console               200 · secret field present · accounts renders its locked state
+```
+
+⚠️ Neither exercise spends: `report` is a store read plus `render()`, and `accounts` is Mirror Node
+and `balanceOf` reads. The paywall probe above used an offline oracle and came back clean.

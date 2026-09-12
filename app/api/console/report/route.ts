@@ -1,27 +1,41 @@
-// POST /api/console/report — read any report's full body without paying.
+// POST /api/console/report — the operator reads a report body without paying. ⚠️ **LOCKED.**
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// ⚠️ **THIS WAS A DOOR AROUND THE PAYWALL AND IT IS NOW BOLTED.** Until 2026-09-11 this route was
+// unauthenticated and returned `render(report)` — **the same string the x402 gate sells** — with no
+// payment, no quote and no challenge. That was survivable only while `/console` was unreachable
+// scaffolding due for deletion. The console is becoming a linked product page, and an open door to
+// the paid body would mean anyone could `curl` for free what a settled payment buys, which makes
+// every settled payment prove nothing. ⚠️ It was not theoretical: Unit 2's own paywall probe used
+// this route as an unauthenticated oracle to pull a paid figure out of the store.
 //
-// ⚠️ **THIS IS A DOOR AROUND THE PAYWALL AND IT IS NOT IN THE PRODUCT.** It reads the store
-// directly and renders the same markdown a buyer receives, with no payment, no quote and no
-// challenge. It exists for one reason: **there is no identity system.** A person testing this build
-// cannot re-read a report they already paid for, because Phase 3 serves a purchase once and
-// `payments/auth.ts` — the unit that would let someone prove which address they are — is the
-// declared cut point and does not exist.
+// ── ⚠️ Why this was LOCKED and not DELETED, and what the alternative actually cost ───────────────
 //
-// ⚠️ **What this must never become.** It is fine here because `/console` is deleted before
-// submission and because a console that cannot show you the artefact under test is not a test
-// surface. It would not be fine in `app/report/[hash]/`, which is the public preview and is the
-// thing the paywall protects. **The gate is untouched by this file** — `/api/reports/[hash]` still
-// requires a settled payment, and the proof for this unit is that a figure from a body read here
-// still appears zero times in the public page's HTML.
+// Deletion is the tidier position and it was rejected on one fact: **`/report/[hash]` is the
+// PREVIEW.** "The console can link to `/report/[hash]` like everyone else" sounds like a
+// replacement and is not one — that page deliberately never calls `render()`, so it hands back an
+// identity panel and coverage counts, never a body. Deleting this route does not move the capability
+// somewhere else; it removes it, and the only remaining way for the operator to see a report body
+// becomes **paying our own paywall, 0.001 HBAR at a time, to read work we published ourselves.**
 //
-// ⚠️ **Nothing is reimplemented.** `load()` is the store's reader — the one that re-derives the hash
-// and refuses a row whose bytes no longer match its own primary key — and `render()` is the same
-// function whose output the gate sells. A console door that rendered differently would be testing
-// itself rather than the build.
+// ⚠️ **The boundary the paywall actually promises is about STRANGERS, and locking keeps it exactly.**
+// `locked()` is fail-closed — `requiredEnv` runs before the comparison, so an absent or blank
+// `CONSOLE_SECRET` yields 500 and never an open door — so a misconfiguration cannot reopen this. The
+// caller that gets through is the operator, which in this project is the publisher, reading back
+// their own published work. **What must never happen is this shape appearing in `app/report/[hash]/`
+// or on any unauthenticated route.** The gate is untouched: `/api/reports/[hash]` still requires a
+// settled payment and is still the only way a stranger sees a figure.
+//
+// ⚠️ **It exists at all because there is no identity system.** Phase 3 serves a purchase once and
+// `payments/auth.ts` — the unit that would let someone prove which address they are — is the declared
+// cut point. A console that cannot show you the artefact under test is not a test surface.
+//
+// ⚠️ **Nothing is reimplemented.** `load()` is the store's reader and `render()` is the same function
+// whose output the gate sells. A console door that rendered differently would be testing itself
+// rather than the build.
+//
 
 import { NextResponse } from 'next/server.js';
+import { locked } from '../lock.js';
 import { load } from '../../../../src/store/reports.js';
 import { render } from '../../../../src/agent/narrate.js';
 import { tokenFor } from '../../../../src/store/tokens.js';
@@ -30,6 +44,11 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<NextResponse> {
+  // ⚠️ **THE PAYWALL BOUNDARY. This must stay the first statement in this handler.** Everything
+  // below returns the same bytes a settled x402 payment buys.
+  const refusal = locked(request);
+  if (refusal) return refusal;
+
   const { reportHash } = (await request.json().catch(() => ({}))) as { reportHash?: string };
   const hash = reportHash?.trim();
   if (!hash) {

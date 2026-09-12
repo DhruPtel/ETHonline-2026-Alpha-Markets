@@ -1,6 +1,22 @@
 // GET /api/console/accounts — who the console signs as, and what each of them holds.
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// ⚠️ **LOCKED as of 2026-09-11 — operator-only.** It answers *which of our server-held keys are
+// provisioned, and what do our signing accounts hold*, and that is an operator question with no
+// upside in answering it to strangers once `/console` is linked from the nav.
+//
+// ⚠️ **The honest severity, because the reason this was flagged is weaker than it was written.**
+// `app/api/holdings/route.ts` calls this "a configuration disclosure on a public one", and measured
+// against the route it overstates: the only non-public thing here is two **presence booleans**
+// (`keySet` for `HEDERA_SELLER_KEY` and `HEDERA_BUYER_KEY`) — never a value. Everything else is a
+// Hedera account id or an on-chain balance, both public. Meanwhile **`/api/health` is public by
+// design and reports strictly more**: absent / EMPTY / set for four variables including
+// `HEDERA_SELLER_KEY` and `DATABASE_URL`, with finer granularity than this route has.
+//
+// ⚠️ **So it is locked for a different and better reason: a route whose safety rests on an argument
+// about a DIFFERENT route is a route nobody can reason about locally.** If `/api/health`'s env block
+// is ever trimmed — and it arguably should be — this would silently become the most disclosing
+// endpoint in the app, with nothing here to say so. Locked, that question never has to be asked
+// again. It is one import and two lines.
 //
 // ⚠️ **There is no wallet connection anywhere in this build, and that is the thing this route
 // exists to make obvious.** Every operation signs server-side from a key in `.env`: the analyst
@@ -19,6 +35,7 @@
 // shows them side by side.
 
 import { NextResponse } from 'next/server.js';
+import { locked } from '../lock.js';
 import { ethers } from 'ethers';
 import { ANALYSTS } from '../../../../src/config/analysts.js';
 import { fetchJson, MIRROR, hbar } from '../../../../src/tokenize/hedera.js';
@@ -50,7 +67,11 @@ interface Account {
   readonly note: string | null;
 }
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request: Request): Promise<NextResponse> {
+  // ⚠️ Operator-only. See the header — and note this takes `request` now, which it did not before.
+  const refusal = locked(request);
+  if (refusal) return refusal;
+
   try {
     const analyst = ANALYSTS[0]!;
     const buyerId = soft('HEDERA_BUYER_ID');

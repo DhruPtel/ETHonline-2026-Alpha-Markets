@@ -46,8 +46,11 @@ export function Panel() {
     setBusy(true);
     log.begin('view', `read ${h.slice(0, 12)}… from the store, unpaid`);
     try {
+      // ⚠️ **Locked since 2026-09-11 — this returns the same bytes the x402 gate sells.** Without
+      // the secret it is a 401; the route's header says why it is locked rather than deleted.
       const res = await fetch('/api/console/report', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-console-secret': secret },
         body: JSON.stringify({ reportHash: h }),
       });
       const j = await res.json();
@@ -77,35 +80,36 @@ export function Panel() {
 
   return (
     <>
+      {/* ⚠️ **The secret comes FIRST, above everything.** Five of the six console routes are now
+          locked — the three that spend, the accounts panel, and the report door — so a console
+          opened without it would show a wall of 401s and read as a broken deployment. */}
+      <section className="op op-secret">
+        <h2>Console secret</h2>
+        <p className="op-note">
+          Paste the value of <span className="mono">CONSOLE_SECRET</span> to use this console.
+          Generate, Tokenize and Transfer spend real funds; Accounts reads our key state; and
+          &ldquo;View body&rdquo; returns the same bytes the paywall sells. All five are locked.
+        </p>
+        <label className="field">
+          <span>CONSOLE_SECRET</span>
+          <input className="mono" type="password" value={secret} spellCheck={false}
+            placeholder="the value set in the environment"
+            autoComplete="off" onChange={(e) => setSecret(e.target.value)} disabled={busy} />
+        </label>
+        {/* ⚠️ Says what it is, so nobody mistakes it for a sign-in. */}
+        <p className="op-note dim">
+          A shared doorlock, not a sign-in — it identifies nobody and grants nothing beyond this
+          console. It is held for this tab only: reloading loses it. ⚠️ The x402 paywall on{' '}
+          <span className="mono">/api/reports/[hash]</span> is a separate mechanism, it is not
+          affected by anything here, and nothing on this page can bypass it for a stranger.
+        </p>
+      </section>
+
       <Accounts onPickRecipient={setRecipient} onPickSigner={setSigner} signer={signer}
-        refreshToken={refreshToken} />
+        refreshToken={refreshToken} secret={secret} />
 
       <div className="console-grid">
         <div className="ops">
-          {/* ⚠️ FIRST, above every control that spends, because a page full of spend buttons that
-              401 without explanation reads as a broken deployment rather than as a locked door. */}
-          <section className="op op-target">
-            <h2>Console secret</h2>
-            <p className="op-note">
-              Generate, Tokenize and Transfer are locked — they spend real funds. Paste the value of{' '}
-              <span className="mono">CONSOLE_SECRET</span> to use them. Reading is not locked and the
-              paywall is not affected.
-            </p>
-            <label className="field">
-              <span>CONSOLE_SECRET</span>
-              <input className="mono" type="password" value={secret} spellCheck={false}
-                placeholder="the value set in the environment"
-                autoComplete="off" onChange={(e) => setSecret(e.target.value)} disabled={busy} />
-            </label>
-            {/* ⚠️ Says what it is, so nobody mistakes it for a sign-in. */}
-            <p className="op-note dim">
-              A shared doorlock, not a sign-in — it identifies nobody and grants nothing beyond this
-              console. It is held for this tab only: reloading loses it. ⚠️ The x402 paywall on{' '}
-              <span className="mono">/api/reports/[hash]</span> is a separate mechanism and is not
-              affected by anything here.
-            </p>
-          </section>
-
           <Generate log={log} busy={busy} setBusy={setBusy} secret={secret}
             onSaved={(h) => { setTarget(h); refresh(); }} />
 

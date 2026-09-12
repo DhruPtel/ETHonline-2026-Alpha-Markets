@@ -41,22 +41,34 @@ interface Payload {
   accounts: Account[]; holdings: Holding[]; holdingsError: string | null; tokenCount: number;
 }
 
-export function Accounts({ onPickRecipient, onPickSigner, signer, refreshToken }: {
+export function Accounts({ onPickRecipient, onPickSigner, signer, refreshToken, secret }: {
   onPickRecipient: (evm: string) => void;
   onPickSigner: (role: 'analyst' | 'buyer') => void;
   signer: 'analyst' | 'buyer';
   refreshToken: number;
+  /** ⚠️ The console secret. This route is operator-only as of 2026-09-11 — see its header. */
+  secret: string;
 }) {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
+    // ⚠️ **Waits for the secret rather than firing and failing.** This panel is the first thing on
+    // the console, so an automatic 401 here would greet every operator with an error before they had
+    // anywhere to type. Silence until there is something to send is the honest state, and the
+    // message below says which.
+    if (!secret) { setData(null); setError(null); return; }
     setLoading(true);
     try {
-      const res = await fetch('/api/console/accounts', { cache: 'no-store' });
+      const res = await fetch('/api/console/accounts', {
+        cache: 'no-store', headers: { 'x-console-secret': secret },
+      });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      // ⚠️ 401 is a wrong secret; 500 is a secret that is absent or blank in the environment. The
+      // route's guard runs `requiredEnv` before it compares, which is what keeps those two apart.
+      if (res.status === 401) throw new Error('console secret rejected — check CONSOLE_SECRET');
+      if (!res.ok) throw new Error(json.error ?? json.detail ?? `HTTP ${res.status}`);
       setData(json as Payload);
       setError(null);
     } catch (e) {
@@ -64,7 +76,7 @@ export function Accounts({ onPickRecipient, onPickSigner, signer, refreshToken }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [secret]);
 
   useEffect(() => { void refresh(); }, [refresh, refreshToken]);
 
@@ -83,6 +95,14 @@ export function Accounts({ onPickRecipient, onPickSigner, signer, refreshToken }
       </p>
 
       {error ? <p className="bad-line mono">{error}</p> : null}
+
+      {/* ⚠️ Locked, not broken — and the difference has to be on screen or it reads as a fault. */}
+      {!secret ? (
+        <p className="op-note dim">
+          Locked. Paste <span className="mono">CONSOLE_SECRET</span> above to read the signing
+          accounts and their balances.
+        </p>
+      ) : null}
 
       <div className="acct-grid">
         {(data?.accounts ?? []).map((a) => (
