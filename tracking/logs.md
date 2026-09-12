@@ -9857,3 +9857,204 @@ until `CONSOLE_SECRET` is typed. The Report / Source data tabs now switch.
 **MARKED** — unchanged elsewhere.
 ⚠️ **DO NOT PRESS** — Generate (model tokens) and Tokenize (~7.7 HBAR and a permanent asset). ⚠️ The
 source query is safe to press repeatedly; it only costs Graph quota.
+
+---
+
+## 2026-09-12 — Orientation pass on Phase 5: read-only, both checks green, four things the tracking overstates
+
+Read-only. No edits to `app/` or `src/`, no git, no chain call, no database write, no dependency
+change. Only this file was appended to.
+
+### The two checks
+
+```
+npx next build                                   EXIT 0 · 22 routes · compiled 4.8s · TS 5.3s
+npx tsc -p tsconfig.json --noEmit                EXIT 0
+npx tsx --env-file=.env scripts/ops/migrate.ts   EXIT 0 · 7 migrations, all idempotent no-ops
+                                                 13 tables · PASS
+```
+
+⚠️ **`next build` does cover the whole of `app/`, including files no route imports.**
+`next.config.ts` points Next at `tsconfig.app.json`, whose `include` is `app/**/*.tsx` — not the
+route graph. So the orphaned console modules below are typechecked; they are simply never rendered,
+never bundled and never requested. The build is a compile check over all of `app/`, and a render
+check over only what a route reaches.
+
+### Provenance of each page, as the code stands
+
+| route | how it was made | evidence |
+|---|---|---|
+| `/console` | **transcribed** from `console.html`, then wired | header says so; 3 of 204 reference classes absent, and 2 are the exporter's `fit-panel` wrappers removed on purpose |
+| `/markets/[id]` | **transcribed** from `prediction-stablecoins-2027`, then wired | header says so; the deltas are the CUT Select/Switch plumbing and `lucide-*` |
+| `/` | **rebuilt from the DOM** | every semantic class present in the right order; not verbatim |
+| `/markets` | **rebuilt from the DOM** | same; `prediction-card` is a template literal, not a missing class |
+| `/report/[hash]` | **composed** — no reference exists for it | header says so |
+| `/holdings` | **composed** — the ten files contain no holdings screen | |
+
+### What is wired, and what is inert
+
+**Wired, reading real data:** `/` (one `list()` + one batched `tokensFor`), `/markets` (one SQL +
+one batched `eth_call`), `/markets/[id]`, `/report/[hash]` including the paywall and `/api/buy`,
+`/holdings` via `/api/holdings`, the console's **Generate** stream (nine NDJSON stages into the
+terminal) and the console's **Source data** tab and **Query Evidence** block via
+`/api/console/source`.
+
+**Inert, and rendering the reference's placeholder values:**
+
+1. ⚠️ **The console's Report tab is the mockup report.** `ALPHA MARKETS / Lending protocols /
+   PREPARED BY ATLAS RESEARCH · DEMO DATA`, a hard-coded four-row financial table, "RUN 042",
+   `lending-protocols-q2-2026.pdf`, `90%`, `1 / 4`. A generated report never lands here — `Generate`
+   emits a `/report/<hash>` link in the terminal and that is the only way to see it.
+2. ⚠️ **The whole tokenize section below the workspace is inert**, verbatim from the reference:
+   "Upload your report", "5 USDC per unlock", a `defaultValue="Lending protocols / Q2 2026"` title
+   field, a listing preview and a receipt grid. **`/api/console/tokenize` has no caller anywhere in
+   `app/`.**
+3. ⚠️ **The viewer toolbar's zoom, paging and expand buttons are live `<button>`s with no handler
+   and no `Unbuilt` marker.** That contradicts `app/ui/unbuilt.tsx`'s own contract — *"never a
+   `<button>`… nothing to click, nothing to focus"* — and contradicts Unit 4b's log, which recorded
+   `.viewer-tools` as *"present and marked"*. It stopped being marked when Unit 5 lifted the toolbar
+   into `viewer.tsx`.
+
+### ⚠️ Five orphaned files in `app/console/` — 852 lines no route reaches
+
+`panel.tsx` is imported by nothing. It is the sole root of `spend.tsx`, `state.tsx` and
+`accounts.tsx`; `document.tsx` hangs off `panel` and `spend`. Dead in full:
+
+```
+panel.tsx 303 · spend.tsx 209 · accounts.tsx 197 · state.tsx 167 · document.tsx 76
+```
+
+They are the only callers of `/api/console/tokenize`, `/api/console/transfer`,
+`/api/console/accounts`, `/api/console/state` and `/api/console/report` — **five of the fourteen API
+routes now have no browser caller.** `markdown.tsx` survives independently via
+`app/report/[hash]/buy.tsx`. This is the state Unit 4c described as *"currently not rendered"* and it
+has not changed since; ⚠️ `Accounts` being gone is still the one with a cost, for the reason that
+unit gave.
+
+### Where the tracking and the code disagree
+
+1. ⚠️ **`app/README.md` says the console *"has no authentication"* and calls `/console` and
+   `/api/console/*` *"throwaway, deleted before submission"*.** `CONSOLE_SECRET` has since locked six
+   of the seven console routes, and PHASE-5 makes the console **product** (`console/ — the agent
+   workspace — product, gated`). Both sentences are now false. PHASE-5 Unit 1 flagged *one* sentence;
+   there are two.
+2. ⚠️ **`CONSOLE_SECRET` is in neither `.env` nor `.env.local`.** By `lock.ts`'s own ordering rule,
+   `requiredEnv` runs before the comparison, so **locally every locked console route returns 500, not
+   401** — including the Source data panel. Unit 5's `401/401/200` proof was not against this `.env`.
+   Nothing is broken; the variable is simply only set on Vercel.
+3. **The two page headers still open with "PASS ONE: A VERBATIM TRANSCRIPTION… NOTHING HERE IS WIRED
+   AND NOTHING HERE IS REAL."** Both pages were wired in their second pass. The headers describe a
+   state that no longer exists and read as a warning about live pages.
+4. **PHASE-5 §1 specifies five page-group stylesheets** — `reports.css`, `report/report.css`,
+   `markets/markets.css`, `holdings/holdings.css` and `console/console.css`. **Only `console.css`
+   exists.** Everything else landed in `globals.css`, now 928 lines. The plan's own rule (*a class
+   used by two or more page groups belongs in globals*) was applied in one direction only.
+5. `app/console/panel.tsx` still carries an `Unbuilt label="Live subgraph evidence"` — **built in
+   Unit 5.** Stale, but inside a dead file.
+
+### Minor
+
+`.env` defines `ARC_MARKET_ADDRESS` and `ARC_RPC_URL` twice each, lines 22–25. **The duplicate
+values are identical**, so nothing resolves wrongly today; it is a trap rather than a fault. No empty
+values in `.env`.
+
+**Nothing was started. No pruning, no deletion, no renaming — the pruning task follows this one.**
+
+
+---
+
+## 2026-09-12 — The Phase 5 frontend moved to `trash/`, and the backend proved untouched
+
+Moves only. No deletion, no edit to any moved file, no change under `src/`, `contracts/` or
+`scripts/`, no commit. One new file: `trash/README.md`.
+
+### What moved
+
+```
+app/page.tsx · app/layout.tsx · app/globals.css          →  trash/app/…
+app/report/ · app/markets/ · app/console/                →  trash/app/…
+app/holdings/ · app/ui/                                  →  trash/app/…
+front-end-design/                                        →  trash/front-end-design/
+```
+
+26 tracked files out of `app/` and 14 out of `front-end-design/` — **40 deletions in `git status`,
+41 files git would add under `trash/`** (the difference is `trash/README.md`). Paths mirror where
+they came from, so recovery is the move in reverse.
+
+**What stayed, deliberately:** all fourteen routes under `app/api/`, `app/markdown.tsx` (the
+escaping boundary — PHASE-5's own target tree keeps it *untouched*), `app/README.md`,
+`single-frontend/`, and everything under `src/`, `contracts/`, `scripts/`, `tracking/`.
+
+### ⚠️ The parity check that had to pass before `front-end-design/` could move
+
+The ten HTML screens **are** fully carried by `single-frontend/alpha-markets.html`, verified three
+ways rather than assumed:
+
+```
+CSS      line 3 of all eleven files   md5 c29dab930c03e57769252b744fb1fd1f  — byte-identical
+markup   <main> class-token sequence, all ten routes      IDENTICAL · same length · same order
+         console 763 · markets 266 · reports 173 · tokenization 277 · the six prediction routes
+fonts    two base64 OTF payloads, identical byte lengths in both
+```
+
+⚠️ **Four things in `front-end-design/` are NOT in `single-frontend/`, and `trash/` is now their only
+copy:** `FONT-LICENSE.txt` (the AGPL-3-with-font-exception text the do-not-ship-the-fonts decision
+was made against — no obligation attaches, since `globals.css` used a system stack), `README.txt`
+(the exporter's note), `README.md` (our account of what was taken), and the unreferenced 1.4 MB PNG.
+**None of them is a screen, an asset the HTML needs, or anything the new pages read** — the brief's
+condition was about the ten files, and the ten files are carried whole. Recorded here and in
+`trash/README.md` so the licence is not buried rather than set aside.
+
+### ⚠️ The proof that matters — the backend
+
+Every relative import under `app/api/` **and** `src/` resolved against the filesystem after the move:
+
+```
+211 / 211 relative imports resolve
+zero imports under app/api/ reach a moved path
+the only relative import inside app/api/ is `../lock.js` → app/api/console/lock.ts, which stayed
+git status --porcelain src contracts scripts app/api   →  EMPTY
+npx tsc -p tsconfig.json --noEmit                      →  EXIT 0
+```
+
+### ⚠️ The app builds with zero pages — no minimal layout is needed
+
+The first build after the move **failed**, and the reason is worth recording because it is not a
+source fault: `.next/dev/types/validator.ts` is generated and still named the seven pages that had
+just moved. **`Compiled successfully` then `Failed to type check` on a stale cache.** The `.next`
+directory was moved aside (gitignored build output, not deleted) and the build re-run:
+
+```
+EXIT 0 · 15 routes · all fourteen api routes + /_not-found
+```
+
+**So no `app/layout.tsx` is required for the backend to build.** Next demands a root layout only
+once a page segment exists, and there are none. ⚠️ **The new pages must bring their own
+`layout.tsx`** — the moment the first `page.tsx` lands without one, the build fails again, and that
+failure will look like a page problem rather than a missing root layout.
+
+⚠️ **`next build` cannot be trusted across this kind of move until `.next` is cleared.** A stale
+route validator reports missing modules that are neither missing nor imported by anything live.
+
+### What is in `trash/`, and it is committed rather than ignored
+
+`git check-ignore` matches nothing under `trash/` — it is committable, which is the whole point.
+`trash/README.md` says what each directory was, when it moved and why, and flags four things before
+anyone reuses them: the two **transcribed** pages (`console/page.tsx` at 430/430,
+`markets/[id]/page.tsx` at 199/199) are the faithful ones and the rest were reconstructed and
+drifted; `console/panel.tsx` was **already orphaned** and dragged 852 lines with it; the paywall's
+never-call-`render()` property has to be re-proved if it is rewritten rather than carried over; and
+`report/[hash]/buy.tsx` was the only live importer of `app/markdown.tsx`, which now has none.
+
+The `*:Zone.Identifier` WSL markers rode along inside `front-end-design/` and are still gitignored
+there. ⚠️ **The three inside `tracking/phases/` were left alone** — untracked, ignored, and inside a
+directory the brief says must not be disturbed for any reason. Not worth touching for zero gain.
+
+### Minor, and pre-existing
+
+`next-env.d.ts` shows as modified. It is generated, and it was rewritten by the orientation run's
+`next build` (`.next/dev/types/…` → `.next/types/…`), not by this task. Left as it is.
+
+**Repo state: the backend is whole and builds; `app/` holds fourteen routes, `markdown.tsx` and its
+README; there are no pages. The new app lands next and brings its own root layout.**
+
