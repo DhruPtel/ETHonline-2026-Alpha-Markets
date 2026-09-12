@@ -10486,3 +10486,92 @@ so a default import binds the module object and TypeScript refuses it as a JSX c
 load per nav click, which a document site can afford. 14 `<Link>` elements remain, all on pages still
 in `rebuild/`.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 4: `/report/[hash]`, the reading page
+
+301 lines. `next build` exit 0, route table **16 → 17**, three demo states all 200, and `src/`,
+`contracts/`, `scripts/`, `app/api/` unchanged. Three `<Link>` became `<a href>`; nothing else
+changed.
+
+### ⚠️ This page has NO reference route, so the class-token check has no counterpart
+
+The brief asks for the sequence against the matching route in `single-frontend/alpha-markets.html`.
+**There is no matching route.** The file carries exactly ten and none of them is the reading page:
+
+```
+console · markets · reports · tokenization · prediction-* ×6
+```
+
+That is the same finding the old `report/[hash]/page.tsx` header recorded — *"the one screen the
+entire x402 argument rests on"* has no drawing. What the design package **does** carry is the CSS for
+it: `.locked-preview`, `.purchase-bar`, `.unlocked-bar`, `.report-excerpt`, `.report-body`,
+`.report-paper` and `.financial-table` are all defined and drawn in none of the ten screens.
+
+**So the meaningful check is the other direction — does the composed page stay inside the design
+system, or did it invent classes?** Run across all three states:
+
+```
+distinct classes used        32
+defined in globals.css       32
+undefined (would be unstyled) 0
+```
+
+⚠️ **Every class resolves.** The page is composed from the design's own parts rather than drawn
+beside them.
+
+### The three states, and they are all reachable
+
+```
+9f2c4a7e1b8d3056   PAYWALL   public preview + BuyControl, live "Unlock for 5 USDC"
+3d81e6f09c24ab75   OWNED     unlocked bar + .report-body + the full .report-paper
+b570c93a4e12d8f6   PREVIEW   public preview + INERT unlock, "Not yet listed for access"
+```
+
+Paywall state reads: `LENDING / ATLAS RESEARCH` eyebrow, a 46px serif title, `PUBLIC PREVIEW` over
+the subtitle and summary, a `.locked-preview` holding the padlocked thumbnail and *Full report · 4
+pages*, then the purchase bar — `5 USDC · x402 · Paid access` against a dark **Unlock** button. Below
+it `THE GRAPH / QUERY EVIDENCE` as a seven-row `<dl>`, then *Backs this claim · TRUE* linking to the
+market. The owned state replaces the excerpt and the bar with *Unlocked for this account* and the
+full sheet.
+
+### ⚠️ A precursor to commit 10's probe, run early because it is free
+
+The paywalled record's demo const **carries** `LENDING_TABLE`. Does its HTML leak it?
+
+```
+                 paywalled(9f2c)   owned(3d81)
+12.4B                  0                2
+18.2M                  0                2
+318,000                0                2
+financial-table        0                2
+report-paper           0                2
+```
+
+**The gate holds in the demo shape**, because `ReportPaper` is a server component and `BuyControl`
+receives only `price` and `currency` — nothing withheld crosses a client boundary into the flight
+payload. ⚠️ **This is not commit 10's proof and must not be mistaken for it.** Here the body is a
+literal in the same file; there it comes from `load()`, and the old page's guarantee was *structural*
+— it never called `render()` at all. Commit 10 owns a probe over **every fact value and the
+assessment text**, not one figure, and not obtained through `/api/console/report`.
+
+### CUT items: absent, in source and in served HTML
+
+```
+<select 0 · type="radio" 0 · >Back< 0 · >Outcome< 0 · side-picker 0
+```
+
+### ⚠️ Three of the marketplace's six cards link to a 404, by demo-data design
+
+```
+9f2c… 200   3d81… 200   b570… 200
+e4a1… 404   6c08… 404   a293… 404      unknown hash 404
+```
+
+`MANIFEST.md` §7 records this: six hashes exist on `/` and in holdings, **three have records on the
+report page**. The three that do cover all three states, which is what the state machine needed. ⚠️
+**This is a demo-const inconsistency, not a routing fault, and it closes in commit 9/10** — real data
+means every listed report has a row and `load()` answers for all of them. Worth knowing now so the
+404s are not mistaken for a broken link when clicking through after commit 8.
+
