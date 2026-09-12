@@ -4,6 +4,7 @@ import {TokenizeForm, type Listing} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
 import {type Paper} from '../components/ReportPaper.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
+import {SecretProvider} from '../components/ConsoleSecret.js';
 
 /**
  * The operator console: the workspace (report viewer and Atlas panel) with the
@@ -148,10 +149,15 @@ export default function Console() {
 
   return (
     <main className="console-page">
-      <div className="workspace">
-        <ConsoleViewer fileName={fileName} paper={paper} pages={pages} source={source} />
-        <AtlasPanel atlas={atlas} />
-      </div>
+      {/* ⚠️ The doorlock's value is typed in the dark Atlas panel and used by the light viewer's
+          Source data tab. They are not siblings, so it lives in a context whose provider
+          **renders no DOM element at all** — see `ConsoleSecret.tsx`. */}
+      <SecretProvider>
+        <div className="workspace">
+          <ConsoleViewer fileName={fileName} paper={paper} pages={pages} source={source} />
+          <AtlasPanel atlas={atlas} />
+        </div>
+      </SecretProvider>
 
       <div className="workspace-footer">
         <span>Select report text to edit or add a note.</span>

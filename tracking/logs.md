@@ -11023,3 +11023,145 @@ because `trash/` deliberately kept the paper and the purchase bar in one client 
 markup splits them. ⚠️ Unowned and not this phase's business: `rebuild/MANIFEST.md` is still untracked
 and should land somewhere before submission.
 
+
+---
+
+## 2026-09-12 — Task 2's cost, measured before building. No code written.
+
+Read `trash/app/console/`, `scripts/ops/sweep-protocols.ts`, `src/graph/client.ts` and
+`src/config/protocols.ts`, then **measured the roster rather than estimating it** — four runs against
+the live gateway. No page changed, nothing built.
+
+### What I took from the two references
+
+**From `scripts/ops/sweep-protocols.ts`:** the shape of the roster query itself. Its tier-1 probe is
+`query { lendingProtocols(first: 1) { name schemaVersion } }` — *"the two fields every version that
+answered Unit 3 already served."* ⚠️ **That is the whole trick: two fields that exist in all five
+schema versions, so one document spans them without a per-version branch.** The sweep also proves the
+status taxonomy — `no_indexers` versus `error` versus `live` — by reading the gateway's own message.
+
+**From `trash/app/console/graph.tsx`:** the fetch contract. A context provider that **renders no DOM
+element at all**, so it can wrap transcribed markup without disturbing it; and ⚠️ **401 and 500 kept
+apart** — `requiredEnv` runs before the comparison, so 500 is an absent or blank secret and 401 is a
+wrong one typed in.
+
+**From `src/graph/client.ts`:** `querySubgraphs` is `Promise.all` over every slug, **unbounded**, with
+per-slug isolation — *"seeing which deployments failed is the result, not an interruption of it."*
+
+### ⚠️ The measurement, and it is not close
+
+Four runs, all 28 deployments, one document each:
+
+```
+SUBSET (5)   wall  423ms   answered 5/5    versions 3.1.0 3.0.1 3.0.0 2.0.1 1.3.0
+FULL (28)    wall  653ms   answered 22/28  versions 3.1.0 3.0.1 3.0.0 2.0.1 1.3.0
+FULL (28)    wall  690ms   answered 22/28  lag median 8s
+FULL (28)    wall  315ms   answered 22/28  lag median 8s
+FULL (28)    wall  297ms   answered 22/28  lag median 9s
+```
+
+**Quota: one query per deployment per press.** Full roster 28, subset 5. **Wall time: 0.3–0.7s for
+all 28**, because the fan-out is parallel — the subset is *not meaningfully faster*, it is only
+cheaper.
+
+### ⚠️ It fits 60 seconds, but the number that matters is 40s, not 0.3s
+
+The happy path is irrelevant to the ceiling question. `client.ts` sets `TIMEOUT_MS = 20_000` and
+retries **once, only on a timeout** — so a single hanging indexer costs **40 seconds**, and
+`Promise.all` waits for the slowest. ⚠️ **One dead deployment sets the floor for the whole roster.**
+
+```
+happy path        0.3 – 0.7s      ~100× under the ceiling
+worst case        40s             fits 60s with 20s of margin, and only just
+```
+
+⚠️ **The six failures measured today are NOT timeouts** — `subgraph not found: no allocations` and
+`bad indexers` come back immediately from the gateway. So the observed floor is fast. But the
+worst case is real and the route should bound the whole roster rather than trust it.
+
+### ⚠️ What the roster surfaces that a static list cannot
+
+```
+2026-09-07  docs/protocol-inventory.md   25 of 28 answered
+2026-09-12  measured today               22 of 28 answered
+```
+
+**Three deployments lost their indexers in five days** — `aave-amm-ethereum`, `goldfinch-ethereum`
+and `uwu-lend-ethereum` now return *no allocations*, on top of the three `protocols.ts` already knows
+are null. ⚠️ **That is the column's entire justification as a menu.** A user about to write a
+directive about UwU Lend needs to know it cannot be read right now, and nothing in the committed
+config says so — the config records what we expected, and the gateway records what is true.
+
+⚠️ **The schema-version column must be read from the response, not from config.** `protocols.ts`'s own
+header says `declaredSchemaVersion` is *"what Messari's config DECLARES, which is not
+authoritative"* and that `adapter.ts` dispatches on the version reported **live**. A column filled
+from config would restate our own assumption; filled from `lendingProtocols[0].schemaVersion` it is
+evidence.
+
+### ⚠️ The layout problem is not missing classes — it is three classes that do not exist
+
+The panel's own markup reaches for `.source-panel`, `.source-stats` and `.source-meta`. **None of
+the three has a single rule in `globals.css`.** The three stat blocks and the meta rows are unstyled
+divs in default block flow, which is most of why the panel reads badly today.
+
+```
+.source-panel   NO RULE      .financial-table  9 rules
+.source-stats   NO RULE      .section-title   13 rules
+.source-meta    NO RULE      .eyebrow         16 rules
+                             .badge            9 rules
+                             .table-scroll     1 rule
+                             .notice           5 rules
+                             .muted            1 rule
+```
+
+**So the fix is to stop using the three that do not exist and build the roster from the seven that
+do** — `.financial-table` inside `.table-scroll` is a real bordered serif table and is exactly the
+right object for a 28-row menu. ⚠️ **No new class is needed** if the answering state is carried by the
+word in a `.badge` and a `—` in the block column, which is the idiom `docs/protocol-inventory.md`
+already uses.
+
+⚠️ **One caveat named rather than invented:** `.badge` has a second look, but it is scoped
+`.prediction-card-meta > .badge.resolved`, so it does not reach this panel. **A visually distinct
+not-answering chip would need one new rule.** I have not added one and would not without asking —
+the word in the chip carries the state, and PHASE-5's own note that *"a resolved market read
+identically to an open one"* was a bug is the argument for asking rather than the argument for
+adding it quietly.
+
+### My recommendation, and the reason is the menu rather than the proof
+
+**Full roster, all 28.** ⚠️ **Not because of the version claim** — that is identical at 5, and the
+brief is right that the claim is about versions rather than count. **Because the panel's job is to
+tell a user what they can ask about, and a 5-row menu is a worse menu than a 28-row one.** The
+version spread then falls out of it without being staged.
+
+The cost of being right about this is **23 extra queries per press** and **no extra wall time**.
+
+
+---
+
+## 2026-09-12 — Phase 6 task 1: `CONSOLE_SECRET` gets a field
+
+`app/components/ConsoleSecret.tsx` (new), the field wired into `AtlasPanel`, the provider into
+`app/console/page.tsx`. `next build` exit 0, `/console` 200. **No route called yet** — this is the
+field and the shared state, so task 2 has somewhere to read from.
+
+⚠️ **The field sits inside the dark Atlas panel, directly above the composer it gates.** Not in a
+section above the workspace: `logs.md` records that putting it there is *"precisely how the reference
+layout got inserted into Phase 3's console instead of replacing it."* It gates Generate, Generate is
+in that panel.
+
+⚠️ **The provider renders no DOM element at all**, verified in the served HTML —
+`class="console-page"><div class="workspace">` is unchanged, so the transcribed markup's class-token
+sequence is untouched. That is the reason it is a context rather than state in one panel: the field
+is in the dark panel and the Source data tab that needs the same value is in the light viewer, so
+there is no common ancestor below `console-page` to lift it into.
+
+⚠️ **`NEXT_PUBLIC_CONSOLE_SECRET` is not an option and it is worth restating why** — it is inlined
+into the client bundle at build time and served to every visitor, which is not a secret but a string
+in a `<script>`. The value exists only in the environment and in the operator's head. Confirmed: the
+served HTML carries no secret value, and the input is `type="password"` with `autoComplete="off"`.
+
+```
+console-secret field 1 · type=password 1 · composer follows it · secret in HTML 0
+```
+
