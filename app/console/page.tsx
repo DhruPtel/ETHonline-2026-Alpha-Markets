@@ -2,7 +2,7 @@ import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
 import {ConsoleViewer} from '../components/ConsoleViewer.js';
 import {ListingPreviewText, TokenizeForm, type Listing, type TokenTarget} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
-import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
+import {ArrowDown, ArrowRight, ArrowUpRight, Check, Info} from '../components/Icons.js';
 import {SecretProvider, type Evidence} from '../components/ConsoleSecret.js';
 import {list, load, publish} from '../../src/store/reports.js';
 import {tokenFor} from '../../src/store/tokens.js';
@@ -303,6 +303,10 @@ export default async function Console({
   // ⚠️ **No `revalidatePath`.** Both `/` and `/console` are `force-dynamic`, so neither has a cache
   // to bust: Next re-renders this route when the action resolves, and `/` re-reads the store on its
   // next request. Adding a revalidate call would be ceremony that does nothing.
+  // ⚠️ See the control in the card below for why this exists. One object, three call sites, so the
+  // three states of the control cannot drift apart at the breakpoint where the card is a grid.
+  const PLACE = {gridColumn: 2} as const;
+
   async function publishReport(formData: FormData): Promise<void> {
     'use server';
     const hash = String(formData.get('hash') ?? '');
@@ -400,98 +404,33 @@ export default async function Console({
 
             <TokenizeForm listing={listing} target={target} />
 
-            {/* ── ⚠️ THE PUBLISH CONTROL ────────────────────────────────────────────────────── */}
-            {/* ⚠️ **It acts on the report in the document panel above**, the same target the
-                tokenize form uses, so nobody has to find a 64-character string that is already on
-                screen. A server component with a plain form: no client state, no fetch, and it
-                works with JavaScript off. */}
-            <section className="tokenize-form">
-              <div className="section-title">
-                <h2>Publish</h2>
-                <span className="eyebrow">MARKETPLACE LISTING</span>
-              </div>
-
-              {!doc ? (
-                <p className="notice">
-                  <Info size={16} />
-                  <span>
-                    No report is loaded. Ask Atlas for one above, or open an existing report with{' '}
-                    <code>/console?report=&lt;hash&gt;</code>.
-                  </span>
+            {/* ── ⚠️ THE ROSTER STAYS HERE, AND IT IS NOT THE CONTROL ──────────────────────── */}
+            {/* The publish button moved into the Marketplace preview card, where the listing it
+                creates is shown. **This did not move with it, deliberately.** The card previews ONE
+                report; a list of eleven others inside it would be a second index sitting in a
+                preview of something else. It is navigation among drafts, so it belongs under the
+                form that targets a report — each link loads that report into this console.
+                ⚠️ Still not a second marketplace: headings only, no cards, no prices, no previews. */}
+            {unlisted.length > 0 && (
+              <details className="integration-detail">
+                <summary>
+                  <span>{unlisted.length} report{unlisted.length === 1 ? '' : 's'} not listed</span>
+                  <span className="badge off">unpublished</span>
+                </summary>
+                <p>
+                  In the store, not on the marketplace. Open one here to read it, then publish it
+                  from the preview card.
                 </p>
-              ) : doc.meta.publishedAt ? (
-                <>
-                  <p className="notice">
-                    <Info size={16} />
-                    <span>
-                      <strong>Listed.</strong> Published{' '}
-                      {doc.meta.publishedAt.slice(0, 10)}{' '}
-                      {doc.meta.publishedAt.slice(11, 19)} UTC. It is on the marketplace now.
-                    </span>
-                  </p>
-                  {/* ⚠️ **THERE IS NO UNPUBLISH, AND THE PAGE SAYS SO RATHER THAN HIDING IT.**
-                      `published_at` is a landmark: writing NULL back would not record a withdrawal,
-                      it would erase the fact that the report was ever listed — and five reports in
-                      this store have settled x402 purchases against them, which is money that moved
-                      on Hedera against something that was for sale. A withdrawal is its own column
-                      if it is ever wanted. `store/reports.ts publish()` carries the reasoning. */}
-                  <p className="muted">
-                    Listing is one-way. A report that was for sale was for sale, and a purchase
-                    settled against it cannot be un-made by hiding the row — withdrawing a listing
-                    would be its own record, not the absence of this one.
-                  </p>
-                  <a className="text-link" href={`/report/${doc.meta.hash}`}>
-                    See it as a buyer does <ArrowUpRight size={14} />
-                  </a>
-                </>
-              ) : (
-                <>
-                  <p className="muted">
-                    <strong>{doc.meta.heading}</strong> is in the store and not in the marketplace.
-                    Publishing lists it on <code>/</code> and nothing else: it does not mint a token,
-                    it does not move money, and the report&rsquo;s own page and paywall already work.
-                  </p>
-                  {/* ⚠️ Said before the press, because it cannot be undone afterwards. */}
-                  <p className="notice">
-                    <Info size={16} />
-                    <span>
-                      <strong>One-way.</strong> There is no unpublish — the landmark records that
-                      this report was listed, and a report that has been sold must not be able to
-                      claim it never was.
-                    </span>
-                  </p>
-                  <form action={publishReport}>
-                    <input type="hidden" name="hash" value={doc.meta.hash} />
-                    <button className="btn primary full" type="submit">
-                      Publish to the marketplace <ArrowUpRight size={15} />
-                    </button>
-                  </form>
-                </>
-              )}
-
-              {/* ⚠️ **HOW AN AUTHOR FINDS A DRAFT WHOSE HASH THEY DO NOT KNOW.** Collapsed, headings
-                  only, each link loading that report into this console. Not a marketplace — there is
-                  exactly one of those and it sells things. */}
-              {unlisted.length > 0 && (
-                <details className="integration-detail">
-                  <summary>
-                    <span>{unlisted.length} report{unlisted.length === 1 ? '' : 's'} not listed</span>
-                    <span className="badge off">unpublished</span>
-                  </summary>
-                  <p>
-                    In the store, not on the marketplace. Open one here to read it and decide.
-                  </p>
-                  {unlisted.map((r) => (
-                    <div key={r.hash}>
-                      <a className="text-link" href={`/console?report=${r.hash}`}>
-                        {r.title ?? r.directive.slice(0, 54)}
-                        {!r.title && r.directive.length > 54 ? '…' : ''} <ArrowUpRight size={13} />
-                      </a>
-                    </div>
-                  ))}
-                </details>
-              )}
-            </section>
+                {unlisted.map((r) => (
+                  <div key={r.hash}>
+                    <a className="text-link" href={`/console?report=${r.hash}`}>
+                      {r.title ?? r.directive.slice(0, 54)}
+                      {!r.title && r.directive.length > 54 ? '…' : ''} <ArrowUpRight size={13} />
+                    </a>
+                  </div>
+                ))}
+              </details>
+            )}
           </div>
 
           <aside className="listing-preview dark-panel">
@@ -517,6 +456,63 @@ export default async function Console({
             <ListingPreviewText
               fallback={{title: target?.heading ?? 'No report yet', priceHbar: target?.priceHbar ?? '—'}}
             />
+
+            {/* ── ⚠️ THE PUBLISH CONTROL, IN THE CARD THAT SHOWS WHAT IT CREATES ─────────────── */}
+            {/* ⚠️ **Inserted into the card's existing sequence; nothing already in it moved.** The
+                badge above, the thumbnail, the listing text, the related market, the flow strip and
+                the notice are all where they were.
+
+                ⚠️ **`gridColumn: 2` is not decoration.** At ≤1180px `.listing-preview` becomes a
+                two-column grid and the reference places its own control with
+                `.listing-preview > .btn { grid-column: 2 }` — a **direct-child** selector. A server
+                action needs a real `<form>`, and a `<form>` wrapper breaks that selector: the button
+                is no longer a direct child, and the form itself would auto-place into column 1,
+                colliding with the thumbnail that spans rows 2–7. The inline placement puts the form
+                where the reference puts the button. It is inert at wider widths, where the card is
+                not a grid at all.
+
+                ⚠️ **It stays a server action and a real no-JS form.** The served markup is
+                `<form action="" encType="multipart/form-data" method="POST">` with the action id and
+                the hash as hidden inputs — no fetch, no client component, and it works with
+                JavaScript off. Turning it into a fetch to fit the card would trade that away for
+                nothing. */}
+            {/* ⚠️ **THE WHITE BUTTON IS PUBLISH IN ALL THREE STATES.** It briefly became
+                "See it as a buyer does" for a published report, which made the card's one white
+                control stop being the publish control — and because `/console` with no `?report=`
+                loads the MOST RECENT report, which is usually the one just published, the publish
+                button vanished from the URL almost everyone opens. A control that disappears in its
+                commonest state is not a control.
+
+                ⚠️ **The buyer link is kept and demoted to a `.text-link` BENEATH the button**, not
+                promoted into it. That was the choice: the button has one job in every state, and the
+                link is a second, quieter action that does not compete with it. */}
+            {!doc ? (
+              // Nothing loaded: present and visibly not pressable, which is truer than an absent
+              // button on a card that is otherwise fully drawn.
+              <span className="btn white full inert" style={PLACE}>Publish to the marketplace</span>
+            ) : doc.meta.publishedAt ? (
+              // ⚠️ Says it is done and does NOT offer to publish again. `publish()` is idempotent so
+              // a second press would be harmless, but a live button on a finished action invites a
+              // press that means nothing — and `.inert` is the design's own spent-control treatment.
+              <span className="btn white full inert" style={PLACE}>
+                <Check size={15} /> Published to the marketplace
+              </span>
+            ) : (
+              <form action={publishReport} style={PLACE}>
+                <input type="hidden" name="hash" value={doc.meta.hash} />
+                <button className="btn white full" type="submit">
+                  Publish to the marketplace <ArrowUpRight size={15} />
+                </button>
+              </form>
+            )}
+
+            {/* ⚠️ Beneath the button, only once there is something for a buyer to see. A direct
+                child of the card, so it needs the same column placement at the grid breakpoint. */}
+            {doc?.meta.publishedAt && (
+              <a className="text-link" href={`/report/${doc.meta.hash}`} style={PLACE}>
+                See it as a buyer does <ArrowUpRight size={14} />
+              </a>
+            )}
 
             <div className="related-preview">
               <span>Related prediction market</span>
@@ -546,9 +542,25 @@ export default async function Console({
               </span>
             </div>
 
+            {/* ⚠️ **THIS NOTICE SAID THE OPPOSITE OF WHAT IS TRUE, TWICE.** "Publication writes the
+                token and the listing together" was the pre-009 world; they are now two decisions and
+                the control above does only one of them. "Uploaded PDFs are held for this session
+                only" implies uploading works — the form's own upload zone says in so many words that
+                **uploading a report is not built**, because an uploaded PDF has no canonical form
+                and so nothing to hash.
+
+                ⚠️ **The one-way reason is load-bearing and survives the move from the section that
+                had room for it.** Shorter here, same claim: the landmark records that this report
+                was listed, and a settled purchase cannot be un-made by hiding the row.
+                ⚠️ `.notice` is `display:flex`, so the prose is ONE `<span>` — this file has shipped
+                the scattered-column version before. */}
             <p className="notice">
               <Info size={16} />
-              Publication writes the token and the listing together. Uploaded PDFs are held for this session only.
+              <span>
+                <strong>Listing is one-way.</strong> Publishing puts this report on the marketplace.
+                It does not mint a token and it does not move money. There is no unpublish: a
+                purchase settled against a listed report cannot be un-made by hiding the row.
+              </span>
             </p>
           </aside>
         </div>

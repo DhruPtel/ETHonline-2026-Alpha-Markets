@@ -14212,3 +14212,176 @@ nothing: `publish()` again returns `changed: false` with the **same** timestamp
 
 `npx tsc -p tsconfig.json --noEmit` exit 0 and `npx next build` exit 0 at the end of **both** stages,
 `.next` cleared before each build. Migration re-run: still 7 before the press. Nothing spent.
+
+---
+
+## 2026-09-12 — the Publish control moves into the Marketplace preview card
+
+One file: `app/console/page.tsx`. The control that creates a listing now sits in the card that shows
+what the listing will look like.
+
+### Inserted into the card, not around it
+
+The card's sequence is unchanged and nothing already in it moved — verified off the served markup:
+
+```
+section-title → mini-document → listing-price → [the control] → related-preview → token-flow → notice
+```
+
+⚠️ **`style={{gridColumn: 2}}` on the control is load-bearing, not decoration.** At ≤1180px
+`.listing-preview` becomes a two-column grid and the reference places its own control with
+`.listing-preview > .btn { grid-column: 2 }` — a **direct-child** selector. A server action needs a
+real `<form>`, and a `<form>` wrapper breaks that selector twice over: the button is no longer a
+direct child, and the form itself would auto-place into column 1, colliding with the thumbnail that
+spans rows 2–7. The inline placement puts the form exactly where the reference puts the button, and
+is inert at wider widths where the card is not a grid at all.
+
+⚠️ **Still a server action and still a real no-JS form.** The card renders:
+
+```html
+<form style="grid-column:2" action="" encType="multipart/form-data" method="POST">
+  <input type="hidden" name="$ACTION_ID_408c3ad2…"/>
+  <input type="hidden" name="hash" value="1343bb3f…"/>
+  <button class="btn white full" type="submit">Publish to the marketplace ↗</button>
+</form>
+```
+
+No fetch, no client component, works with JavaScript off.
+
+### The three states, badge and control
+
+| state | badge | control |
+|---|---|---|
+| no report loaded | `.badge off` — **No report selected** | `.btn white full inert` — *Publish to the marketplace*, visibly not pressable |
+| loaded, unpublished | `.badge off` — **Not listed** | `.btn white full` in the form — *Publish to the marketplace* |
+| loaded, published | `.badge` — **Listed 2026-09-12** | `.btn white full` — *See it as a buyer does*, linking to `/report/<hash>` |
+
+⚠️ The "no report" row is rarer than it looks: `/console` with no `?report=` loads the most recent
+report, so `doc` is only null when the store is empty or the hash was refused. Checked with
+`?report=not-a-hash`. ⚠️ An **inert button rather than an absent one** — a card that is otherwise
+fully drawn with a hole where its control belongs reads as broken, not as empty.
+
+### The one-way reason survives the move
+
+The section it came from had room for two paragraphs; the card has a notice. The claim is intact,
+shorter:
+
+> **Listing is one-way.** Publishing puts this report on the marketplace. It does not mint a token
+> and it does not move money. There is no unpublish: a purchase settled against a listed report
+> cannot be un-made by hiding the row.
+
+⚠️ **That notice previously said the opposite of what is true, twice.** *"Publication writes the
+token and the listing together"* was the pre-009 world — they are now two decisions and the control
+above it does only one of them. And *"Uploaded PDFs are held for this session only"* implies
+uploading works: the form's own upload zone says in so many words that **uploading a report is not
+built**, because an uploaded PDF has no canonical form and so nothing to hash. Both are gone.
+
+⚠️ `.notice` is `display:flex`, so the prose is ONE `<span>` — this file has shipped the
+scattered-column version of that mistake before. Verified: two children, an svg and one span.
+
+### The "11 reports not listed" list stayed put
+
+⚠️ **It did not move with the control, and that is the point of asking.** The card previews **one**
+report; a list of eleven others inside it would be a second index sitting in a preview of something
+else. It is navigation among drafts, not part of this listing — so it stays under the tokenize form
+in the left column as a collapsed `<details class="integration-detail">`, each row loading that
+report into the console. Its copy now points onward: *"Open one here to read it, then publish it from
+the preview card."* Verified: the only thing between `<TokenizeForm/>` and the card is that
+`<details>`, and no publish control remains in the left column.
+
+### How I checked publishing works from the new position without listing a draft
+
+⚠️ **I took the action id out of the card's own rendered form** on an unpublished report's page —
+`$ACTION_ID_408c3ad23e5b1bcfeb3f7ce95b88a0cc9482de05d5` — and POSTed it **with the hash of a report
+that is already published**. That exercises the new form's exact wiring end to end, and the write is
+a guaranteed no-op because `publish()` guards on `published_at IS NULL`.
+
+```
+before   8 published · f2285b4e… landmark 2026-09-12T21:26:19.068Z
+POST     via the card's form + action id                        HTTP 200
+after    8 published · f2285b4e… landmark 2026-09-12T21:26:19.068Z   (unmoved)
+1343bb3f… publishedAt: null — still unlisted
+totals   8 published · 11 not listed   ·   / renders 8 cards
+```
+
+Nothing was listed that should have stayed unlisted, and the landmark did not move — which is the
+idempotence guard doing its job as well as the form doing its job.
+
+`.next` cleared, `npx next build` exit 0. No commits.
+
+---
+
+## 2026-09-12 — the card's white button is Publish again, in every state
+
+One button changed in `app/console/page.tsx`. Nothing else in the card moved.
+
+### The failure, reproduced before changing anything
+
+```
+/console  (no ?report=)
+   badge        "Listed 2026-09-12"
+   white button "See it as a buyer does"        ← the card's one white control
+   a Publish control anywhere in the card?  NO
+```
+
+⚠️ **And the reason it was invisible rather than merely misplaced.** `/console` with no `?report=`
+loads the **most recently saved report**, and the most recent is the one just published — so the
+default console URL, the one a person actually opens, rendered the published branch. Making the
+buyer link the button in that branch did not demote the publish control; on that page it **deleted**
+it. A control that disappears in its commonest state is not a control.
+
+### What it is now
+
+⚠️ **The white button is Publish in all three states**, so the card's one white control always has
+one job:
+
+| state | badge | white button | beneath |
+|---|---|---|---|
+| no report loaded | No report selected | `inert` — *Publish to the marketplace* | — |
+| loaded, unpublished | Not listed | **live form** — *Publish to the marketplace* | — |
+| loaded, published | Listed 2026-09-12 | `inert` — ✓ *Published to the marketplace* | *See it as a buyer does* |
+
+⚠️ **The choice asked for: the buyer link goes BENEATH the button, not as the button.** Promoting it
+back into the button is exactly the fault above, and the whole point of a card with one white control
+is that the control is the same thing every time you look at it. As a `.text-link` underneath it is a
+second, quieter action that does not compete.
+
+⚠️ **The published state says so and does not offer to publish again.** `publish()` is idempotent, so
+a second press would be harmless — but a live button on a finished action invites a press that means
+nothing, and `.inert` (`opacity:.55; pointer-events:none`) is the design's own spent-control
+treatment. It reads *Published to the marketplace* rather than repeating the badge's date.
+
+### Untouched, as asked
+
+Card order, verified off the served markup:
+`section-title → mini-document → listing-price → [white button] → related-preview → token-flow → notice`.
+The footer notice — *"Listing is one-way … a purchase settled against a listed report cannot be
+un-made by hiding the row"* — was left exactly as it was.
+
+⚠️ **Still a server action and still a real no-JS form**, not a fetch:
+
+```html
+<form style="grid-column:2" action="" encType="multipart/form-data" method="POST">
+  <input type="hidden" name="$ACTION_ID_408afc0e…"/>
+  <input type="hidden" name="hash" value="1343bb3f…"/>
+  <button class="btn white full" type="submit">Publish to the marketplace ↗</button>
+</form>
+```
+
+### How I checked it works without listing a draft
+
+Same method as the move, and it is the only one that touches the real control without consequences:
+**take the action id out of the card's own rendered form** on the unpublished report's page, then POST
+it **with the hash of a report that is already published**. The form's wiring is exercised end to end;
+the write is a guaranteed no-op because `publish()` guards on `published_at IS NULL`.
+
+```
+before  8 published · 11 not listed  |  f2285b4e… 2026-09-12T21:26:19.068Z  |  1343bb3f… null
+POST    the card's form + its action id                                          HTTP 200
+after   8 published · 11 not listed  |  f2285b4e… 2026-09-12T21:26:19.068Z  |  1343bb3f… null
+/ renders 8 cards
+```
+
+Nothing was listed, the landmark did not move, and the draft the page was aimed at is still unlisted.
+
+`.next` cleared, `npx next build` exit 0. One file. No commits.
