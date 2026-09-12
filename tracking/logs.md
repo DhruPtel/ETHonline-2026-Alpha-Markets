@@ -12430,3 +12430,128 @@ provenance folded in and the title block off continuation pages, the makerdao re
 rather than a title block and one sentence. **If it is still empty when you look, that is a real
 finding.**
 
+
+---
+
+## 2026-09-12 — "Aave v3 balance overview" failed. ⚠️ One problem, and it is a known one.
+
+Read-only. No code changed, no re-run, no tokens spent.
+
+### ⚠️ It is ONE problem, not two, and this project measured it on 2026-09-07
+
+`lessons.md` records five narrations of one fixed 140-fact Aave draft:
+
+```
+run   ms        stop_reason   table        assessment
+ 1    197,296   max_tokens    2,430 chars  missing
+ 2    221,046   max_tokens    2,642 chars  missing
+ 3    221,021   max_tokens    2,642 chars  missing
+ 4     27,353   tool_use      2,241 chars  "placeholder"
+ 5     65,400   tool_use      2,642 chars  missing
+```
+
+**Today: 207,000ms, `max_tokens`, table present, assessment missing.** Same shape, same deployment,
+same failure mode. ⚠️ **The slowness and the token exhaustion are one event**, and that lesson
+already names why: *"the budget was being consumed by a generation that had come off the rails, which
+is why raising it buys a longer pathology rather than a fix."* A model emitting for 207 seconds is
+producing on the order of twenty thousand tokens — **that emission IS the max_tokens exhaustion.**
+
+⚠️ **And the cap is where it surfaces, not why it happens.** The same lesson measured the widest
+legitimate output this call can be asked for at **~3,500 tokens**. `max_tokens` is **24,000** — seven
+times the largest honest answer. The run produced ~150 tokens of table and spent the other ~23,850
+on a summary string that never terminated.
+
+### ⚠️ Why this directive and not the others — and the fact table is NOT the discriminator
+
+Every Aave v3 report in the store, and both sizes succeed:
+
+```
+facts=140  checks=5   "Balance overview of Aave v3 markets"
+facts=140  checks=5   "Balance overview for Aave v3 on Ethereum — how big is it…"   ×3
+facts=  6  checks=4   "Balance overview for Aave v3 on Ethereum"                     ×3
+```
+
+**Aave v3 has narrated successfully at 6 facts and at 140 facts, repeatedly.** And the failed run's
+execute stage is **indistinguishable from the 6-fact successes**:
+
+```
+failed     execute ok in 1.8s · 10 queries · block 25963044
+succeeded  execute ok in 2.1s · 10 queries · block 25962739   → 6 facts, narrate 30.3s
+```
+
+Same deployment, same query count, same timing, one second apart in cost. ⚠️ **So the draft handed to
+the narrator was almost certainly the same shape as one that narrated fine in thirty seconds.** I
+cannot state the failed run's fact count — **nothing was saved, so there is no row to read** — but
+nothing in the execute profile distinguishes it.
+
+⚠️ **Which means the honest answer to "why this directive" is: not the directive's size.** The 2026-09-07
+lesson ruled the same thing out by measurement — *"a synthetic 134-fact version of the same question
+completed in 39s."* The degeneration is in the model call, and it is **intermittent**: the same
+phrasing family succeeds most of the time and occasionally runs away inside the summary string.
+
+### ⚠️ What happens on Vercel — a different failure, and a worse one
+
+```
+local    223.6s   error stage naming `stop_reason max_tokens`, then done saved:false
+Vercel   killed at 60s, mid-stream, no error event — the stream simply stops
+```
+
+The client reports it correctly either way (*"truncated … nothing was saved"*), but ⚠️ **the
+diagnosis is lost in production**: locally you learn it was `max_tokens`; deployed you learn only
+that it stopped.
+
+⚠️ **And the deeper finding: this pipeline is already marginal on Hobby even when it works.** A
+*successful* run measured today was **58.0 seconds against a 60-second ceiling** — two seconds of
+margin, with compose at 24.3s and narrate at 30.3s. **A degenerate narration is guaranteed dead, and
+a healthy one is a coin flip.**
+
+### ⚠️ Is it reachable by an ordinary user? Yes, and that is the point
+
+*"Aave v3 balance overview"* is the most natural phrasing available for the flagship deployment.
+**This is not an edge case.** It is the shortest, most obvious thing to type, and it failed.
+
+### The options, with costs — none implemented
+
+| | cost |
+|---|---|
+| **Lower `max_tokens` to ~4,000** — ~3,500 is the widest legitimate output | ⚠️ **Does not make the report succeed.** It converts a 207s hang into a ~35s legible failure that fits inside the ceiling, so a user sees "the narrator ran out" instead of a silent kill. The cheapest honest improvement |
+| **Retry once on `max_tokens`** | 2026-09-07 saw 5/5 fail on a genuinely broken directive, so retry is not reliable *there*; today's failure sits among neighbours that succeed, which is what intermittency looks like. ⚠️ **Two attempts do not fit in 60 seconds** even with a lower cap |
+| **Split narration into two calls** — table, then assessment | Bounds each call, and the assessment call is small and fast. ⚠️ Two round trips on the happy path, and the summary must be handed the table it describes |
+| **Surface and move on** | The panel already says nothing was saved. Add "try rephrasing". Costs nothing and fixes nothing |
+
+### ⚠️ The finding worth having before a demo, stated plainly
+
+**Some directives cannot be answered within these constraints, and generation is not reliably
+deployable on Vercel Hobby.** A healthy run lands two seconds inside a 60-second ceiling; a
+degenerate one takes 207. ⚠️ **Do not demo live generation against the deployed URL.** Generate
+beforehand, or demo generation locally where the ceiling is not 60 seconds — the reports that exist
+in the store are real and were produced by this pipeline, and showing one is honest.
+
+
+---
+
+## 2026-09-12 — Completing eb2e9c4: the four callers it left out
+
+One line in each of `scripts/ops/report.ts`, `scripts/demo/{store,validate,narrate}.ts`. Nothing
+else in those files touched. Root `tsc` exit 0, `next build` exit 0.
+
+`narrate()` returns `{report, title}` and each destructured it as a `Report`, so **eb2e9c4 did not
+typecheck in isolation** — I staged `src app tracking` and forgot `scripts`.
+
+```
+- const report = await narrate(ex.draft, client);
++ const { report } = await narrate(ex.draft, client);   ×4
+```
+
+### ⚠️ None of the four can be run without spending, and that is worth naming
+
+Each constructs an `Anthropic` client and calls `narrate()`, which **is** the model call — and each
+runs compose and execute ahead of it, so every one is a full pipeline run at ~a minute and real
+tokens. **There is no dry mode on any of them.**
+
+So the check available is `tsc` over `scripts/**/*`, which the root config includes, and it passes.
+⚠️ **That is a compile check, not a runtime one, and I am not claiming otherwise.** What does prove
+the destructure at runtime is the generation in the next commit: `app/api/console/generate/route.ts`
+destructures `{report, title}` the same way and a real run exercises it. Different caller, same
+shape.
+

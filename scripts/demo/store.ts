@@ -39,7 +39,7 @@ const planned = await compose(DIRECTIVE, client);
 if (!planned.ok) { console.error(`\nSTOP  planner asked for clarification: ${planned.clarification.reason}`); process.exit(1); }
 const ex = await execute({ plan: planned.plan, analystId: 'alpha-1' });
 if (ex.status !== 'completed') { console.error(`\nSTOP  execute ${ex.status}: ${'reason' in ex ? ex.reason : ''}`); process.exit(1); }
-const report = await narrate(ex.draft, client);
+const { report } = await narrate(ex.draft, client);
 
 const json = canonical(report);
 const hash = reportHash(report);

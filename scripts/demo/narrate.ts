@@ -43,7 +43,7 @@ async function run(plan: ReportPlan, block?: number): Promise<Done | NotDone> {
   const ex = await execute(state);
   if (ex.status !== 'completed') return { ok: false, status: ex.status };
   const tNarrate = Date.now();
-  const report = await narrate(ex.draft, client);
+  const { report } = await narrate(ex.draft, client);
   stages.push({ executeMs: ex.elapsedMs, narrateMs: Date.now() - tNarrate, queries: ex.queries, t: ex.timings });
   return { ok: true, block: ex.draft.block, report, hash: reportHash(report) };
 }

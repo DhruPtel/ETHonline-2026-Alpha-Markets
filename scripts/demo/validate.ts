@@ -62,7 +62,7 @@ for (const [name, directive] of [
   if (!c.ok) { console.log(`\n⛔ ${name}: planner refused`); continue; }
   const ex = await execute({ plan: c.plan, analystId: ANALYST_ID });
   if (ex.status !== 'completed') { console.log(`\n⛔ ${name}: execute ${ex.status}`); continue; }
-  const report = await narrate(ex.draft, client);
+  const { report } = await narrate(ex.draft, client);
   const vs = validate(report);
   console.log(`\n${vs.length ? '⛔' : '✅'} ${name} — ${Object.keys(report.facts).length} facts, ${vs.length} violation(s)`);
   for (const x of vs.slice(0, 12)) console.log(`     [${x.kind}] ${x.where}: ${x.detail}`);

@@ -116,7 +116,7 @@ if (ex.status !== 'completed') {
 
 // ── Narrate ──────────────────────────────────────────────────────────────────────────────────────
 const tNarrate = Date.now();
-const report = await narrate(ex.draft, client);
+const { report } = await narrate(ex.draft, client);
 const narrateMs = Date.now() - tNarrate;
 const hash = reportHash(report);
 
