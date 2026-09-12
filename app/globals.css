@@ -875,6 +875,19 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
    rule given the scope its name always implied. The source panel's roster is the second consumer,
    which is the check §1 of PHASE-5 asked for: a class used by two page groups belongs unscoped. */
 .table-scroll { overflow-x: auto; }
+
+/* ⚠️ THE ONE RULE THIS POLISH ADDS, and it is a height rather than a new class.
+   `.table-scroll` gives overflow-x only. The console workspace is a two-column grid with
+   `align-items: stretch` and NO bounded height anywhere — the row is content-driven — so 28 roster
+   rows in normal flow stretch the viewer past the Atlas panel and grow the whole page. The Report
+   tab never hits this because `.fit-panel-content` is `position: absolute` and contributes no
+   height; the source panel has no such mechanism, so its cap has to be explicit.
+   ⚠️ Scoped to `.source-panel` on purpose: `/holdings` uses `.table-scroll` for a four-row table on
+   a page that is supposed to grow, and an internal scrollbar there would be wrong.
+   `vh` rather than `px` so it tracks the window instead of one laptop; 50 leaves room for the 70px
+   header, the 55px toolbar, this panel's own header block and the footnote beneath, which keeps the
+   whole console on one screen. */
+.source-panel .table-scroll { max-height: 50vh; overflow-y: auto; }
 .holdings-panel .financial-table { width: 100%; min-width: 680px; }
 .holdings-panel td { font-size: 14px; padding: 15px 10px; white-space: nowrap; }
 .holdings-panel td:first-child { white-space: normal; }

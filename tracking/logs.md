@@ -11576,3 +11576,146 @@ answering*, *block …*, *read … UTC*, *5 schema versions*. Press again and th
 Tokenize mints a permanent asset for ~7.7 HBAR. **That is the whole cost of this decision and it is
 why it is temporary.**
 
+
+---
+
+## 2026-09-12 — Source data panel: presentation only
+
+Two files — `app/components/ConsoleViewer.tsx` and **one line** of `app/globals.css`. `next build`
+exit 0 with `.next` cleared. ⚠️ **No route, query or data change** — the roster still returns 28 rows,
+22 answering, five versions, and every string in the panel is the one that was there.
+
+### 1 · The table now scrolls inside the panel
+
+⚠️ **Why it overflowed, which is not obvious.** `.table-scroll` carries `overflow-x` and nothing
+else. The console workspace is `display: grid; grid-template-columns: minmax(0,1fr) 370px;
+align-items: stretch` with **no bounded height anywhere** — the row is content-driven. So 28 rows in
+normal flow stretched the viewer past the Atlas panel and grew the page.
+
+⚠️ **The Report tab never hits this**, which is why it had not come up: `.fit-panel-content` is
+`position: absolute`, so the document contributes **no height at all** and the viewer takes its
+height from the grid stretch. The source panel has no such mechanism, so its cap has to be explicit.
+
+**The one rule added:**
+
+```css
+.source-panel .table-scroll { max-height: 50vh; overflow-y: auto; }
+```
+
+⚠️ **Scoped to `.source-panel` on purpose.** `/holdings` uses `.table-scroll` for a four-row table on
+a page that is *supposed* to grow; an internal scrollbar there would be wrong. This also gives
+`.source-panel` its first rule — it had none, and was one of the ruleless classes recorded in
+commit 2.
+
+**Why 50vh and not a pixel count:** `vh` tracks the window instead of one laptop. 50 leaves room for
+the 70px header, the 55px viewer toolbar, this panel's own header block above and the footnote
+below — so the whole console stays on one screen and the page does not grow when you switch tabs.
+
+### 2 · The button is now the empty state, not a control beside it
+
+⚠️ **`.empty-state` already existed and was unused** — it is one of the 16 classes commit 2 recorded
+as having no consumer. It is a centred dashed block with its own `h2` and `p` rules, which is exactly
+the shape this needed:
+
+```
+before   a .muted paragraph, with an outline button up in the header row
+after    a centred dashed panel: "Nothing read yet" as a 31px heading, the sentence
+         beneath it, and a filled `.btn primary` under that
+```
+
+⚠️ **The header's button now only appears once there is something to re-read.** Before the first
+press the empty state owns the press and the header has no button at all; after it, the header
+carries *Read again* and the empty state is gone. Two buttons doing one job was half the reason the
+empty state read as prose.
+
+⚠️ **The wording is unchanged.** *"Nothing read yet"* became the heading and the rest of the sentence
+the paragraph — same words, split at the full stop that was already there.
+
+**One behaviour change worth naming:** the empty state used to disappear while a read was in flight
+(`!roster && !busy && !error`) and now stays (`!roster && !error`) with its button reading *Reading…*
+and disabled. The block no longer vanishes and reappears under the cursor.
+
+### 3 · Three stacked ideas became two
+
+The eyebrow, the heading and the four summary chips are **one thought — what was read** — so the
+chips moved inside `.section-title`'s left column rather than floating beneath it as their own row.
+The panel now reads: **header block** (eyebrow / heading / chips, with *Read again* on the right) →
+**table** → **footnote**.
+
+⚠️ **All four chips and the footnote say exactly what they said.** Count answering, block, read time,
+schema versions, and the line about one document spanning five versions are untouched.
+
+### Classes
+
+```
+used by the panel   13 · all defined in globals.css
+added               0 new class names · 1 new rule (a height on two existing ones)
+```
+
+### What to look at
+
+**`http://localhost:3000/console`** — server running. Click **Source data**, the second tab in the
+viewer toolbar.
+
+**Before pressing:** a centred dashed block in the middle of the panel — *Nothing read yet* in large
+serif, one sentence under it, and a filled dark **Read the roster** button beneath. No button in the
+header row.
+
+**After pressing:** the dashed block is replaced by the table. The header row now reads
+`THE GRAPH / LENDING DEPLOYMENTS` over *What you can ask about.*, with the four chips — *22 of 28
+answering · block 25,962,7xx · read … UTC · 5 schema versions* — directly beneath the heading, and an
+outline **Read again** button on the right. ⚠️ **The table scrolls inside its own box**: the rows
+below the first ~15 need scrolling and the page itself does not get longer. Switching back to
+**Report** and forward again does not move the page.
+
+
+---
+
+## 2026-09-12 — The Source data panel's heading removed
+
+`app/components/ConsoleViewer.tsx` only. `next build` exit 0 with `.next` cleared. **`globals.css`
+not touched by this task** — the `.source-panel .table-scroll` line in its diff is the previous
+polish task's, still uncommitted.
+
+### ⚠️ It did leave a hole, and it was a collision rather than a gap
+
+`<h2>What you can ask about.</h2>` carried **no margin** — the reset zeroes `h1, h2, h3, h4, p` — so
+nothing obvious was lost. But it occupied **~31px of line box** and that was the entire separation
+between the eyebrow above it and the chip row below. Removing the line alone would have left
+`THE GRAPH / LENDING DEPLOYMENTS` sitting flush on top of the badges with about 4px of the badges'
+own padding between them.
+
+**What I did instead of leaving that:** the eyebrow moved into the chip row that already exists.
+`.button-row` is `display: flex; gap: 10px; align-items: center`, so it spaces them with no new rule,
+and the eyebrow reads as a label in front of the values it labels:
+
+```
+THE GRAPH / LENDING DEPLOYMENTS   [22 of 28 answering] [block 25,962,7xx] [read …] [5 schema versions]
+```
+
+⚠️ **Before a read the row is the eyebrow alone**, exactly as it was — the chips are inside the
+`{roster && …}` branch and the eyebrow is outside it.
+
+### Nothing else moved
+
+```
+"What you can ask about"          0   in source and in the shipped chunk
+THE GRAPH / LENDING DEPLOYMENTS   1
+the four chips                    1
+"One query document…"             1
+table headers                     1
+empty state                       1
+classes used                     13 · all defined · none added
+```
+
+### Where to look
+
+**`http://localhost:3000/console`** → **Source data** tab.
+
+**Before pressing:** unchanged — the centred dashed block with *Nothing read yet* and the filled
+**Read the roster** button. Above it, only the eyebrow where the 26px serif heading used to be.
+
+**After pressing:** the header row is now one line — the eyebrow followed by the four chips, with
+**Read again** on the right — and the table directly beneath it. ⚠️ **The panel is one line shorter
+and the heading's 31px is gone**, so the table starts higher up.
+

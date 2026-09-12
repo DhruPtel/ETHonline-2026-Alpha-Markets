@@ -252,39 +252,60 @@ export function ConsoleViewer({
           </div>
         ) : (
           <div className="tab-panel source-panel">
+            {/* ⚠️ **ONE header block, not three stacked ideas.** The eyebrow, the heading and the
+                summary chips are the same thought — what was read — so the chips live inside the
+                section-title's left column rather than floating beneath it. The re-read control is
+                the row's right-hand item, and it only appears once there is something to re-read;
+                before that the empty state owns the press. */}
             <div className="section-title">
-              <div>
+              {/* ⚠️ The heading that sat between the eyebrow and the chips is gone. It carried no
+                  margin — the reset zeroes `h1,h2,h3,h4,p` — but it did occupy ~31px of line box,
+                  and with it removed the eyebrow and the chip row had nothing between them and
+                  collided. **So the eyebrow joined the chips in the row that already exists**:
+                  `.button-row` is `flex; gap: 10px; align-items: center`, which spaces them without
+                  a new rule and reads as a label in front of the values it labels. Before a read
+                  the row is the eyebrow alone, exactly as it was. */}
+              <p className="button-row">
                 <span className="eyebrow">THE GRAPH / LENDING DEPLOYMENTS</span>
-                <h2>What you can ask about.</h2>
-              </div>
-              <button className="btn outline" type="button" onClick={onReadRoster} disabled={busy}>
-                <RefreshCw size={15} />
-                {busy ? 'Reading…' : roster ? 'Read again' : 'Read the roster'}
-              </button>
+                {roster && (
+                  <>
+                    <span className="badge">{roster.answering} of {roster.total} answering</span>
+                    <span className="badge">block {roster.block}</span>
+                    <span className="badge">read {roster.readAt}</span>
+                    <span className="badge">{roster.schemaVersions.length} schema versions</span>
+                  </>
+                )}
+              </p>
+              {(roster || error) && (
+                <button className="btn outline" type="button" onClick={onReadRoster} disabled={busy}>
+                  <RefreshCw size={15} />
+                  {busy ? 'Reading…' : 'Read again'}
+                </button>
+              )}
             </div>
 
             {error && <p className="notice">{error}</p>}
 
-            {!roster && !busy && !error && (
-              <p className="muted">
-                Nothing read yet. This asks all {total} registered Ethereum lending deployments
-                whether they are answering, and what schema version each one reports. Nothing is
-                written and no chain is touched.
-              </p>
+            {/* ⚠️ **The button IS the empty state, not a control beside it.** `.empty-state` is a
+                centred dashed block with its own h2/p rules — defined in globals.css and unused
+                until now. A first-time reader sees the heading, one sentence, and the press. */}
+            {!roster && !error && (
+              <div className="empty-state">
+                <h2>Nothing read yet</h2>
+                <p>
+                  This asks all {total} registered Ethereum lending deployments whether they are
+                  answering, and what schema version each one reports. Nothing is written and no
+                  chain is touched.
+                </p>
+                <button className="btn primary" type="button" onClick={onReadRoster} disabled={busy}>
+                  <RefreshCw size={15} />
+                  {busy ? 'Reading…' : 'Read the roster'}
+                </button>
+              </div>
             )}
 
             {roster && (
               <>
-                {/* ⚠️ The stat blocks were three unstyled divs — `.source-stats` has no rule in
-                    globals.css. They are `.badge` chips now, which is a class that exists and whose
-                    inline-flex makes a row without one. */}
-                <p className="button-row">
-                  <span className="badge">{roster.answering} of {roster.total} answering</span>
-                  <span className="badge">block {roster.block}</span>
-                  <span className="badge">read {roster.readAt}</span>
-                  <span className="badge">{roster.schemaVersions.length} schema versions</span>
-                </p>
-
                 {roster.truncated && (
                   <p className="notice">
                     Some deployments did not answer within {roster.budgetMs / 1000}s and are listed as
@@ -293,6 +314,11 @@ export function ConsoleViewer({
                   </p>
                 )}
 
+                {/* ⚠️ **Bounded scroll.** 28 rows in normal flow push the viewer past the Atlas
+                    panel and grow the whole page — the workspace grid is content-driven and nothing
+                    caps it. The Report tab never hits this because `.fit-panel-content` is
+                    absolutely positioned and contributes no height; this panel has no such
+                    mechanism, so the cap is explicit. See the rule in globals.css. */}
                 <div className="table-scroll">
                   <table className="financial-table">
                     <thead>
