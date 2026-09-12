@@ -97,6 +97,10 @@ const WORKSPACE: Workspace = {
 
 export type DocMeta = {
   hash: string;
+  /** ⚠️ The narrator's own name, or a heading derived from the directive when there is none. */
+  heading: string;
+  /** ⚠️ True when the heading came from the directive rather than the narrator. */
+  derived: boolean;
   directive: string;
   factCount: number;
   checksRun: number;
@@ -106,6 +110,14 @@ export type DocMeta = {
   block: number;
   analyst: string;
 };
+
+/** Cut a long directive to a heading-sized phrase at a word boundary. No ellipsis mid-word. */
+function shortenDirective(directive: string): string {
+  const d = directive.trim().replace(/[?.]+$/, '');
+  if (d.length <= 58) return d;
+  const cut = d.slice(0, 58);
+  return `${cut.slice(0, cut.lastIndexOf(' '))}…`;
+}
 
 async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
   const listed = await list(1);
@@ -120,6 +132,13 @@ async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
     markdown: render(report, hash),
     meta: {
       hash,
+      // ⚠️ **Eleven reports pre-date migration 008 and have no title.** Rather than a blank heading,
+      // those get the directive shortened at a word boundary — the same words, just the front of
+      // them — and the sheet says the heading was derived. ⚠️ **The full directive stays on the
+      // sheet either way**: it is what was asked, and a title that replaced it would lose the
+      // question.
+      heading: listed[0].title ?? shortenDirective(report.subject.directive),
+      derived: listed[0].title === null,
       directive: report.subject.directive,
       factCount: Object.keys(report.facts).length,
       checksRun: report.checks.filter((c) => c.outcome !== 'not_checked').length,

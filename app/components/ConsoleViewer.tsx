@@ -336,7 +336,7 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
           {/* ⚠️ The slot the mockup filled with `lending-protocols-q2-2026.pdf`. There is no file —
               a report is a row in Neon — so it carries the document's NAME, which is the directive
               the analyst was given. Before a report exists it says so. */}
-          <span className="file-name">{doc ? doc.meta.directive : 'No report yet'}</span>
+          <span className="file-name">{doc ? doc.meta.heading : 'No report yet'}</span>
 
           <div className="viewer-tools">
             <button type="button" aria-label="Zoom out" onClick={onZoomOut}>
@@ -402,11 +402,11 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
 
                       <div className="paper-title">
                         <span className="eyebrow">{doc.meta.deployments} · block {doc.meta.block.toLocaleString('en-US')}</span>
-                        <h1>{doc.meta.directive}</h1>
-                        <p>
-                          {doc.meta.factCount} measured figures · {doc.meta.checksRun} of{' '}
-                          {doc.meta.checksTotal} checks ran
-                        </p>
+                        <h1>{doc.meta.heading}</h1>
+                        {/* ⚠️ **The full directive stays on the sheet.** The heading names the
+                            report; this is the question that was asked, verbatim, because a title
+                            that replaced it would lose what the report answers. */}
+                        <p>{doc.meta.directive}</p>
                         {/* ⚠️ The honest version of the reference's mockup byline. The hash is all
                             64 characters — a prefix is enough to recognise one and not enough to
                             verify it, and verifying is why it is here. */}

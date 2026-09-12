@@ -66,6 +66,22 @@ const WRITE: Anthropic.Tool = {
         maxLength: 20000,
         description: 'ONE markdown table, and nothing else. Show the rows that carry the answer — you choose how many. Every cell holding a number is a {fact:ID} placeholder.',
       },
+      // ⚠️ **A LABEL, NOT A FIGURE.** The narrator may never type a digit — that is the rule the
+      // whole pipeline rests on and the digit guard enforces — and it holds here as much as in the
+      // prose. "MakerDAO at $5.03B" would be a fabricated number in a heading, where it is *more*
+      // damaging than in a paragraph because a heading is what gets quoted. So the schema asks for
+      // a noun phrase naming the subject and the metric, bounds it to a length that cannot hold a
+      // sentence, and says no numerals in as many words as the model will read.
+      title: {
+        type: 'string',
+        maxLength: 70,
+        description:
+          'A short title for this report: a noun phrase naming the subject and the metric, like ' +
+          '"MakerDAO vault deposits" or "Aave v3 market balances". Title case, no trailing full ' +
+          'stop, at most about eight words. ⚠️ NO FIGURES — no amount, no year, no count, no ' +
+          'percentage. A version that is part of a name is fine ("v3", "V2"); a number that stands ' +
+          'on its own is not. Name what was measured, never what it measured to.',
+      },
       assessment: {
         type: 'object',
         additionalProperties: false,
@@ -77,7 +93,7 @@ const WRITE: Anthropic.Tool = {
         required: ['summary', 'basis', 'confidence'],
       },
     },
-    required: ['table', 'assessment'],
+    required: ['title', 'table', 'assessment'],
   },
 };
 
@@ -112,7 +128,29 @@ VERDICT the engine computed: ${draft.verdict.call ?? 'none — this report is ab
 ${draft.exclusions.length ? `EXCLUSIONS: ${draft.exclusions.map((e) => `${e.slug} (${e.code}) ${e.rationale}`).join('; ')}` : 'EXCLUSIONS: none.'}`;
 }
 
-export async function narrate(draft: DraftReport, client: Anthropic): Promise<Report> {
+/**
+ * ⚠️ **A second, mechanical guard on the title — the schema's words are not a constraint.**
+ * The model is told in as many ways as it will read not to put a digit in the title, and models
+ * comply with that almost always, which is not the same as always. A heading is the most quoted
+ * part of a report, so a fabricated figure there is worse than one in the prose. Any title carrying
+ * a digit is **rejected outright** rather than stripped: a title with the number cut out of it
+ * ("MakerDAO at $") is a worse label than none, and `null` has a defined meaning already.
+ */
+function cleanTitle(raw: string | undefined): string | null {
+  const t = (raw ?? '').trim().replace(/[.\s]+$/, '');
+  if (!t) return null;
+  // ⚠️ **A digit is allowed only when it is part of a word** — `v3`, `V2`, `Q2`. Those are names,
+  // not measurements: "Aave v3" is what the protocol is called and carries no claim about size.
+  // **Any digit standing on its own or following a symbol is a figure** — `$5.03B`, `2027`, `63` —
+  // and that is what may not appear in a heading, where it is more quotable than in the prose.
+  if (/(?<![A-Za-z])\d/.test(t)) return null;
+  return t.length > 70 ? null : t;
+}
+
+export async function narrate(
+  draft: DraftReport,
+  client: Anthropic,
+): Promise<{ report: Report; title: string | null }> {
   // ⚠️ One skill, no form. The table is whatever the plan fetched — the facts below decide its
   // shape, not a template chosen before the data was read.
   const system = `You are a lending-protocol analyst writing a report.
@@ -151,7 +189,8 @@ directive, not a description of the checking that produced the figures.`;
   }).finalMessage();
   const call = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
   if (!call) throw new Error(`narrator returned no tool call (stop_reason ${response.stop_reason})`);
-  const { table, assessment } = call.input as { table?: string; assessment?: Assessment };
+  const { title, table, assessment } = call.input as
+    { title?: string; table?: string; assessment?: Assessment };
   // ⚠️ Validate BEFORE rendering, and say WHICH part failed. `strict: true` guarantees the keys
   // exist, so the interesting failure is no longer an absent field but an EMPTY one — a present
   // `assessment` whose summary is a blank string satisfies the schema and is still not a report.
@@ -171,7 +210,11 @@ directive, not a description of the checking that produced the figures.`;
   }
   const paragraphs = toParagraphs(table);
   if (!paragraphs.length) throw new Error('narrator returned a table that carried no usable text');
-  return { ...draft, sections: [{ id: 'figures', paragraphs }], assessment };
+  // ⚠️ **The title is returned BESIDE the report, never inside it.** `Report` is the hashed shape
+  // and four of its hashes are committed in ATS creation events on Hedera; a new field would
+  // invalidate all of them. `reports.title` is a column, written after save — the same shape
+  // `context_digest` uses. See `src/store/migrations/008_report_title.sql`.
+  return { report: { ...draft, sections: [{ id: 'figures', paragraphs }], assessment }, title: cleanTitle(title) };
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────────────────────────────────

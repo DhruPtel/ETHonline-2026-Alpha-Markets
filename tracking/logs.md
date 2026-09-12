@@ -12269,3 +12269,67 @@ that each stay the same size. ⚠️ **If the type is still small, the pane is s
 scale is being clamped by the column rather than by the content** — tell me and that is the next
 thing to fix, in `.viewer`/`.workspace`, not here.
 
+
+---
+
+## 2026-09-12 — Commit one: the narrator names its own report
+
+`src/agent/narrate.ts`, `src/store/reports.ts`, `src/store/migrations/008_report_title.sql`,
+`app/api/console/generate/route.ts`, `app/console/page.tsx`, `app/components/ConsoleViewer.tsx`.
+Root `tsc` exit 0, `next build` exit 0, migration applied clean.
+
+### ⚠️ Outside the hash, and it cannot move inside later
+
+`reports.title` is a **column**, written after `save()` — the shape `context_digest` established in
+007, for the same reason its header gives: adding a field to `Report` changes the canonical bytes of
+every report and invalidates every hash already written, and **four of those are committed in ATS
+creation events on Hedera** where nothing can amend them. A column is invisible to `canonical()`, so
+`load()`'s two integrity checks are untouched. ⚠️ **`canonical.ts` was not opened.**
+
+There is a second reason beyond the mechanical one: **the title is a label, not identity.** Two runs
+of one directive at one block are the same report and must hash the same. If the narrator named them
+differently that is a difference in the label, not in what was measured.
+
+### ⚠️ How the no-digits rule is held
+
+Two layers, because the schema's words are a request and not a constraint:
+
+1. The tool description asks for a noun phrase naming the subject and the metric, `maxLength: 70`,
+   and says no figures in as many ways as the model will read.
+2. **`cleanTitle()` rejects any title carrying a figure**, and rejects rather than strips — *"MakerDAO
+   at $"* is a worse label than none, and `null` already means "no title".
+
+⚠️ **A digit is allowed only when it is part of a word.** `v3`, `V2`, `Q2` are *names* and carry no
+claim about size; a number standing alone or after a symbol is a figure. The first version of the
+guard was a flat `/\d/` and it **rejected "Aave v3 market balances" — an example my own tool
+description had just asked for.** Caught by exercising it rather than reading it:
+
+```
+"MakerDAO vault deposits"   → "MakerDAO vault deposits"
+"Aave v3 market balances"   → "Aave v3 market balances"
+"Compound V2 supply"        → "Compound V2 supply"
+"Q2 lending review"         → "Q2 lending review"
+"MakerDAO at $5.03B"        → null
+"Stablecoin supply 2027"    → null
+"Top 5 lending protocols"   → null
+"Spark lending outlook."    → "Spark lending outlook"      (trailing stop trimmed)
+```
+
+### Old reports, and the directive
+
+⚠️ **Eleven rows pre-date 008 and all read NULL** — confirmed against the live database. They get a
+heading **derived from the directive**, cut at a word boundary at 58 characters with an ellipsis, and
+`meta.derived` records that it was derived rather than written. **Nothing backfills the column**: a
+title invented now by different code would be a worse label than an honest absence.
+
+⚠️ **The full directive stays on the sheet**, verbatim, as the subtitle beneath the heading. It is
+what was asked, and a title that replaced it would lose the question.
+
+### The signature change, and the blast radius I did not choose
+
+`narrate()` returned `Report` and now returns `{report, title}` — **the title cannot ride inside the
+object it is deliberately outside of.** That broke five call sites. Four are scripts
+(`scripts/ops/report.ts`, `scripts/demo/{store,validate,narrate}.ts`) and each took a one-line change
+to `const { report } = …`. ⚠️ **Beyond the constraint's list, and I did it anyway** — leaving them
+uncompilable was not an option and the alternative was module-level state.
+

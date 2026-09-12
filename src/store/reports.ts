@@ -31,6 +31,9 @@ export interface ListedReport {
   readonly hash: string;
   readonly analyst: string;
   readonly directive: string;
+  /** ⚠️ The narrator's own name for the report, outside the hash. `null` for anything written
+   *  before migration 008 — eleven rows — and for a title the digit guard rejected. */
+  readonly title: string | null;
   /**
    * ⚠️ **Display only. Never rebuild a `Report` from this.** The driver returns `BIGINT` as a
    * JavaScript *string* — deliberately, since a bigint can exceed `Number.MAX_SAFE_INTEGER` — so
@@ -43,7 +46,7 @@ export interface ListedReport {
 }
 
 interface ReportRow {
-  hash: string; analyst: string; directive: string;
+  hash: string; analyst: string; directive: string; title: string | null;
   canonical_json: string;
   block: string; observed_at: Date; created_at: Date;
 }
@@ -93,6 +96,21 @@ export async function save(report: Report): Promise<{ hash: string; inserted: bo
  * ⚠️ **Two checks, and a failure is a throw rather than a warning.** A row whose stored JSON has
  * been altered must not be served — this hash is what a market settles against.
  */
+/**
+ * The narrator's own name for a report. ⚠️ **Written AFTER `save()`, never inside `canonical()`** —
+ * the same shape `recordContextDigest` uses and for the same reason: `Report` is the hashed object
+ * and four of its hashes are committed in ATS creation events on Hedera. A column is invisible to
+ * `canonical()`, so `load()`'s integrity checks are unaffected.
+ *
+ * A `null` title is a no-op rather than a write, so a narrator that produced an unusable one (a
+ * digit, or nothing) leaves the column NULL — which already means "no title" and needs no second
+ * spelling.
+ */
+export async function recordTitle(reportHash: string, title: string | null): Promise<void> {
+  if (!title) return;
+  await db()`UPDATE reports SET title = ${title} WHERE hash = ${reportHash}`;
+}
+
 export async function load(hash: string): Promise<Report | null> {
   const [row] = await db()<ReportRow[]>`
     SELECT hash, analyst, directive, canonical_json, block, observed_at, created_at
@@ -139,12 +157,13 @@ export async function load(hash: string): Promise<Report | null> {
  */
 export async function list(limit = 50): Promise<ListedReport[]> {
   const rows = await db()<ReportRow[]>`
-    SELECT hash, analyst, directive, block, created_at
+    SELECT hash, analyst, directive, title, block, created_at
     FROM reports ORDER BY created_at DESC LIMIT ${limit}`;
   return rows.map((r) => ({
     hash: r.hash,
     analyst: r.analyst,
     directive: r.directive,
+    title: r.title ?? null,
     // ⚠️ **The one coercion in this file, and it is display-only.** See `ListedReport.block`. Safe
     // because an Ethereum block number is ~2.6e7 against `Number.MAX_SAFE_INTEGER` of ~9.0e15, and
     // this value never re-enters a hashed object — `load` is the only path back to a `Report`.

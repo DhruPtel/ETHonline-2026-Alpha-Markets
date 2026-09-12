@@ -39,7 +39,7 @@ import { narrate, render } from '../../../../src/agent/narrate.js';
 import { validate } from '../../../../src/agent/validate.js';
 import { analyst } from '../../../../src/config/analysts.js';
 import { reportHash } from '../../../../src/domain/canonical.js';
-import { save } from '../../../../src/store/reports.js';
+import { recordTitle, save } from '../../../../src/store/reports.js';
 // ⚠️ Empty is missing. One guard, shared; was a local copy until 2026-09-09.
 import { requiredEnv as env } from '../../../../src/config/env.js';
 
@@ -145,7 +145,7 @@ export async function POST(request: Request): Promise<Response> {
 
         // ── Narrate ─────────────────────────────────────────────────────────────────────────────
         emit({ stage: 'narrate', status: 'start' });
-        const report = await narrate(ex.draft, client);
+        const { report, title } = await narrate(ex.draft, client);
         const hash = reportHash(report);
         const facts = Object.keys(report.facts).length;
         emit({ stage: 'narrate', status: 'ok', hash, facts });
@@ -173,7 +173,7 @@ export async function POST(request: Request): Promise<Response> {
         // for.
         await recordContextDigest(hash, context);
         emit({
-          stage: 'save', status: 'ok', hash, inserted, facts, block: report.block,
+          stage: 'save', status: 'ok', hash, inserted, facts, block: report.block, title,
           contextDigest: context?.digest ?? null,
           // Not a failure: the hash IS the id, so the same directive at the same block is the
           // same report and `save` is a no-op by design.
