@@ -11719,3 +11719,123 @@ classes used                     13 · all defined · none added
 **Read again** on the right — and the table directly beneath it. ⚠️ **The panel is one line shorter
 and the heading's 31px is gone**, so the table starts higher up.
 
+
+---
+
+## 2026-09-12 — Ask Atlas wired: one stream, both views
+
+`app/components/AtlasPanel.tsx` only. `next build` exit 0 with `.next` cleared. **One real
+generation run** — 58.0 seconds, report saved. Console structure unchanged at **111 tokens / 80
+distinct**, identical to commit 7's baseline.
+
+### What I took from `trash/app/console/`
+
+| | |
+|---|---|
+| `terminal.tsx` | ⚠️ **the stamp is computed OUTSIDE the state updater.** React runs the updater when it flushes, which can be after the `finally` that zeroes the clock — `save` and `done` then print with a blank gutter. That file records it as *measured, not theorised*, and it would have bitten again |
+| `generate.tsx` | the reader loop: chunks do not align to lines, so split on `\n`, keep the trailing partial in a buffer, parse the rest; and ⚠️ **a stream ending without `done` is a truncation, not a finish** |
+| `generate.tsx` | the nine-stage `describe()` mapping, stage by stage |
+| `atlas.tsx` | the three status rows derived from the last line of each stage, and *"no run yet"* before a run rather than the design's "Data retrieved" |
+
+### ⚠️ The real run — 58.0s against a 60s ceiling
+
+```
+ 0.0s  limits    analyst alpha-1 · execute budget 240.0s
+ 0.9s  context   ok in 0.9s
+ 0.9s  compose   planning…
+25.2s  compose   ok · metric.totalDepositBalanceUSD · checks chain-corroboration
+25.2s  execute   gathering… budget 240.0s
+27.3s  execute   ok in 2.1s · 10 queries · block 25962739
+27.3s  narrate   writing…
+57.6s  narrate   ok · 6 facts · hash df1dabac4367…
+57.6s  validate  1 violation(s) — saved anyway (warns, never blocks)
+58.0s  save      SAVED · 6 facts · block 25962739 · 1886 chars
+58.0s  hash      df1dabac436778fab730d029c591071992ed9eac153ff53da711ff522f6178cb
+58.0s  done      finished
+```
+
+⚠️ **58.0 seconds is two seconds inside the Hobby ceiling.** The route declares
+`functionCapMs: 300_000` and Hobby silently clamps to 60. **The two model calls are the whole
+budget** — compose 24.3s, narrate 30.3s — while the actual Graph work is 2.1s for ten queries. This
+run would have survived on Vercel by about two seconds. **That is not a margin; it is a coin flip**,
+and it is exactly why the stream matters: a kill at 60s leaves every line above already rendered and
+the client able to say truthfully that nothing was saved.
+
+### What each view shows, second by second
+
+**Agent view** — the orbit takes `.orbit.running` for the whole 58s (a rule that existed and was
+never used), the live region reads *Working…*, and the three `.agent-status` rows change:
+
+```
+            0.0s              0.9s                 27.3s                          58.0s
+The Graph   no run yet   →    ok in 0.9s      →    ok in 2.1s · 10 queries…   →   (unchanged)
+Checks      no run yet   →    waiting…                                        →   1 violation(s)…
+Report      no run yet   →    waiting…                                        →   SAVED · 6 facts…
+```
+
+⚠️ **Before a run all three say "no run yet"**, not the design's *"Data retrieved" / "Passed" /
+"Page 1"*. A status row asserting a result nothing produced is the one thing this panel must not do.
+
+**Terminal view** — the twelve lines above, each with its elapsed stamp. **`.mini-terminal` shows the
+last two of the same array**, so the agent view also carries the tail of the run without switching.
+
+At the end the live region reads *Report saved.* and the composer button returns from *Running…*.
+
+### ⚠️ Switching views mid-run loses nothing, by construction
+
+**The log is `useState` on the panel, and both views are derived from it** — `.terminal-large` maps
+every line, `.mini-terminal` takes the last two, and the status rows scan the same array for the last
+line of each stage. Switching tabs is a re-render of the same state, not a remount, and the reader
+loop writes to that state regardless of which view is on screen. **There is no path where a line
+exists in one view and not the other.**
+
+### ⚠️ Cost: the route does not report it, so nothing is printed
+
+**`/api/console/generate` emits no token or usage field** — checked, not assumed. So the surface
+shows elapsed time and stage timings and **does not invent a cost**. What it does report is the
+budget (`execute budget 240.0s`) and where the time actually went, which is the part an operator can
+act on.
+
+**Pressing twice does nothing the second time.** `busy` guards the handler and the submit button is
+disabled while a run is in flight, so a second press cannot start a second run or spend again. There
+is no queue — the run in flight is the run.
+
+### ⚠️ No retry control, and a dead run says so
+
+There is no retry affordance anywhere. The ceiling forbids a **resume**, not a rerun, and a control
+implying the run could be picked up would be a lie. A stream that ends without `done` prints:
+
+> *truncated · the stream ended without a done event — the function was killed or the connection
+> dropped. Nothing was saved: save is the last step, so the model tokens are spent and no report
+> exists. Ask again to start over.*
+
+### ⚠️ Two things the brief expected that are not true yet
+
+1. **The report does NOT appear on `/`.** `force-dynamic` is on that page and is load-bearing — but
+   `/` still renders its demo const, so `list()` is never called. **The report is saved**: the store
+   now has it at the top, `df1dabac…  Balance overview for Aave v3 on Ethereum`. It appears on `/`
+   the moment PHASE-6 task 5 lands, with no redeploy. Stated rather than glossed.
+2. ⚠️ **I removed the "Read it" link I had first written.** `/report/<hash>` still renders the demo
+   `Record` and **404s on a real hash** — verified. Shipping a button that dead-ends is worse than
+   not shipping it. **The full hash is written to the terminal on its own line instead**, whole and
+   selectable, because that is the thing that is actually real. It becomes a link in task 6.
+
+### The design's row has no room for a stage column
+
+⚠️ `.mini-terminal` renders `[{stamp}] {text}` and `.terminal-large` renders
+`<span>{stamp}</span><b>›</b>{text}` — **two slots, no stage column and no tone class**, unlike
+`trash/`'s three-column `.term-line`. So **the stage is folded into the text** (`execute · ok in
+2.1s…`) and failures are legible by wording rather than colour. **The panel was not restructured to
+make room**, as the brief asked.
+
+### Where to look
+
+**`http://localhost:3000/console`** — server running. The composer is bottom-right in the dark panel.
+
+Type **`Balance overview for Aave v3 on Ethereum`** and press **Generate report**.
+
+⚠️ **It spends model tokens and takes ~58 seconds.** The button reads *Running…* and is disabled
+throughout. Watch the orbit speed up. Switch to **Terminal** at around 25s — you will see the lines
+already written, and new ones continuing to arrive. Switch back to **Agent view** and the status rows
+carry the same run. At the end, the last line is the full report hash.
+
