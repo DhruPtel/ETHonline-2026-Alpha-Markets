@@ -10741,3 +10741,95 @@ not have, and both are *live* rather than inert:
 All six resolve now. They are demo `Record` keys and die with the const in commit 12; this repo's
 markets are numeric and `/api/markets/[id]/refresh` enforces `/^\d+$/`.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 7: `/console`, placement only
+
+252 lines. `next build` exit 0, route table **19 → 20**, `/console` 200, backend unchanged. Three
+`<Link>` became `<a href>`; nothing else changed. **No wiring — the Atlas panel, the source tab and
+the tokenize section are commits 16 and 17.**
+
+### The class-token comparison
+
+```
+reference console route :  763 tokens, 204 distinct
+served /console         :  111 tokens,  80 distinct
+
+reference DESIGN classes (in globals.css)  73
+  MISSING — structural                      3   white · full · dark-outline
+  missing — lucide-* icon leftovers        19
+  missing — Tailwind/shadcn plumbing      111
+ours, not the reference                    9   tabs · tab-list · tab · active · tab-panel
+                                               line · choice-value · button-row · inert
+  all defined in globals.css             YES
+```
+
+⚠️ **The 763 → 111 token drop is the de-Tailwinding, not missing markup.** Every Radix element in the
+reference carries a 40-token utility string; the same element here carries one or two classes. The
+distinct count is the honest measure: 204 → 80, and 111 of the 124 absent are undefined utilities.
+
+⚠️ **The three "structural" absences are two buttons wearing different modifiers, not two missing
+buttons.** Both are present with the same job:
+
+| reference | ours | where |
+|---|---|---|
+| `<button class="btn white full">Connect wallet to tokenize` | `<button class="btn primary">Tokenize and list` | the tokenize CTA |
+| `<button class="btn dark-outline full">Save draft` | `<button class="btn outline">Save draft` | beside it |
+
+**The visible difference is width** — `.full` is the design's full-width modifier, so the reference's
+two CTAs span the form and ours do not. ⚠️ **Both live in `app/components/TokenizeForm.tsx`, which
+this commit is constrained out of.** Recorded for commit 17, not reached for. The label change is
+the better half of the trade: the reference gates tokenizing behind a wallet this build does not
+have, and `/api/console/tokenize` needs no wallet.
+
+### Every major section renders
+
+```
+workspace · viewer · viewer-toolbar · document-stage · atlas-console · agent-visual · orbit
+agent-status · query-evidence · atlas-composer · mini-terminal · workspace-footer
+tokenize-section · publish-steps · tokenize-form · listing-preview · token-flow
+report-paper · financial-table
+```
+
+⚠️ **`.source-panel` is absent from the initial HTML and that is correct** — `ConsoleViewer` renders
+the two tabpanels as a ternary on `tab`, defaulting to `report`, so the source panel appears on
+click rather than being shipped hidden. ⚠️ Worth noting separately: **`.source-panel` has no rule in
+`globals.css` at all** — it is a naming hook and `.tab-panel` does the styling. The old `console.css`
+did give it rules. Nothing renders wrong; recorded because it will look like an omission later.
+
+### What it looks like
+
+A two-panel `.workspace`. **Left, light:** a toolbar with *Report* / *Source data* tabs,
+`lending-protocols-q2-2026.pdf`, and zoom and page controls; then the document stage carrying a
+`.report-paper` — `Lending / Q2 2026` eyebrow, **Lending protocols** in serif, and three sections
+(*1. Executive summary*, *2. Revenue quality*, *3. Outlook*) with a `.financial-table`. **Right,
+charcoal:** `.atlas-console` with the counter-rotating orbit rings over `ATLAS RESEARCH AGENT`,
+*Agent view* / *Terminal* tabs, the agent status rows, `THE GRAPH / QUERY EVIDENCE` with an *Inspect
+source data →* link, the `.mini-terminal`, and the composer with its placeholder *"Describe a report
+or request an edit…"*. Below the workspace, a footer of links, then the full tokenize section —
+`FROM RESEARCH TO CONVICTION` over **Tokenize your report.**, three publish steps, the source
+tabs (*Use generated report* / *Upload your report*), the listing form, and a dark
+`.listing-preview` aside with the marketplace card, the token flow and a notice.
+
+### CUT and MARKED
+
+```
+<select 0 · type="radio" 0 · >Back< 0 · >Outcome< 0 · "Demo funds only" 0
+
+marked .inert:  Connect wallet (header) · one btn outline · Report category
+                · Related prediction market
+```
+
+⚠️ **The console's demo report content stays, as the brief directs** — `lending-protocols-q2-2026.pdf`,
+the Atlas paper and its figures are placeholder and commits 16–17 replace them.
+
+### ⚠️ There is no `CONSOLE_SECRET` field on this page, and six routes need one
+
+Grep: **0**. Every console route that spends is doorlocked — `generate`, `tokenize`, `transfer`,
+`source`, `accounts`, `report` all call `locked()` and refuse without the `x-console-secret` header.
+**The rebuild's console has no slot for it**, and the old console put it inside the Atlas panel,
+above the composer it gates, precisely so it would not become a section bolted above the workspace.
+⚠️ **This is a wiring blocker for commits 16 and 17, not for this one.** Recorded now so it is a
+known requirement rather than a discovery.
+
