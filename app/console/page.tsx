@@ -1,11 +1,12 @@
 import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
 import {ConsoleViewer} from '../components/ConsoleViewer.js';
-import {TokenizeForm, type Listing, type TokenTarget} from '../components/TokenizeForm.js';
+import {ListingPreviewText, TokenizeForm, type Listing, type TokenTarget} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
 import {SecretProvider, type Evidence} from '../components/ConsoleSecret.js';
 import {list, load} from '../../src/store/reports.js';
 import {tokenFor} from '../../src/store/tokens.js';
+import {db} from '../../src/store/db.js';
 import {REPORT_PRICE_HBAR} from '../../src/config/pricing.js';
 import {render} from '../../src/agent/narrate.js';
 
@@ -136,14 +137,51 @@ function shortenDirective(directive: string): string {
   return `${cut.slice(0, cut.lastIndexOf(' '))}…`;
 }
 
-async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
-  const listed = await list(1);
-  if (listed.length === 0) return null;
-  const hash = listed[0].hash;
+/** A report hash is 32 bytes of hex. Anything else is malformed and is refused, not guessed at. */
+const HASH = /^[0-9a-f]{64}$/i;
+
+/**
+ * ⚠️ **`?report=<hash>` loads that report; no parameter loads the most recent.**
+ *
+ * ⚠️ **An unknown or malformed hash REFUSES rather than falling back.** A page that quietly shows
+ * something other than what was asked for is worse than one that says it cannot: the tokenize form
+ * below targets whatever is in the panel, and a silent fallback would point a spend control at the
+ * wrong report.
+ */
+async function latestDoc(
+  requested?: string,
+): Promise<{markdown: string; meta: DocMeta} | {refused: string} | null> {
+  let hash: string;
+  if (requested !== undefined) {
+    // ⚠️ Same normalisation as the tokenize form: whitespace anywhere, an `0x` prefix and capitals
+    // are all the same hash to a person, and a URL pasted out of a terminal carries any of them.
+    const clean = requested.replace(/\s+/g, '').replace(/^0x/i, '').toLowerCase();
+    if (!HASH.test(clean)) {
+      // ⚠️ "Not a hash" and "not in the store" are different problems; this is the first.
+      return {
+        refused:
+          `"${requested.slice(0, 24)}${requested.length > 24 ? '…' : ''}" is not a report hash. ` +
+          `It needs 64 hex characters; this is ${clean.length}. Whitespace, an 0x prefix and ` +
+          'capitals are all handled.',
+      };
+    }
+    hash = clean;
+  } else {
+    const listed = await list(1);
+    if (listed.length === 0) return null;
+    hash = listed[0].hash;
+  }
+
   const report = await load(hash);
-  if (!report) return null;
+  if (!report) {
+    return requested === undefined
+      ? null
+      // ⚠️ The second problem, said as its own thing: the hash is well-formed and nothing has it.
+      : {refused: `That is a valid report hash, but no report ${hash.slice(0, 16)}… is in the store.`};
+  }
 
   const facts = Object.values(report.facts);
+  const title = (await list(50)).find((r) => r.hash === hash)?.title ?? null;
 
   return {
     // ⚠️ The hash is passed, so the rendered document carries its own identity — the 32 bytes an ATS
@@ -156,8 +194,10 @@ async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
       // them — and the sheet says the heading was derived. ⚠️ **The full directive stays on the
       // sheet either way**: it is what was asked, and a title that replaced it would lose the
       // question.
-      heading: listed[0].title ?? shortenDirective(report.subject.directive),
-      derived: listed[0].title === null,
+      // ⚠️ The title is a column, so it is read alongside the report rather than from `load()`,
+      // which returns the hashed object and knows nothing about it.
+      heading: title ?? shortenDirective(report.subject.directive),
+      derived: title === null,
       directive: report.subject.directive,
       factCount: Object.keys(report.facts).length,
       checksRun: report.checks.filter((c) => c.outcome !== 'not_checked').length,
@@ -174,18 +214,35 @@ async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
   };
 }
 
-export default async function Console() {
+export default async function Console({
+  searchParams,
+}: {
+  searchParams: Promise<{report?: string}>;
+}) {
+  const {report: requested} = await searchParams;
   const {atlas, listing, listingPreview, steps} = WORKSPACE;
   // ⚠️ The mockup's paper, fileName and pages are gone from the render — the panel shows the real
   // latest report, or an empty state when the store has none.
-  const doc = await latestDoc();
+  const loaded = await latestDoc(requested);
+  // ⚠️ A refusal is not a document. The panel says what it could not load and the tokenize form gets
+  // no target, so nothing below can spend against the wrong report.
+  const refused = loaded !== null && 'refused' in loaded ? loaded.refused : null;
+  const doc = loaded !== null && 'markdown' in loaded ? loaded : null;
 
   // ⚠️ **Built on the SERVER so the evidence is in the first bytes**, not filled in after hydration.
   // A judge opening `/console` cold sees the block populated; a grep of the served HTML finds the
   // values. Every field is read off the stored record — no query runs here.
   // ⚠️ **What the tokenize form works on: the report on screen.** Same hash, same document — so the
   // form never asks anyone to find a 64-character string that is already rendered above it.
+  // ⚠️ **CORRECTION to what I recorded last task.** I said `report_tokens` had no transaction
+  // columns; it has three — `tokensFor`'s `ReportToken` interface only SELECTs four, which is what
+  // misled me. So a report tokenized in an earlier session can show its full receipt after all.
+  // Read here rather than through `tokenFor`, the way this repo's pages write their own joins.
   const token = doc ? await tokenFor(doc.meta.hash) : null;
+  const [txs] = doc && token
+    ? await db()<{deploy_tx: string | null; grant_role_tx: string | null; issue_tx: string | null}[]>`
+        SELECT deploy_tx, grant_role_tx, issue_tx FROM report_tokens WHERE report_hash = ${doc.meta.hash}`
+    : [undefined];
   const target: TokenTarget | null = doc && {
     hash: doc.meta.hash,
     heading: doc.meta.heading,
@@ -195,7 +252,14 @@ export default async function Console() {
     // a "$0.50" price throws rather than converting. The USDC cutover belongs to mainnet.
     priceHbar: REPORT_PRICE_HBAR,
     token: token
-      ? {proxyAddress: token.proxyAddress, isin: token.isin, issuedAt: token.issuedAt.toISOString()}
+      ? {
+          proxyAddress: token.proxyAddress,
+          isin: token.isin,
+          issuedAt: token.issuedAt.toISOString(),
+          deployTx: txs?.deploy_tx ?? null,
+          grantRoleTx: txs?.grant_role_tx ?? null,
+          issueTx: txs?.issue_tx ?? null,
+        }
       : null,
   };
 
@@ -215,16 +279,20 @@ export default async function Console() {
   };
 
   return (
+    // ⚠️ **The provider wraps the WHOLE page, not just the workspace.** The tokenize section below
+    // reads the same context — the draft listing the preview shows as you type — and it is a sibling
+    // of the workspace, not a child. `SecretProvider` renders no DOM element, so widening its scope
+    // changes no markup. It previously wrapped `.workspace` only, and the tokenize form calling
+    // `useSecret` 500'd the page the moment it did.
+    <SecretProvider>
     <main className="console-page">
       {/* ⚠️ The doorlock's value is typed in the dark Atlas panel and used by the light viewer's
           Source data tab. They are not siblings, so it lives in a context whose provider
           **renders no DOM element at all** — see `ConsoleSecret.tsx`. */}
-      <SecretProvider>
-        <div className="workspace">
-          <ConsoleViewer doc={doc} />
-          <AtlasPanel atlas={atlas} reportEvidence={reportEvidence} />
-        </div>
-      </SecretProvider>
+      <div className="workspace">
+        <ConsoleViewer doc={doc} refused={refused} />
+        <AtlasPanel atlas={atlas} reportEvidence={reportEvidence} />
+      </div>
 
       <div className="workspace-footer">
         <span>Select report text to edit or add a note.</span>
@@ -278,11 +346,11 @@ export default async function Console() {
               preview={listingPreview.preview}
             />
 
-            <h3>{listing.title}</h3>
-            <p>By Atlas Research</p>
-            <strong className="listing-price">
-              {listing.price} <small>{listing.currency}</small>
-            </strong>
+            {/* ⚠️ Live from the form beside it — title, description and price as they are typed. The
+                fallback is the report on screen, not the mockup. */}
+            <ListingPreviewText
+              fallback={{title: target?.heading ?? 'No report yet', priceHbar: target?.priceHbar ?? '—'}}
+            />
 
             <div className="related-preview">
               <span>Related prediction market</span>
@@ -320,5 +388,6 @@ export default async function Console() {
         </div>
       </section>
     </main>
+    </SecretProvider>
   );
 }

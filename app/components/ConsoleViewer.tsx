@@ -135,7 +135,14 @@ const MAX_PROSE_CHARS = 900;
 const BASE_WIDTH = 690;
 const BASE_ZOOM = 90;
 
-export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | null}) {
+export function ConsoleViewer({
+  doc,
+  refused,
+}: {
+  doc: {markdown: string; meta: DocMeta} | null;
+  /** ⚠️ Set when `?report=` named something this store does not have, or is not a hash at all. */
+  refused: string | null;
+}) {
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(BASE_ZOOM);
 
@@ -423,16 +430,16 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
                 labelled as the earlier report; when a run dies the panel says nothing was saved
                 rather than sitting on a spinner or quietly showing a stale document as the result. */}
             {run === 'running' && (
-              <p className="notice">
+              <p className="notice"><span>
                 Atlas is writing a report — about 50 seconds. <strong>The sheet below is the previous
                 report</strong>; the new one replaces it when the run saves.
-              </p>
+              </span></p>
             )}
             {run === 'failed' && (
-              <p className="notice">
+              <p className="notice"><span>
                 The run did not finish, and <strong>nothing was saved</strong> — the model tokens are
                 spent and no report exists. The sheet below is unchanged. Ask again to start over.
-              </p>
+              </span></p>
             )}
             <div className="fit-panel" ref={frameRef}>
               <div className="fit-panel-content" ref={contentRef} style={contentStyle}>
@@ -446,10 +453,24 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
                         <span className="brand"><BrandMark /><span>ALPHA MARKETS</span></span>
                         <span>RESEARCH REPORT</span>
                       </header>
+                      {/* ⚠️ A refusal names what it refused. Falling back to the newest report would
+                          be a page ignoring what was asked for — and the tokenize form below targets
+                          whatever is in this panel, so a silent fallback would aim a spend control at
+                          the wrong report. */}
                       <div className="paper-title">
-                        <span className="eyebrow">NOTHING GENERATED YET</span>
-                        <h1>No report to show.</h1>
-                        <p>Ask Atlas for one in the panel beside this. It lands here on the next load.</p>
+                        <span className="eyebrow">
+                          {refused ? 'REPORT NOT LOADED' : 'NOTHING GENERATED YET'}
+                        </span>
+                        <h1>{refused ? 'That report could not be loaded.' : 'No report to show.'}</h1>
+                        <p>
+                          {refused ??
+                            'Ask Atlas for one in the panel beside this. It lands here on the next load.'}
+                        </p>
+                        {refused ? (
+                          <span className="paper-byline">
+                            <a href="/console">OPEN THE MOST RECENT REPORT INSTEAD →</a>
+                          </span>
+                        ) : null}
                       </div>
                     </article>
                   ) : (
@@ -568,7 +589,7 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
               )}
             </div>
 
-            {error && <p className="notice">{error}</p>}
+            {error && <p className="notice"><span>{error}</span></p>}
 
             {/* ⚠️ **The button IS the empty state, not a control beside it.** `.empty-state` is a
                 centred dashed block with its own h2/p rules — defined in globals.css and unused
@@ -591,11 +612,11 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
             {roster && (
               <>
                 {roster.truncated && (
-                  <p className="notice">
+                  <p className="notice"><span>
                     Some deployments did not answer within {roster.budgetMs / 1000}s and are listed as
                     not answering. The roster is bounded so one hanging indexer cannot take the whole
                     read down; press again to retry them.
-                  </p>
+                  </span></p>
                 )}
 
                 {/* ⚠️ **Bounded scroll.** 28 rows in normal flow push the viewer past the Atlas

@@ -39,6 +39,16 @@ import {createContext, useContext, useState, type ReactNode} from 'react';
  * reason the secret lives here. Without it the panel shows the previous report looking current
  * while a run is in flight, which is the console's most misleading possible state.
  */
+/**
+ * ⚠️ **The listing a person is composing, shared so the preview can show it as they type.**
+ * The form and the Marketplace preview are siblings inside `.tokenize-grid`, so neither can hold
+ * this — the same reason the secret lives here.
+ *
+ * ⚠️ **NONE of these three is persisted by publishing.** `/api/console/tokenize` accepts
+ * `{reportHash, confirm}` and nothing else. See the form's own notes.
+ */
+export type Draft = {title: string; description: string; priceHbar: string};
+
 export type RunState = 'idle' | 'running' | 'saved' | 'failed';
 
 /**
@@ -97,6 +107,8 @@ type Secret = {
   /** The viewer's open tab, here so the Atlas panel's "Inspect source data" can switch it. */
   tab: 'report' | 'data';
   setTab: (t: 'report' | 'data') => void;
+  draft: Draft | null;
+  setDraft: (d: Draft) => void;
 };
 
 const Ctx = createContext<Secret | null>(null);
@@ -107,8 +119,9 @@ export function SecretProvider({children}: {children: ReactNode}) {
   const [source, setSource] = useState<SourceEvidence | null>(null);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [tab, setTab] = useState<'report' | 'data'>('report');
+  const [draft, setDraft] = useState<Draft | null>(null);
   return (
-    <Ctx.Provider value={{secret, setSecret, run, setRun, source, setSource, evidence, setEvidence, tab, setTab}}>
+    <Ctx.Provider value={{secret, setSecret, run, setRun, source, setSource, evidence, setEvidence, tab, setTab, draft, setDraft}}>
       {children}
     </Ctx.Provider>
   );

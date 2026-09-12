@@ -13076,3 +13076,369 @@ deployed.** The URL shape shipped is the one this project already used in Phase 
 DEMO 0 · "5 USDC" 0 · structure 108 tokens, 80 distinct
 ```
 
+
+---
+
+## 2026-09-12 — `?report=<hash>` on /console, and the report inventory
+
+`app/console/page.tsx`, `app/components/ConsoleViewer.tsx`. `next build` exit 0. ⚠️ **Nothing spent,
+nothing minted, nothing generated** — token count is 5 of 19, the same as before this task.
+
+### 1 · Every report in the store
+
+**19 reports · 5 tokenized · 14 untokenized.**
+
+```
+● 65fb085d2662  Aave v3 Ethereum Market Overview               XXZ3KOQKJVW4
+○ 1343bb3faae0  Compound v3 Ethereum balance overview
+○ 8022be438ca0  Compound v3 Ethereum Balance Overview
+○ 9ccc3a394db5  Show me a balance overview of the MakerDAO…     ← 132 facts
+○ d94352d36fec  Balance overview for Spark Lend on Ethereum
+○ c8edb97020b9  Show me the balance overview of markerdao markets
+○ ebb86d5af061  Balance overview of Aave v3 markets             ← 140 facts
+○ df1dabac4367  Balance overview for Aave v3 on Ethereum
+○ 48057f007392  Balance overview for Aave v3 on Ethereum
+○ 0fb5b9a8df13  Balance overview for Aave v3 on Ethereum
+○ 31d5f67d986b  What are the top markets in makerdao            ← 132 facts
+● 348482a52687  Balance overview for top 5 lending protocols    XXR0WXU28WL2
+○ 04a56963faf3  What are the top 5 protocols by deposits
+● 600935014c4c  Balance overview for Spark Lend on Ethereum     XXCTORZL97X8
+○ 5ff18c702368  Balance overview for Aave v3 on Ethereum
+● c2649f05b4b2  top 10 protocols by deposits                    XX5FVRD1TMD1
+○ ea756902fc43  Balance overview for Compound v3 on Ethereum
+● 24041ca282d2  Balance overview for Aave v3 on Ethereum        XXCQBDTBC9X2
+○ f2285b4e6090  Balance overview for Aave v3 on Ethereum
+```
+
+⚠️ **Only the three newest have titles** — everything from `9ccc3a` down pre-dates migration 008 or
+was written before `recordTitle` was actually called, so their headings derive from the directive.
+
+### 2 · Did `/console` already read a parameter? **No.**
+
+`latestDoc()` took no argument and called `list(1)`; the page component took no props. Answered
+before building anything.
+
+### 3 · Added — one parameter, and it refuses rather than guesses
+
+```
+/console                      the most recent report, unchanged
+/console?report=<64 hex>      that report
+/console?report=<not hex>     REFUSES: "…" is not a report hash — 64 hex characters.
+/console?report=<unknown>     REFUSES: No report 0000000000000000… in the store.
+```
+
+⚠️ **A refusal never falls back to the newest report**, and the reason is not tidiness: **the
+tokenize form below targets whatever is in the panel.** A page that silently showed a different
+report than the one asked for would be aiming a spend control at the wrong asset. The refusal names
+what it refused and offers `OPEN THE MOST RECENT REPORT INSTEAD →`.
+
+**No picker, no library, no browser.** `/` lists reports and that is its job.
+
+Measured, all four paths:
+
+```
+/console                                       → Aave v3 Ethereum Market Overview
+/console?report=9ccc3a39…                      → Show me a balance overview of the MakerDAO markets on…
+/console?report=0000…0000  (valid hex, unknown) → That report could not be loaded.
+/console?report=nope       (malformed)          → That report could not be loaded.
+```
+
+### ⚠️ The URL you asked for
+
+```
+http://localhost:3000/console?report=9ccc3a394db52efa7f5e0219c0570df6c729640d298dd7515ae3e9a682b63bba
+```
+
+**"Show me a balance overview of the MakerDAO markets on Ethereum including which vault types hold
+the most collateral…"** — 132 measured figures, block 25,963,009, **untokenized**.
+
+**The form targets it, confirmed in the served HTML without pressing anything:**
+
+```
+source row     Show me a balance overview of the MakerDAO markets on…
+               132 measured figures · 9ccc3a394db52efa…
+receipt badge  not tokenized
+spend control  Price this tokenization          ← step one, spends nothing
+price          0.001 HBAR per unlock
+```
+
+⚠️ **The ISIN the price step would report: `XXJ4HUMFM4A5`.** Derived here with `isinFor(hash)` —
+the same pure function the route's `prepare()` uses — **not by calling the route.** So you can check
+the dry run says the same thing before you authorise anything.
+
+### One other untokenized report worth knowing about
+
+```
+http://localhost:3000/console?report=ebb86d5af061aa9a100312a32c6fe517e7ded7b382d88b25cdffa71898193cc8
+```
+
+**"Balance overview of Aave v3 markets"** — 140 figures, the largest report in the store.
+
+```
+tokenized 5 of 19 — unchanged · structure 112 tokens, 82 distinct
+```
+
+
+---
+
+## 2026-09-12 — The tokenize form edits, the preview follows, and only the hash is published
+
+`app/components/{TokenizeForm,ConsoleSecret}.tsx`, `app/console/page.tsx`. `next build` exit 0.
+⚠️ **Nothing tokenized, nothing spent** — 5 of 19 tokenized, unchanged.
+
+### ⚠️ What survives a publish: the hash, and nothing else
+
+Checked in the route rather than assumed. `/api/console/tokenize` reads
+`const { reportHash, confirm } = await request.json()` — **it accepts no other field**, and
+`tokenize()` writes only `report_tokens`.
+
+| field | edits the preview | published |
+|---|---|---|
+| Report hash | — | ⚠️ **yes. It is the only thing sent** |
+| Title | yes | **no** |
+| Description | yes | **no** |
+| Access price | yes | **no** — the charge stays `REPORT_PRICE_TINYBARS` whatever the box says |
+| Category · Related market | no | no — marked, as before |
+
+⚠️ **The brief said "the title is stored", and that needs one correction.** `reports.title` *is*
+stored — but it is written by **`recordTitle()` from the generate route**, at narration time. The
+tokenize form has no path to it. **Editing the title here changes the preview and not the record.**
+
+**What storing any of them would cost**, said rather than done: a `reports` column per field, a
+route that accepts them, and — for the price — a decision about whether it sits inside the report's
+hash. ⚠️ **It must not: a price is not part of what a report is**, and putting it inside would make
+two reports with the same figures at the same block different objects.
+
+**So the form says so, in a `.notice` directly above the publish control:** *"Only the report hash is
+published. Title, description and price edit the preview so you can see the listing — none of the
+three is saved, and the charge stays 0.001 HBAR whatever the price box says."*
+
+### What you can type, and what changes
+
+```
+Report hash    defaults to the report in the panel · paste another to target it
+Report title   → the preview's headline, live
+Description    → a line under the headline in the preview, live
+Access price   → the preview's price, live · HBAR, not USDC
+```
+
+Measured on `?report=9ccc3a39…`:
+
+```
+form     report-hash  9ccc3a394db52efa7f5e0219…
+         report-title Show me a balance overview of the MakerDAO mar…
+         access-price 0.001 HBAR        ← was the mockup's "5"
+         readonly on the three: 0
+preview  Show me a balance overview of the MakerDAO markets on… | By Atlas Research | 0.001 HBAR
+badge    not tokenized      spend: Price this tokenization
+"5 USDC" 0 · DEMO 0
+```
+
+### The hash field targets, and an unknown one is refused
+
+The price step sends the **typed** hash, so an unknown one comes back as the route's own
+`no report … in the store` and is shown as an error. ⚠️ **There is no fallback to the displayed
+report** — the button below spends, and a form that quietly retargeted would aim it at the wrong
+asset.
+
+**ISINs the price step would report** — derived with `isinFor(hash)`, the same pure function
+`prepare()` uses, **without calling the route**:
+
+```
+9ccc3a394db52efa…  →  XXJ4HUMFM4A5     "Show me a balance overview of the MakerDAO markets…"
+ebb86d5af061aa9a…  →  XXC2ANQL3UW5     "Balance overview of Aave v3 markets" (140 figures)
+```
+
+### ⚠️ A correction to what I recorded last task
+
+I wrote that `report_tokens` *"holds hash, proxy, isin and issued_at and no transaction column."*
+**It has eight columns, three of them the transactions:**
+
+```
+report_hash · proxy_address · isin · deploy_tx · grant_role_tx · issue_tx · transfer_tx · issued_at
+```
+
+⚠️ **`tokensFor`'s `ReportToken` interface only SELECTs four, and I read the interface for the
+table.** So the receipt for a report tokenized in an earlier session was saying the transactions
+were unavailable when they were sitting in the row. **Fixed** — the page reads the three columns and
+the receipt now links them for any tokenized report, not only one minted this session. Verified: the
+default `/console` shows three HashScan transaction links for the report minted last task.
+
+### ⚠️ And one fault this caused, worth recording
+
+Adding `useSecret` to the tokenize form **500'd the whole page**: `SecretProvider` wrapped
+`.workspace` only, and the tokenize section is its sibling. `useSecret outside SecretProvider`,
+server-side, on every request. **The provider now wraps the whole `<main>`** — it renders no DOM
+element, so nothing in the markup changed. ⚠️ **A build cannot catch this**; it appeared only on
+requesting the route, which is why that is a standing check.
+
+
+---
+
+## 2026-09-12 — The tokenize controls are back, and they never disappear again
+
+`app/components/TokenizeForm.tsx`. `next build` exit 0. ⚠️ **Nothing minted — 5 of 19, unchanged.**
+
+### What was wrong
+
+The control block was wrapped in `{!(done ?? existing) && (…)}`, so **on an already-tokenized report
+the buttons were removed from the DOM entirely** — and the default `/console` shows a tokenized
+report, so the panel a person lands on had no controls at all. ⚠️ **A form with no buttons cannot be
+told apart from a form that is failing.**
+
+Second fault in the same place: the enable check read `disabled={busy || !target}` — **the displayed
+report**, not the hash field. Pasting a hash while nothing was displayed left the button dead.
+
+### ⚠️ The controls are always present. Three states, all of them a working form
+
+```
+STATE · no report      buttons ["Paste a report hash to tokenize", "Cancel"]   both disabled
+STATE · untokenized    buttons ["Price this tokenization", "Cancel"]           Cancel disabled
+STATE · already minted buttons ["Already tokenized", "Cancel"]                 both disabled
+```
+
+Measured on three URLs, from the served HTML. **Every state renders two buttons**; what varies is the
+label and `disabled`, never existence.
+
+⚠️ **The already-minted state refuses out loud** rather than emptying: *"This report is already
+tokenized as `XXZ3KOQKJVW4`. A report can hold one token — `report_tokens.report_hash` is the primary
+key and the route refuses a second mint. Paste a different hash above; the receipt below stays."*
+The receipt is untouched.
+
+### ⚠️ The buttons act on the hash field, not the document panel
+
+`state` is computed from what is typed. **Already-minted is only knowable for the report on screen** —
+there is no row here for an arbitrary pasted hash — so pasting any other hash leaves the controls
+**live**, and if that report is already tokenized the route says so as a 409. ⚠️ **A refusal from the
+route is better than a guess from the form**: the form would have to fetch to know, and the press
+already fetches.
+
+### Two presses, still two
+
+Not collapsed. `post(plan !== null)` sends `confirm: false` the first time and `true` the second, so
+the same button is the price step and then the authorisation, with the estimate in its own label.
+Cancel clears the plan and is disabled until there is one.
+
+**Dry run against the makerdao report — no `confirm`, nothing spent:**
+
+```
+mode=dry  spent=false
+isin      XXJ4HUMFM4A5
+estimate  7.71195 HBAR
+balance   1048.10567943   floor 15.42390151
+```
+
+⚠️ **The same ISIN comes out of `isinFor(hash)` computed independently — `XXJ4HUMFM4A5`.** The route
+and the pure function agree, so the number on the button is checkable before it is pressed.
+
+### ⚠️ Publishing is not a separate action
+
+The marketplace at `/` lists reports from the store and reads their token state with `tokensFor`, so
+**a minted report is listed the moment the row exists.** There is no second step and no button should
+imply one. The form says so under the controls: *"Minting lists it. `/` reads the store and shows a
+report as tokenized once the row exists — there is no separate publish step."*
+
+### What to press, in order
+
+**Already tokenized — `/console`.** Both buttons present, both disabled, the notice naming the
+existing ISIN and the receipt open below it. **Nothing to press, and it says why.**
+
+**Untokenized — `/console?report=9ccc3a394db52efa7f5e0219c0570df6c729640d298dd7515ae3e9a682b63bba`.**
+1. **Price this tokenization** — spends nothing. A notice appears: *"This will spend about 7.71195
+   HBAR and mint a permanent asset. Balance 1048.10567943 HBAR, floor 15.42390151. ISIN
+   `XXJ4HUMFM4A5`… Nothing has been spent yet."* The button becomes **Confirm — spend ~7.71195 HBAR
+   and mint**, and Cancel goes live.
+2. **Confirm** — the only press that spends. Or **Cancel**, which clears the plan and returns the
+   first button.
+
+**No report — `/console?report=nope`.** The panel refuses the hash, and the controls read **Paste a
+report hash to tokenize**, disabled.
+
+
+---
+
+## 2026-09-12 — Three faults in the tokenize panel, and two of them were mine from one CSS mistake
+
+`app/components/{TokenizeForm,ConsoleViewer}.tsx`, `app/console/page.tsx`. `next build` exit 0.
+⚠️ **Nothing minted, no HBAR moved — 5 of 19 tokenized, unchanged.** No `confirm` was ever sent.
+
+### FAULT 1 · a pasted hash with whitespace in it
+
+The reported value was 64 hex characters **with a space in the middle** — a copy artifact from a
+terminal or a log. It was sent verbatim and the route answered *"no report … in the store"*, which
+was true and useless.
+
+**Normalisation, in both places a hash is accepted** — the form field and `?report=`:
+
+```js
+raw.replace(/\s+/g, '').replace(/^0x/i, '').toLowerCase()
+```
+
+⚠️ **Whitespace ANYWHERE, not just the ends** — the fault was a space in the middle, and `.trim()`
+would not have touched it. An `0x` prefix and capitals go too: **all of those are the same hash to a
+person.**
+
+**And the two problems now say different things**, which they did not before:
+
+```
+"abc"          → is not a report hash. It needs 64 hex characters; this is 3.
+                 Whitespace, an 0x prefix and capitals are all handled.
+"000…000"      → That is a valid report hash, but no report 0000000000000000… is in the store.
+```
+
+**Measured, the exact string from the report:**
+
+```
+"9ccc3a394db52efa7f5e0219c0570df6c729640d298 dd7515ae3e9a682b63bba"
+  → Show me a balance overview of the MakerDAO markets on…
+"0x9CCC3A394DB52EFA…B63BBA"  (upper case, 0x)
+  → Show me a balance overview of the MakerDAO markets on…
+```
+
+### FAULT 2 · the blank button — ⚠️ two faults at once, and both mine
+
+1. ⚠️ **It was invisible, not empty.** `.btn.dark-outline` sets `color: var(--paper)` — `#ffffff` —
+   because it is the **dark Atlas panel's** variant. I put it on the light tokenize form: white text
+   on a white button. Present in the DOM, focusable, and unreadable. `.btn.outline` is the
+   light-panel variant and is what it should always have been.
+2. ⚠️ **It should not have been rendered yet.** It was the Cancel for a plan, and there was no plan.
+   **The two-press split is that the first press prices and the second spends**, so the control that
+   cancels a plan appears once there IS one.
+
+Both fixed. Before a plan the panel now renders **one** button:
+
+```
+[{"cls":"primary full","label":"Price this tokenization"}]
+dark-outline on this light panel: 0
+```
+
+### FAULT 3 · the paragraph that read as a broken table — ⚠️ same root cause
+
+`.notice` is `display: flex; gap: 9px`. It was written for **an icon and one run of text** — the
+stylesheet has `.notice svg { margin-top: 2px }` and nothing else. **Every inline child of a flex
+container becomes a flex item**, so my paragraph's `<strong>`, text runs and `<code>` were laid out
+as a ROW with 9px gutters — *"Only the report hash is published." | "Title, description and price
+edit the preview" | "none of the three is saved" | …* — exactly the scattered-columns corruption
+reported.
+
+⚠️ **Fixed without touching CSS: wrap the content in ONE `<span>`.** The flex container then has a
+single item and the prose flows normally, and the notice keeps its tinted box. **Nine notices across
+two files had the same bug** — five in the tokenize form, four in the viewer, including the run
+banner and the roster's truncation warning. All nine wrapped.
+
+⚠️ **I introduced all nine.** `.notice` looked like a callout class and I used it as one without
+reading its rule.
+
+### What to press, for a report that is not yet tokenized
+
+**`/console?report=9ccc3a394db52efa7f5e0219c0570df6c729640d298dd7515ae3e9a682b63bba`** — or paste the
+hash into **Report hash**, with or without whitespace, `0x`, or capitals.
+
+1. **One button: `Price this tokenization`.** Press it. **Nothing is spent.**
+2. A notice appears as readable prose: *"This will spend about 7.71195 HBAR and mint a permanent
+   asset. Balance … HBAR, floor 15.42390151. ISIN `XXJ4HUMFM4A5`, issued to `0x32838fe9…`. Nothing
+   has been spent yet."* The button becomes **`Confirm — spend ~7.71195 HBAR and mint`**, and
+   **`Cancel` now appears beside it** — visible, because it is the light variant.
+3. **Confirm** is the only press that spends. **Cancel** clears the plan and the panel returns to
+   step 1.
+

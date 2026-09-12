@@ -2,6 +2,7 @@
 
 import {useState} from 'react';
 import {useRouter} from 'next/navigation.js';
+import {useSecret} from './ConsoleSecret.js';
 import {ArrowUpRight, ChevronDown, FileText, Upload} from './Icons.js';
 
 /**
@@ -18,7 +19,14 @@ export type TokenTarget = {
   /** The constant every report is sold at. ⚠️ HBAR, not USDC — see the notes in the form. */
   priceHbar: string;
   /** Present when this report already has a token. Minting again is refused by the route. */
-  token: {proxyAddress: string; isin: string; issuedAt: string} | null;
+  token: {
+    proxyAddress: string;
+    isin: string;
+    issuedAt: string;
+    deployTx: string | null;
+    grantRoleTx: string | null;
+    issueTx: string | null;
+  } | null;
 };
 
 type Minted = {
@@ -59,6 +67,29 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   const [plan, setPlan] = useState<Plan | null>(null);
   const [minted, setMinted] = useState<Minted | null>(null);
   const [busy, setBusy] = useState(false);
+  const {draft, setDraft} = useSecret();
+
+  // ⚠️ **The hash is a field now, defaulted to the report on screen.** Paste another and the form
+  // targets it; the price step asks the route about THAT hash, so an unknown one comes back as the
+  // route's own refusal rather than silently reverting to the displayed report.
+  const [hash, setHash] = useState(target?.hash ?? '');
+
+  // ⚠️ **Normalise before looking anything up.** A hash copied out of a terminal or a log arrives
+  // with a line break in the middle, or upper-cased, or with an `0x` in front. **All of those are
+  // the same hash to a person**, and a lookup that fails on any of them is the form being pedantic
+  // about a copy artifact. Whitespace ANYWHERE is stripped — not just the ends — because the real
+  // report of this fault was 64 hex characters with a space in the middle.
+  const normalise = (raw: string) => raw.replace(/\s+/g, '').replace(/^0x/i, '').toLowerCase();
+  const clean = normalise(hash);
+  const looksLikeHash = /^[0-9a-f]{64}$/.test(clean);
+
+  // ⚠️ The draft is seeded from the report once and then owned by whoever is typing.
+  const d = draft ?? {
+    title: target?.heading ?? '',
+    description: '',
+    priceHbar: target?.priceHbar ?? '',
+  };
+  const edit = (patch: Partial<typeof d>) => setDraft({...d, ...patch});
   const [error, setError] = useState<string | null>(null);
 
   // ⚠️ **The hash comes from the report on screen, not from a field.** It is 64 characters and the
@@ -66,14 +97,25 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   // console making work it already has the answer to. `target` is the same report the document
   // panel renders, handed down by the page.
   async function post(confirm: boolean) {
-    if (!target || busy) return;
+    if (!clean || busy) return;
+    // ⚠️ **"Not a hash" and "not in the store" are different problems** and the route can only
+    // answer the second. Saying which one it is here is the difference between "fix your paste" and
+    // "that report does not exist".
+    if (!looksLikeHash) {
+      setError(
+        `That is not a report hash. It needs 64 hex characters; this is ${clean.length} ` +
+        `character${clean.length === 1 ? '' : 's'}${/[^0-9a-f]/.test(clean) ? ' and contains non-hex characters' : ''}. ` +
+        'Whitespace, an 0x prefix and capitals are all handled — the length or the characters are wrong.',
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const res = await fetch('/api/console/tokenize', {
         method: 'POST',
         headers: {'content-type': 'application/json'},
-        body: JSON.stringify({reportHash: target.hash, confirm}),
+        body: JSON.stringify({reportHash: clean, confirm}),
       });
       const raw = await res.text();
       let j: Record<string, unknown>;
@@ -103,8 +145,20 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   // ⚠️ **Already tokenized reports show their receipt, never an offer to mint.**
   // `report_tokens.report_hash` is the primary key and the route refuses a second attempt; a button
   // that exists only to be refused is worse than no button.
-  const existing = target?.token ?? null;
+  // ⚠️ **Already-minted is only knowable for the report on screen.** If the typed hash is a
+  // different report we have no row for it here, so the controls stay live and the route answers —
+  // a 409 naming the existing token, which is a refusal rather than a surprise.
+  const targetsDisplayed =
+    !!target && hash.trim().toLowerCase() === target.hash.toLowerCase();
+  const existing = targetsDisplayed ? (target!.token ?? null) : null;
   const done = minted ?? null;
+
+  /** ⚠️ Three states, and all three render a form with buttons in it. */
+  const state: 'no-hash' | 'minted' | 'ready' = !hash.trim()
+    ? 'no-hash'
+    : done ?? existing
+      ? 'minted'
+      : 'ready';
   const [source, setSource] = useState<'generated' | 'upload'>('generated');
 
   function onTokenize() {
@@ -173,6 +227,24 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
       </div>
 
       <div className="form-grid">
+        <div className="full">
+          {/* ⚠️ **The report this form will tokenize.** Defaults to the one in the panel above;
+              paste another to target it. An unknown hash is refused by the route and shown as its
+              own message — the form never quietly reverts to the displayed report, because the
+              button below spends. */}
+          <label htmlFor="report-hash">Report hash</label>
+          <input
+            id="report-hash"
+            className="field"
+            value={hash}
+            spellCheck={false}
+            onChange={(e) => {
+              setHash(e.target.value.trim());
+              setPlan(null);
+            }}
+            placeholder="64 hex characters"
+          />
+        </div>
         <div>
           <label htmlFor="report-title">Report title</label>
           {/* ⚠️ **REAL, and read-only because it is not this form's to set.** The narrator writes
@@ -181,8 +253,9 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
           <input
             id="report-title"
             className="field"
-            readOnly
-            value={target ? target.heading : ''}
+            maxLength={100}
+            value={d.title}
+            onChange={(e) => edit({title: e.target.value})}
             placeholder="No report yet"
           />
         </div>
@@ -199,16 +272,26 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
               not take one. Left visible and disabled rather than deleted. */}
           <textarea
             id="description"
-            className="field inert"
-            readOnly
-            value="Not built — a report has no description column, and the tokenize route takes none."
+            className="field"
+            maxLength={500}
+            value={d.description}
+            onChange={(e) => edit({description: e.target.value})}
+            placeholder="Describe the listing. Shown in the preview; not saved — see below."
           />
         </div>
         <div>
           <label htmlFor="access-price">Access price</label>
           <div className="amount-field">
-            <input id="access-price" type="number" min="0.01" step="0.01" defaultValue={listing.price} />
-            <span>{listing.currency}</span>
+            <input
+              id="access-price"
+              type="number"
+              min="0.0001"
+              step="0.0001"
+              value={d.priceHbar}
+              onChange={(e) => edit({priceHbar: e.target.value})}
+            />
+            {/* ⚠️ HBAR. A USD-denominated price throws on testnet — no HBAR entry in DEFAULT_ASSETS. */}
+            <span>HBAR</span>
           </div>
           <label className="second-label" htmlFor="related-market">
             Related market
@@ -261,14 +344,18 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
               </div>
             </div>
 
-            {done ? (
+            {(done ?? (existing?.deployTx ? existing : null)) ? (
               <>
                 {/* ⚠️ **The three writes, each linkable.** They come back from the route at mint
                     time and are NOT stored — `report_tokens` holds hash, proxy, isin and issued_at
                     and no transaction column. So a report tokenized in an earlier session shows its
                     proxy and ISIN but not these three; said rather than faked. */}
                 <div className="receipt-grid">
-                  {([['Deploy', done.deployTx], ['Grant ISSUER', done.grantRoleTx], ['Issue 1', done.issueTx]] as const).map(
+                  {([
+                    ['Deploy', done?.deployTx ?? existing!.deployTx!],
+                    ['Grant ISSUER', done?.grantRoleTx ?? existing!.grantRoleTx!],
+                    ['Issue 1', done?.issueTx ?? existing!.issueTx!],
+                  ] as const).map(
                     ([label, tx]) => (
                       <div key={label}>
                         <small>{label}</small>
@@ -291,13 +378,14 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
                     creation event carries `alpha:<reportHash>` — the same 32 bytes an Arc market
                     commits. Not a bridge and not an oracle: one identifier in two places, which is
                     weaker than a bridge and checkable, which a bridge would not be. */}
-                <p className="notice">
-                  <strong>EquityDeployed carries</strong> <code>{done.emittedInfo}</code> — the same
+                <p className="notice"><span>
+                  <strong>EquityDeployed carries</strong>{' '}
+                  <code>{done ? done.emittedInfo : `alpha:${target?.hash ?? ''}`}</code> — the same
                   32 bytes an Arc market commits as its <code>reportHash</code>. One identifier in two
                   places; there is no bridge and none is claimed.
-                </p>
+                </span></p>
 
-                {done.checks.length > 0 && (
+                {done && done.checks.length > 0 && (
                   <div className="receipt-grid">
                     {done.checks.map((c) => (
                       <div key={c.label}>
@@ -341,45 +429,124 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
         </p>
       </details>
 
-      {error && <p className="notice">{error}</p>}
+      {/* ⚠️ **WHAT SURVIVES A PUBLISH, said where the person publishes.** `/api/console/tokenize`
+          accepts `{reportHash, confirm}` and nothing else — so **none of the three editable fields
+          above is sent, and none is stored.** The title that exists is the narrator's, written at
+          generation time by `recordTitle()`; editing it here changes the preview and not the record.
+          Storing any of them needs a `reports` column and a route that accepts it, which is a
+          schema change and is not being made here. */}
+      <p className="notice"><span>
+        <strong>Only the report hash is published.</strong> Title, description and price edit the
+        preview so you can see the listing — <strong>none of the three is saved</strong>, and the
+        charge stays {target ? target.priceHbar : '0.001'} HBAR whatever the price box says. Storing
+        them needs a <code>reports</code> column and a route that takes it.
+      </span></p>
 
-      {/* ⚠️ **TWO PRESSES, AND THE FIRST ONE SPENDS NOTHING.** Tokenizing mints a PERMANENT asset
-          for ~7.7 HBAR, so it is not one click. The route already has the split — it returns
-          `mode: 'dry'` without `confirm` — and this surface uses it: the first press prices the job
-          and shows the balance and the floor, the second authorises it. Same shape as the CLI, which
-          is dry by default and spends only on `--confirm`. */}
-      {!(done ?? existing) && (
-        <>
-          {plan && (
-            <p className="notice">
-              <strong>This will spend about {plan.estimateHbar} HBAR and mint a permanent asset.</strong>{' '}
-              Balance {plan.balanceHbar} HBAR, floor {plan.floorHbar}. ISIN <code>{plan.isin}</code>,
-              issued to <code>{plan.recipient.slice(0, 12)}…</code>. Nothing has been spent yet.
-            </p>
-          )}
-          <div className="button-row">
-            {plan ? (
-              <button className="btn primary full" type="button" onClick={() => void post(true)} disabled={busy}>
-                {busy ? 'Minting…' : `Confirm — spend ~${plan.estimateHbar} HBAR`}
-              </button>
-            ) : (
-              <button
-                className="btn primary full"
-                type="button"
-                onClick={() => void post(false)}
-                disabled={busy || !target}
-              >
-                {busy ? 'Pricing…' : target ? 'Price this tokenization' : 'No report to tokenize'}
-              </button>
-            )}
-            {plan && (
-              <button className="btn dark-outline full" type="button" onClick={() => setPlan(null)} disabled={busy}>
-                Cancel
-              </button>
-            )}
-          </div>
-        </>
+      {error && <p className="notice"><span>{error}</span></p>}
+
+      {/* ⚠️ **THE CONTROLS ARE ALWAYS HERE.** What changes is what they say and whether they are
+          enabled — never whether they exist. This block used to disappear on an already-tokenized
+          report, and a form with no buttons cannot be told apart from a form that is failing.
+
+          ⚠️ **TWO PRESSES, AND THE FIRST SPENDS NOTHING.** Tokenizing mints a PERMANENT asset for
+          ~7.7 HBAR. The route already has the split — no `confirm` returns `mode: 'dry'` — and the
+          CLI has the same shape. It is the safety property, not a flourish, and it is not collapsed
+          into one button.
+
+          ⚠️ **The buttons act on the HASH FIELD, not on the document panel.** `state` is computed
+          from what is typed. "Already minted" is only knowable for the report on screen; paste any
+          other hash and the controls stay live, because whether THAT report has a token is the
+          route's answer to give — and it gives it as a refusal rather than a surprise. */}
+      {plan && (
+        <p className="notice"><span>
+          <strong>This will spend about {plan.estimateHbar} HBAR and mint a permanent asset.</strong>{' '}
+          Balance {plan.balanceHbar} HBAR, floor {plan.floorHbar}. ISIN <code>{plan.isin}</code>,
+          issued to <code>{plan.recipient.slice(0, 12)}…</code>. Nothing has been spent yet.
+        </span></p>
       )}
+
+      {state === 'minted' && (
+        <p className="notice"><span>
+          <strong>This report is already tokenized</strong> as <code>{(done ?? existing)!.isin}</code>.
+          A report can hold one token — <code>report_tokens.report_hash</code> is the primary key and
+          the route refuses a second mint. Paste a different hash above to tokenize another report;
+          the receipt below stays.
+        </span></p>
+      )}
+
+      {state === 'no-hash' && (
+        <p className="muted">
+          Paste a report hash above, or open <code>/console?report=&lt;hash&gt;</code>. The buttons
+          act on that field.
+        </p>
+      )}
+
+      <div className="button-row">
+        <button
+          className="btn primary full"
+          type="button"
+          onClick={() => void post(plan !== null)}
+          disabled={busy || state !== 'ready'}
+        >
+          {busy
+            ? plan
+              ? 'Minting…'
+              : 'Pricing…'
+            : state === 'no-hash'
+              ? 'Paste a report hash to tokenize'
+              : state === 'minted'
+                ? 'Already tokenized'
+                : plan
+                  ? `Confirm — spend ~${plan.estimateHbar} HBAR and mint`
+                  : 'Price this tokenization'}
+        </button>
+        {/* ⚠️ **THE BLANK BUTTON, and it was two faults at once.**
+            1. `.btn.dark-outline` sets `color: var(--paper)` — WHITE — because it is the dark Atlas
+               panel's variant. On this light form that is white text on a white button: present,
+               focusable, and invisible. `.btn.outline` is the light-panel variant.
+            2. It should not have been there at all before a plan exists. **The two-press split is
+               that the first press prices and the second spends**, so the control that cancels a
+               plan appears once there IS a plan. Rendering it early is a button with nothing to do.
+            Both fixed: light variant, and only when `plan !== null`. */}
+        {plan && (
+          <button className="btn outline full" type="button" onClick={() => setPlan(null)} disabled={busy}>
+            Cancel
+          </button>
+        )}
+      </div>
+
+      {/* ⚠️ **There is no separate "publish".** The marketplace at `/` lists reports from the store
+          and reads their token state with `tokensFor`, so a minted report is listed the moment the
+          row exists. Minting IS publishing, and no button here should imply a second step. */}
+      <p className="muted">
+        Minting lists it. <code>/</code> reads the store and shows a report as tokenized once the row
+        exists — there is no separate publish step.
+      </p>
     </div>
+  );
+}
+
+/**
+ * The three values the Marketplace preview shows, read live from whatever is being typed.
+ *
+ * ⚠️ **In this file rather than a new one** because it needs the same `'use client'` boundary and
+ * the same context; and it renders only the dynamic text, so `.listing-preview`'s markup in
+ * `app/console/page.tsx` is otherwise untouched.
+ */
+export function ListingPreviewText({fallback}: {fallback: {title: string; priceHbar: string}}) {
+  const {draft} = useSecret();
+  const title = draft?.title?.trim() || fallback.title;
+  const price = draft?.priceHbar?.trim() || fallback.priceHbar;
+  const description = draft?.description?.trim() ?? '';
+
+  return (
+    <>
+      <h3>{title}</h3>
+      <p>By Atlas Research</p>
+      {description ? <p className="muted">{description}</p> : null}
+      <strong className="listing-price">
+        {price} <small>HBAR</small>
+      </strong>
+    </>
   );
 }
