@@ -10058,3 +10058,218 @@ directory the brief says must not be disturbed for any reason. Not worth touchin
 **Repo state: the backend is whole and builds; `app/` holds fourteen routes, `markdown.tsx` and its
 README; there are no pages. The new app lands next and brings its own root layout.**
 
+
+---
+
+## 2026-09-12 — `rebuild/` read and planned. Nothing moved.
+
+Read-only. No move, no edit, no install, no build of this repo, no git. One probe run entirely in
+the scratchpad against a symlinked `node_modules`, because the `next/link` question decides the size
+of a whole commit and guessing it wrong would have shaped the plan around a false constraint.
+
+### What `rebuild/` is
+
+21 files, 4,421 lines, and **no config of any kind** — no `package.json`, no `next.config.ts`, no
+`tsconfig.json`, no `.env`, no `node_modules`, no `postcss.config.mjs`. 8 pages under `app/`, 12
+components, 1 hook, 1 stylesheet (1,178 lines), and a 369-line `MANIFEST.md`.
+
+⚠️ **`MANIFEST.md` describes the workspace it was generated in, not this repo.** Its §2 and §3.2 talk
+about `components/alpha/*`, `components/ui/*` (61 vendored shadcn files), `app/reports/page.tsx`,
+`postcss.config.mjs`, `public/fonts/`, `tailwindcss`, `vite.config.ts` and a `pnpm` workspace —
+**none of which exist here.** All of that cleanup is already done, because `trash/` took the old
+frontend and this repo never had Tailwind or shadcn. The manifest's build-blocker (§4,
+`.openai/hosting.json` / vinext) is a fact about that workspace and is not reachable from here.
+
+**The parts of the manifest that DO apply: §3.1 (the `@/*` alias), §5 (contract compliance), §6 (the
+stub list), §7 (where the demo data is) and §10 (known gaps).** They check out against the files.
+
+### ⚠️ Three collisions, and two of them stop the build dead
+
+**1 · `@/` imports do not resolve under nodenext — 35 of them.** Probed rather than assumed, with
+`tsconfig.app.json`'s exact compiler options and a `"type": "module"` package.json:
+
+```
+import {Thing} from '@/components/Thing'      →  TS2307 Cannot find module
+import {Thing} from '@/components/Thing.js'   →  resolves
+```
+
+The alias itself is fine; **nodenext requires the `.js` suffix on the specifier.** There is also no
+`paths` or `baseUrl` in `tsconfig.app.json` today, so the alias has to be declared before it can work
+at all.
+
+**2 · `next/link` cannot be used at all — 8 imports, 20 `<Link>` elements.** This is the trap
+`tsconfig.app.json`'s own header documents, now reproduced:
+
+```
+import Link from 'next/link'      →  TS2307 Cannot find module
+import Link from 'next/link.js'   →  resolves, then:
+                                     TS2786 'Link' cannot be used as a JSX component
+```
+
+`next` ships no `exports` map and `link.js` is `module.exports = require(...)`, so the default import
+binds the module object rather than the component. **Adding the extension does not fix it — there is
+no spelling of `next/link` that works here.** ⚠️ `next/navigation.js` is **fine**, because those are
+named imports; all three uses (`usePathname`, two `notFound`) pass with the extension added.
+
+**3 · `tsconfig.app.json`'s `include` is `app/**` only.** `components/` and `hooks/` at the repo root
+fall outside it. They would still be typechecked transitively once a page imports them, but listing
+them is one line and makes the editor and a bare `tsc` agree with the build.
+
+⚠️ **None of this touches the root `tsconfig.json`.** Every change is in `tsconfig.app.json`, which is
+the file that exists for exactly this. `moduleResolution: nodenext` there is load-bearing and must
+not be relaxed to `bundler` to make `@/` easier — Unit 6 established that Turbopack then cannot
+resolve `src/`'s `.js` specifiers, and the wiring commits all import `src/`.
+
+### Dependencies: none
+
+Every import across all 21 files is `next`, `next/link`, `next/navigation`, `react`, or a `@/` path.
+**Nothing to install.** The manifest's long list of packages that "become unused" is about the other
+workspace; this repo never had them.
+
+### Route parity: all six exist, one id shape does not match
+
+`/` · `/report/[hash]` · `/markets` · `/markets/[id]` · `/console` · `/holdings` — all present, all
+named correctly, tokenize is a `#tokenize` section of `/console` rather than a route, which matches
+what Unit 4c established. Both dynamic pages use Next 16's `params: Promise<…>`.
+
+⚠️ **`rebuild/` keys markets by slug — `lending-2027`, `stablecoins-2027`, `dex-volume`.** This repo's
+markets are numeric, and `/api/markets/[id]/refresh` enforces it: `if (!/^\d+$/.test(id)) return 400`.
+The slugs are demo keys in a `Record`, so they vanish with the const — but **any link built from a
+slug has to become a number in the same commit that wires the page**, or the staking refresh 400s.
+
+### ⚠️ Two D6 cuts have come back in the layout
+
+`rebuild/app/layout.tsx` renders a **"Demo" toggle** in the header and **"Demo data · Stored on this
+device"** in the footer. PHASE-5 D6 cut both by name — *"the 'Demo' toggle · every 'Demo data' / 'No
+transaction will be broadcast' string"* — and `ui/chrome.tsx` carried the reason: everything here is
+real, so a control offering to make it fake asserts the opposite of the product's claim. Also
+`metadata.icons` points at `/favicon.svg` and **there is no `public/` directory in this repo**, so
+that 404s. All three are one small commit.
+
+### The paywall, and the one thing the new shape changes
+
+`report/[hash]/page.tsx` holds the full body in its demo const and renders it only when
+`access === 'owned'`. That shape is safe — `ReportPaper` is a **server** component and `BuyControl`
+(client) receives only `price` and `currency`, so nothing withheld crosses into the flight payload.
+⚠️ **But the old page's guarantee was stronger: it never called `render()` at all.** Wiring `load()`
+into this page reads the body server-side every time. It still must not be *sent*, and that is the
+grep probe — `$2214.84B` in the unpaid HTML → 0 — which has to run on that commit rather than be
+assumed from the old page's proof.
+
+⚠️ `BuyControl` takes no `hash` today. It needs one to call `/api/buy`.
+
+### What can land unchanged, and what cannot
+
+**Nothing lands byte-unchanged**, and that is not manufactured work: every one of the 21 files uses
+`@/` imports, `next/link`, or both. After that mechanical pass, though, **`holdings`, `markets`,
+`report/[hash]` and `console` need no further edit to land and render their demo content.** Only
+`layout.tsx` needs a content change (the two cuts and the favicon), and only the pages need wiring.
+
+### The plan, in commits
+
+```
+A · make it build
+  1  components/ + hooks/ + tsconfig.app.json paths     ~20 files, mechanical      build green
+  2  app/globals.css                                    1,178 lines, ONE FILE      build green
+  3  app/layout.tsx + app/page.tsx + the D6 cuts        ~260 lines                 / renders
+  4  app/report/[hash]/page.tsx                         301 lines
+  5  app/markets/page.tsx                               196 lines
+  6  app/markets/[id]/page.tsx                          466 lines  ⚠️ large
+  7  app/console/page.tsx                               252 lines
+  8  app/holdings/page.tsx                              121 lines
+B · wire it, one surface per commit
+  9–13  the five read paths: list()+tokensFor() · load() · the markets join +
+        batched eth_call · the market row + stakes · /api/holdings
+  14–18 the five controls: /api/buy · stake + refresh · generate + source ·
+        tokenize · the CONSOLE_SECRET field
+```
+
+⚠️ **Commit 2 cannot be made small.** 1,178 lines of stylesheet in one file; splitting it invents a
+structure the design does not have. It is one file, pure CSS, no Tailwind, and reviewable as a
+stylesheet rather than as logic.
+⚠️ **Commit 6 is 466 lines** — the largest page, mostly a demo const that the wiring commit deletes.
+
+⚠️ **Commit 3 is the one that must not be split**: Next requires a root layout the moment a page
+segment exists, so `layout.tsx` and the first `page.tsx` land together or the build fails in a way
+that reads as a page fault. ⚠️ **And `.next` must be cleared after each move** — the last session's
+build failed on a stale route validator naming files that no longer existed, with
+`Compiled successfully` immediately above it.
+
+### The one open decision
+
+**Where `components/` and `hooks/` go.** At the repo root as the manifest assumes, which needs
+`baseUrl` + `paths` in `tsconfig.app.json` and leaves one unknown — whether Turbopack reads `paths`
+from `tsconfig.app.json` rather than the root `tsconfig.json`, since `next.config.ts` redirects it
+there. Or under `app/` as `app/components/` and `app/hooks/`, which needs **no config change at all**,
+is already inside `include`, resolves with plain relative `.js` imports, and has precedent in this
+repo — `app/ui/` was exactly that, and PHASE-5 noted a folder with no `page.tsx` and no `route.ts`
+produces no route. **Raised rather than taken.**
+
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 1: `app/components/` and `app/hooks/`, no config change
+
+13 files land from `rebuild/`, their imports rewritten to what this repo's module resolution
+actually accepts. **No `tsconfig.json` touched — neither the root one nor `tsconfig.app.json`.**
+`next build` exit 0, `tsc` exit 0 against both configs, and no new route.
+
+### Why they went under `app/` rather than the repo root
+
+The manifest assumed `components/` at the root with a `@/*` alias, which needs `baseUrl` and `paths`
+in `tsconfig.app.json` and carries one unknown: whether Turbopack reads `paths` from
+`tsconfig.app.json` or from the root `tsconfig.json`, since `next.config.ts` redirects it with
+`typescript.tsconfigPath`. ⚠️ **The owner's call, and it is the right one: an unknown is a bad thing
+to carry on the first commit in exchange for a shorter import.** Under `app/` there is no unknown —
+`app/**/*.tsx` already covers them, relative `.js` imports resolve by the same rule as everything
+else, and `app/ui/` was this exact shape before.
+
+**Proved rather than assumed** — `tsc --listFiles` lists all 13 in the program, so they are
+typechecked and not merely ignored as unimported:
+
+```
+app/components/*.tsx  12  ·  app/hooks/useFitPanel.ts  1   = 13
+```
+
+⚠️ And the route table is unchanged at 15. **A folder under `app/` with no `page.tsx` and no
+`route.ts` produces no route**, which is worth having on the record a second time.
+
+### The two import rewrites, and one of them has no alternative
+
+**35 `@/` specifiers across the whole of `rebuild/` — 12 of them in these 13 files.** Under nodenext
+the alias is not the problem; the missing extension is. `@/components/Icons` does not resolve and
+`@/components/Icons.js` does. Here they became `./Icons.js` and `../hooks/useFitPanel.js`.
+
+⚠️ **`next/link` was removed from `SiteNav`, because there is no spelling of it that works in this
+repo.** Both failures reproduced before the move:
+
+```
+import Link from 'next/link'      TS2307  cannot find module
+import Link from 'next/link.js'   TS2786  'Link' cannot be used as a JSX component
+```
+
+`next` ships no `exports` map and `link.js` is `module.exports = require('./dist/client/link')`, so
+the default import binds the module object. **Named imports are unaffected**, which is why
+`next/navigation.js` — `usePathname` here, `notFound` on two pages later — is fine with the extension
+added. The reason this cannot be dodged by relaxing `moduleResolution` to `bundler` is Unit 6's:
+Turbopack then cannot resolve `src/`'s `.js` specifiers, and every wiring commit imports `src/`.
+**The cost is a full page load per nav click.** Written into `SiteNav.tsx`'s header so the next
+reader does not try to put `next/link` back.
+
+⚠️ **The other 7 `next/link` importers are all pages and are still in `rebuild/`.** They carry 19 more
+`<Link>` elements and each one becomes a plain `<a>` in the commit that lands its page — not in a
+sweep of its own.
+
+### Standing checks
+
+```
+next build                          EXIT 0 · 15 routes, unchanged · no new route from app/components
+tsc -p tsconfig.app.json --noEmit   EXIT 0 · 13 new files in the program
+tsc -p tsconfig.json --noEmit       EXIT 0 · src/ and scripts/ untouched
+@/ specifiers remaining under app/  0
+next/link imports under app/        0
+```
+
+⚠️ `.next` was cleared before the build, per the stale-route-validator lesson. Still necessary, still
+cheap.
+
