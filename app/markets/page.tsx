@@ -1,9 +1,8 @@
 // Every market, and the analyst's record across them.
 //
-// ⚠️ **THE VISUALS HERE ARE DISPOSABLE AND THE QUERIES ARE NOT.** Designs land after this unit, so
-// nothing below reaches for a new class — `globals.css` is untouched and every `className` already
-// exists. What this file settles is the data: one database query, one batched chain call, and the
-// rule that tells a forecast from a rehearsal.
+// ⚠️ **THE QUERIES ARE PHASE 4'S AND THEY DID NOT CHANGE — the layout is `markets.html`'s.** One
+// database query, one batched chain call, and the rule that tells a forecast from a rehearsal are
+// exactly as Unit 13 wrote them. What changed is what the rows are rendered into.
 //
 // ⚠️ **A server component reading the store directly — no API route, and none should be added.**
 // `app/page.tsx` argues this for the report index and the same argument holds: a route here would be
@@ -57,6 +56,8 @@
 import { ethers } from 'ethers';
 import { db } from '../../src/store/db.js';
 import { requiredEnv } from '../../src/config/env.js';
+import { SiteHeader } from '../ui/chrome.js';
+import { Unbuilt } from '../ui/unbuilt.js';
 
 export const runtime = 'nodejs';
 
@@ -165,95 +166,180 @@ export default async function MarketsIndex() {
   const wrong = scored.filter((r) => r.forecast_correct === false).length;
   const voided = scored.filter((r) => r.voided_at).length;
 
-  const card = (r: Row) => {
+  // ── The card. ⚠️ `markets.html`'s `.prediction-card`. ─────────────────────────────────────────
+  //
+  // ⚠️ **The reference's card carries a sparkline, a percentage per outcome, a five-figure USDC
+  // volume and "12 reports". Three of those four have no source and are NOT invented:**
+  //   sparkline  → nothing stores a probability series; there is ONE stake row in the database.
+  //                The slot holds the POOL BAR instead — two real pools, read from the contract.
+  //   volume     → real, and it is `poolTrue + poolFalse`. Today that is 1.01 USDC on market 6 and
+  //                0.01 on market 7. Small numbers, truthfully.
+  //   N reports  → a market has ONE claim citing ONE report. The card links to that report.
+  //   category   → marked; no column exists.
+  const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'offchain') => {
     const spec = JSON.parse(r.spec_json) as Spec;
     const p = r.chain_market_id ? pools.get(r.chain_market_id) : undefined;
+    const total = p ? p.t + p.f : null;
+    const pct = (v: bigint) => (total && total > 0n ? Number((v * 1000n) / total) / 10 : null);
+    const question = `Will ${spec.slug}’s ${spec.metric} be ${spec.comparison} $${grouped(spec.threshold)} on ${spec.observedDay}?`;
+    const Card = r.chain_market_id ? 'a' : 'div';
+
     return (
-      <li key={r.id}>
-        {r.chain_market_id
-          ? <a href={`/markets/${r.chain_market_id}`}>
-              Will {spec.slug}&rsquo;s {spec.metric} be {spec.comparison} ${grouped(spec.threshold)} on {spec.observedDay}?
-            </a>
-          : <span>Will {spec.slug}&rsquo;s {spec.metric} be {spec.comparison} ${grouped(spec.threshold)} on {spec.observedDay}?</span>}
-        <div className="meta">
-          {r.chain_market_id ? <span>Market #{r.chain_market_id}</span> : <span>Not on chain</span>}
-          <strong>{standing(r)}</strong>
-          {r.after_the_fact && <strong>Rehearsal — not a forecast</strong>}
-          {/* ⚠️ Pools read from the contract. An unreadable market says so rather than showing 0. */}
-          {p
-            ? <span>Pool {usdc(p.t + p.f)} USDC ({usdc(p.t)} TRUE / {usdc(p.f)} FALSE)</span>
-            : r.chain_market_id ? <span>Pool unavailable</span> : null}
-          {r.side !== null
-            ? <span>Analyst said {r.side ? 'TRUE' : 'FALSE'}{r.amount ? ` · ${usdc(BigInt(r.amount))} USDC` : ''}</span>
-            : <span>No analyst claim</span>}
-          <span>{when(r.created_at)}</span>
+      <Card key={r.id} className={`prediction-card${kind === 'forecast' ? '' : ` ${kind}`}`}
+            {...(r.chain_market_id ? { href: `/markets/${r.chain_market_id}` } : {})}>
+        {/* 1 · meta — the reference has a category left and a status badge right. ⚠️ There is no
+               category column, so the left slot carries the market's chain identity, which is
+               the true thing that distinguishes one card from another. */}
+        <div className="prediction-card-meta">
+          <span>{r.chain_market_id ? `Market #${r.chain_market_id}` : 'Off chain'}</span>
+          <span className="badge">{standing(r)}</span>
         </div>
-        {/* ⚠️ **The claim cites a report, and that tie is the product's central sentence.** A stake
-            is backed by published research; without this link the page asserts that and shows it
-            nowhere. */}
-        {r.report_hash && (
-          <div className="meta">
-            <a href={`/report/${r.report_hash}`}>{r.directive ? bound(r.directive) : 'The report behind this claim'}</a>
+
+        {/* 2 · the question */}
+        <h2>{question}</h2>
+
+        {/* 3 · the criterion line */}
+        <p>Settled by re-reading the deployment’s daily snapshot for {spec.observedDay} UTC from
+           The Graph. A tie resolves FALSE.</p>
+
+        {/* 4 · the chart area. ⚠️ **THE SECTION IS PRESENT.** The reference draws a probability
+               series here; nothing stores one and there is one human stake in the database, so the
+               same slot at the same height carries the two POOLS instead — real, read from the
+               contract on this request, and the only thing here that moves when somebody stakes. */}
+        <div className="prediction-chart compact">
+          <div className="chart-container" role="img"
+               aria-label={total && total > 0n ? `Pool split: TRUE ${pct(p!.t)}%, FALSE ${pct(p!.f)}%` : 'No stake on either side'}>
+            {total && total > 0n ? (
+              <>
+                <div className="pool-track">
+                  <span className="pool-true" style={{ width: `${pct(p!.t)}%` }} />
+                  <span className="pool-false" style={{ width: `${pct(p!.f)}%` }} />
+                </div>
+                <span className="market-statline" style={{ border: 0, padding: 0 }}>
+                  pool, not probability
+                </span>
+              </>
+            ) : p ? (
+              <p className="empty">No stake on either side yet.</p>
+            ) : (
+              // ⚠️ Unreadable is not zero.
+              <p className="empty">Pool unavailable — the contract could not be read.</p>
+            )}
           </div>
-        )}
-        {r.report_hash && <div className="mono hash">{r.report_hash}</div>}
-      </li>
+        </div>
+
+        {/* 5 · outcome rows — the reference's dot, label and percentage. ⚠️ Two sides, never three:
+               the contract is binary. And these are DISPLAY; there is no per-row action. */}
+        <div className="prediction-outcomes">
+          {([['TRUE', p?.t, 'var(--chart-1)'], ['FALSE', p?.f, 'var(--chart-2)']] as const).map(([label, amt, colour]) => (
+            <div key={label}>
+              <span><i style={{ background: colour }} />{label}
+                {r.side !== null && ((label === 'TRUE') === r.side) ? ' · analyst' : ''}</span>
+              <b>{amt === undefined ? '—' : pct(amt) === null ? `${usdc(amt)} USDC` : `${pct(amt)}%`}</b>
+            </div>
+          ))}
+        </div>
+
+        {/* 6 · footer — the reference's volume and report count. ⚠️ Volume is real and it is small:
+               `poolTrue + poolFalse`. "12 reports" has no source — a market has ONE claim citing
+               ONE report — so the slot says which. */}
+        <div className="prediction-card-footer">
+          <span>{total !== null ? `${usdc(total)} USDC vol.` : 'no pool'}</span>
+          <span>{r.report_hash ? '1 report' : 'no report'}</span>
+        </div>
+
+        {/* 7 · the footer action */}
+        <div className="market-open-action">
+          {r.chain_market_id ? 'View market & stake' : 'Not on chain yet'}
+          <span aria-hidden="true">→</span>
+        </div>
+      </Card>
     );
   };
 
+  const openCount = forecasts.filter((r) => !r.resolved_at && !r.voided_at).length;
+
   return (
-    <main>
-      <header className="masthead">
-        <h1>Markets</h1>
-        <p className="lede">
-          The analyst publishes research, then stakes its own USDC on a claim about what a
-          deployment&rsquo;s figures will do. Settlement re-reads The Graph and scores it.
+    <>
+      <SiteHeader current="/markets" />
+      <main className="page-container markets-page">
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">Conviction meets the market</span>
+            <h1>Prediction markets</h1>
+            <p>Back an outcome. Let the evidence speak.</p>
+          </div>
+          <div className="market-count">
+            <span>{openCount} open market{openCount === 1 ? '' : 's'}</span>
+            <span>Settlement on Arc</span>
+          </div>
+        </div>
+
+        <div className="market-tabs">
+          <span className="active">All predictions<span className="count">{all.length}</span></span>
+          {/* ⚠️ MARKED. "My positions" needs an identity system; there is none. */}
+          <Unbuilt label="My positions">
+            <span>My positions<span className="count">0</span></span>
+          </Unbuilt>
+        </div>
+
+        <div className="filter-bar">
+          <Unbuilt label="Search">
+            <span className="search-field">Search markets</span>
+          </Unbuilt>
+          <Unbuilt label="Filtering by category">
+            <span className="filter-chips">
+              <span className="active">All</span><span>Lending</span><span>Stablecoins</span><span>DEXs</span>
+            </span>
+          </Unbuilt>
+        </div>
+
+        {/* ⚠️ **THE ANALYST'S RECORD, AND IT IS WHY A REPORT IS WORTH PAYING FOR.** Designed for its
+            EMPTY case first, because `scores` has zero rows and the empty case is what ships until
+            markets 6 and 7 settle. Never dressed as a zero. */}
+        <div className="results-meta">
+          <span>The analyst&rsquo;s record</span>
+          <span>
+            {scored.length === 0
+              ? 'no forecast has settled yet'
+              : `${scored.length} settled — ${right} right, ${wrong} wrong, ${voided} voided`}
+          </span>
+          <span>rehearsals excluded</span>
+        </div>
+
+        <h2 className="section-title"><span>Forecasts</span></h2>
+        {forecasts.length === 0
+          ? <p className="empty">No forecasts on chain.</p>
+          : <div className="prediction-grid">{forecasts.map((r) => card(r, 'forecast'))}</div>}
+
+        <h2 className="section-title"><span>Rehearsals</span></h2>
+        <p className="meta">
+          ⚠️ Created over days that had <strong>already closed</strong>, so the answer was knowable
+          when the analyst committed. They exist to drive resolve, void and refund on chain before a
+          real market needed them. <strong>None is a forecast and none counts towards the record.</strong>
         </p>
+        {rehearsals.length === 0
+          ? <p className="empty">No rehearsal markets.</p>
+          : <div className="prediction-grid">{rehearsals.map((r) => card(r, 'rehearsal'))}</div>}
 
-        {/* ⚠️ **THE RECORD, AND IT IS WHY A REPORT IS WORTH PAYING FOR.** Unit 15 computes these and
-            until now nothing read them. ⚠️ Two of §5.12's three scores are structurally blank today
-            and are shown as ABSENT rather than as zero — see the note below, which stays until they
-            have a source. */}
-        <p className="lede">
-          <strong>The analyst&rsquo;s record:</strong>{' '}
-          {scored.length === 0
-            ? 'no forecast has settled yet. Rehearsals are excluded — they are machinery proofs over days that had already closed.'
-            : `${scored.length} settled forecast${scored.length === 1 ? '' : 's'} — ${right} right, ${wrong} wrong, ${voided} voided. A void is not a wrong answer: the data was missing, so there was no outcome.`}
+        {offChain.length > 0 && (
+          <>
+            <h2 className="section-title"><span>Not on chain</span></h2>
+            <p className="meta">
+              Created in the store and never landed on chain — nothing to stake on and no pools to
+              read. A directed market waits here until the commit cron reaches it.
+            </p>
+            <div className="prediction-grid">{offChain.map((r) => card(r, 'offchain'))}</div>
+          </>
+        )}
+
+        <p className="meta">
+          Pools are read from the contract on every request, not from our database. ⚠️ Two of the
+          three scores §5.12 defines are not shown because nothing produces them yet: reconciliation
+          quality is null on every stored report by design, and trading return has no source until
+          payouts are recorded. <strong>They are absent here rather than displayed as zero.</strong>
         </p>
-      </header>
-
-      <h2>Forecasts</h2>
-      {forecasts.length === 0
-        ? <p className="empty">No forecasts on chain.</p>
-        : <ol className="reports">{forecasts.map(card)}</ol>}
-
-      <h2>Rehearsals</h2>
-      <p className="meta">
-        ⚠️ Created over days that had <strong>already closed</strong>, so the answer was knowable when
-        the analyst committed. They exist to drive resolve, void and refund on chain before a real
-        market needed them. <strong>None of these is a forecast and none counts towards the record.</strong>
-      </p>
-      {rehearsals.length === 0
-        ? <p className="empty">No rehearsal markets.</p>
-        : <ol className="reports">{rehearsals.map(card)}</ol>}
-
-      {offChain.length > 0 && (
-        <>
-          <h2>Not on chain</h2>
-          <p className="meta">
-            Created in the store and never landed on chain — nothing to stake on and no pools to
-            read. A directed market waits here until the commit cron reaches it.
-          </p>
-          <ol className="reports">{offChain.map(card)}</ol>
-        </>
-      )}
-
-      <p className="meta">
-        Pools are read from the contract on every request, not from our database. Two of the three
-        scores §5.12 defines are not shown because nothing produces them yet: reconciliation quality
-        is null on every stored report by design, and trading return has no source until payouts are
-        recorded. They are absent here rather than displayed as zero.
-      </p>
-    </main>
+      </main>
+    </>
   );
 }

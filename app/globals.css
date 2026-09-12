@@ -421,3 +421,508 @@ section.buy p { margin: 0 0 0.8rem; font-size: 0.9375rem; }
   .reports { grid-template-columns: 1fr; }
   .identity { grid-template-columns: 1fr; padding: 1rem; }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════
+   THE REFERENCE LAYOUTS
+   ────────────────────────────────────────────────────────────────────────────────────────────────
+   Everything above this line styles the markup Phase 4 shipped. Everything below is the structure
+   `front-end-design/` draws and the pages beneath now write: the header and footer, the page
+   container and heading, the card grids, the market detail grid, the position panel, and the
+   reading page composed from the orphan classes the reference stylesheet carries but never draws.
+
+   ⚠️ **Class names are the reference's own.** Where the design package calls a thing
+   `.prediction-card`, so does this. A second vocabulary for one design is how the two stop agreeing.
+   ════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Shell, header, footer ───────────────────────────────────────────────────────────────────── */
+
+body { display: flex; flex-direction: column; min-height: 100vh; }
+.shell { flex: 1; }
+
+/* ⚠️ **Values taken from the reference's own rules, not approximated.** A 70px grid header with
+   three tracks, a 25px serif wordmark, and an active item marked by a 2px `:after` bar rather than
+   a border — which is what lets the bar overhang the label by 6px on each side. */
+.site-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 30px;
+  height: 70px;
+  padding: 0 34px;
+  background: #f8fcfef2;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid #dce3e9;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.brand svg { width: 25px; height: 29px; }
+/* ⚠️ The wordmark is the DISPLAY face at 25px. Mine was 12px monospace, which is most of why the
+   header had no presence. */
+.brand > span { font: 25px/1 var(--font-display); letter-spacing: 0.05em; }
+.brand-link { text-decoration: none; }
+
+.site-header nav { display: flex; height: 100%; gap: 34px; }
+.site-header nav a {
+  display: flex;
+  align-items: center;
+  padding: 0 3px;
+  position: relative;
+  font-size: 15px;
+  color: #62717d;
+  text-decoration: none;
+}
+.site-header nav a:hover { color: var(--foreground); }
+.site-header nav a.active { color: #100f0e; }
+.site-header nav a.active:after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: -6px; right: -6px;
+  height: 2px;
+  background: #100f0e;
+}
+
+.header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 22px; }
+.wallet-button { min-height: 37px; padding: 8px 15px; font-size: 13px; }
+.demo-toggle { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+
+.site-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  padding: 1.5rem;
+  margin-top: 3rem;
+  border-top: 1px solid var(--border);
+  color: var(--statline);
+  font-size: 0.75rem;
+}
+.site-footer > span { display: inline-flex; align-items: center; gap: 0.6rem; }
+.footer-tag { font-family: var(--font-display); font-size: 0.8125rem; color: var(--muted-foreground); }
+.footer-net { font-family: var(--font-mono); letter-spacing: 0.04em; }
+
+/* ── Buttons ─────────────────────────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 17px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.18s, transform 0.18s, border-color 0.18s;
+}
+.btn.primary { background: var(--foreground); color: #fff; }
+.btn.primary:hover { background: #322d2b; }
+.btn.outline { background: rgba(255, 255, 255, 0.48); color: #171717; border-color: #d8e0e6; }
+.btn.outline:hover { background: #fff; }
+.btn.white { background: #fff; color: var(--foreground); border-color: #fff; }
+.btn.dark-outline { background: transparent; color: #fff; border-color: #797573; }
+.btn.full { width: 100%; }
+.btn.sm { min-height: 34px; padding: 6px 12px; font-size: 0.8125rem; }
+
+/* ── Page container and heading ──────────────────────────────────────────────────────────────── */
+
+/* ⚠️ 1540px, not 72rem — the reference's own width. A three-across card grid needs it. */
+.page-container { max-width: 1540px; min-height: calc(100vh - 140px); margin: auto; padding: 38px 40px 64px; }
+.page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.page-heading h1 { font-size: clamp(2rem, 1.3rem + 2.6vw, 2.625rem); line-height: 1.06; margin: 0.5rem 0 0.4rem; }
+.page-heading p { color: var(--lede); font-size: 1.0625rem; }
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 1.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+.back-link:hover { color: var(--foreground); }
+
+.panel { background: var(--panel); border: 1px solid #e1e7ed; border-radius: 9px; }
+.section-title { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.section-title h2 { font-size: 1.5rem; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  background: var(--secondary);
+  color: #64717d;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.badge.on { background: #e3ecf9; color: #33507f; }
+.badge.good { background: var(--paid-bg); color: var(--good); }
+.badge.warn { background: var(--warn-bg); color: #8a6d28; }
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 14px;
+  border-radius: 6px;
+  background: rgba(234, 240, 245, 0.42);
+  color: #6d7881;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+}
+
+/* ── ⚠️ The unbuilt marker. One treatment, inherited everywhere. ─────────────────────────────────
+   Full contrast on the thing itself, a dotted rule and a monospace tag beside it. Never a button,
+   never focusable, never clickable — `pointer-events: none` is belt and braces on top of the
+   `<span>` the component already guarantees. */
+
+.unbuilt {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  pointer-events: none;
+  user-select: none;
+  max-width: 100%;
+}
+.unbuilt-inner {
+  display: inline-flex;
+  max-width: 100%;
+  border-radius: 6px;
+  outline: 1px dashed #b6c2ce;
+  outline-offset: 2px;
+  opacity: 0.72;
+  filter: saturate(0.45);
+}
+.unbuilt-tag {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8d98a3;
+  white-space: nowrap;
+}
+/* Inside a dark panel the dotted rule and tag have to lift off the dark ground instead. */
+.dark-panel .unbuilt-inner { outline-color: #6a6663; }
+.dark-panel .unbuilt-tag { color: #8f8b88; }
+
+/* ── Price ───────────────────────────────────────────────────────────────────────────────────── */
+
+.price { display: inline-flex; align-items: baseline; gap: 5px; }
+.price-amount { font-family: var(--font-display); line-height: 1; }
+.price-rail { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.08em; color: var(--muted-foreground); }
+.price-note { font-family: var(--font-mono); font-size: 0.5625rem; letter-spacing: 0.1em; text-transform: uppercase; color: #8d98a3; }
+.price-sm .price-amount { font-size: 1rem; }
+.price-md .price-amount { font-size: 1.5rem; }
+.price-lg .price-amount { font-size: 2.25rem; }
+.dark-panel .price-rail, .dark-panel .price-note { color: #9a9da1; }
+
+/* ── Filter bar — ⚠️ every control in it is MARKED, none is wired ────────────────────────────── */
+
+.filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 24px 0 14px; }
+.search-field { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 190px; max-width: 350px; height: 42px; padding: 0 14px; background: #fff; border: 1px solid #d6e0e8; border-radius: 6px; color: #8995a1; font-size: 14px; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.filter-chips > * { padding: 10px 17px; border-radius: 5px; border: 1px solid #dae3eb; background: rgba(255,255,255,0.4); font-size: 13px; transition: background 0.15s; }
+.filter-chips > .active { background: #171515; border-color: #171515; color: #fff; }
+
+.results-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; margin: 17px 0; color: #84919d; font-size: 12px; }
+
+/* ── The report card — `reports.html`'s `.report-grid`. ⚠️ RULES TAKEN FROM THE REFERENCE. ───────
+   A two-tone card: a light `.document-preview-button` panel carrying `.mini-document`, then the dark
+   `.report-card-info` block beneath it. Three across, falling to two then one. */
+
+.report-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 23px; }
+.report-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #dce4eb;
+  border-radius: 7px;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.report-card:hover { box-shadow: 0 10px 30px rgba(37, 62, 77, 0.09); transform: translateY(-2px); }
+
+/* The light half. A real `<button>` in the reference; here it is a link to the report. */
+.document-preview-button { display: block; width: 100%; padding: 0; text-align: left; background: #fff; border: 0; text-decoration: none; }
+.mini-document { color: #161616; background: #fff; min-height: 177px; padding: 23px 23px 19px; overflow: hidden; }
+.mini-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mini-heading h3 { font-family: var(--font-display); font-size: 27px; font-weight: 400; line-height: 1.1; color: #100f0e; }
+.mini-heading svg { color: #88939d; margin-top: 2px; flex: none; }
+.mini-document > p { margin-top: 6px; color: #7b848d; font-family: var(--font-display); font-size: 15px; }
+.mini-body { display: flex; align-items: center; gap: 20px; height: 61px; margin-top: 22px; }
+.mini-copy { display: flex; flex-direction: column; gap: 6px; width: 56%; }
+.mini-copy span { display: block; height: 4px; background: #b8bec4; }
+.mini-chart { width: 44%; height: 61px; }
+/* ⚠️ Blurred because the body is what is being sold. These bars are drawn from nothing — no part of
+   the paid report is in this page to reveal. */
+.mini-body.blurred { filter: blur(2.3px); opacity: 0.57; user-select: none; }
+
+/* The dark half. */
+.report-card-info { flex: 1; padding: 19px 20px 17px; background: #211c1c; color: #fff; }
+.report-card-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.report-card-title h2 { font-size: 22px; line-height: 1.15; letter-spacing: -0.02em; }
+.report-card-title h2 a { text-decoration: none; }
+.report-card-title h2 a:hover { text-decoration: underline; }
+.report-card-title strong { font-family: var(--font-display); font-size: 26px; font-weight: 400; line-height: 1; white-space: nowrap; }
+.report-card-title small { font-size: 11px; font-family: var(--font-mono); color: #9a9490; margin-left: 4px; }
+.report-card-info > p { margin-top: 8px; font-size: 13px; color: #b6b2b0; }
+.report-card-buttons { display: flex; align-items: center; gap: 24px; margin: 16px 0; }
+.report-card-buttons .text-link { color: #cad5df; font-size: 12px; }
+.report-market-link { display: flex; align-items: center; gap: 7px; margin: 6px 0 13px; font-size: 11px; line-height: 1.5; color: #bccedb; text-decoration: none; }
+.report-market-link:hover { text-decoration: underline; }
+
+.text-link { display: inline-flex; align-items: center; gap: 6px; padding: 0; background: 0 0; border: 0; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; color: inherit; }
+
+/* ⚠️ The reference's `<details>` — a collapsed token line that opens. The `+` is its own marker. */
+.card-evidence { border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 11px; color: #cad1d7; font: 10px/1.5 var(--font-mono); }
+.card-evidence summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+.card-evidence summary::-webkit-details-marker { display: none; }
+.card-evidence summary:after { content: "+"; font-size: 13px; }
+.card-evidence[open] summary:after { content: "–"; }
+.card-evidence > div { display: flex; justify-content: space-between; gap: 10px; margin-top: 10px; padding: 10px; background: rgba(255, 255, 255, 0.03); overflow-wrap: anywhere; }
+
+/* ── The prediction card — `markets.html`'s `.prediction-grid`. ⚠️ RULES FROM THE REFERENCE. ─────
+   Order: `.prediction-card-meta` (category left, status badge right) · `h2` · criterion `p` ·
+   `.prediction-chart.compact` · `.prediction-outcomes` · `.prediction-card-footer` ·
+   `.market-open-action`. Every one of those sections is present on the built card. */
+
+.market-count { display: flex; flex-direction: column; gap: 7px; text-align: right; color: #7f8c98; font-size: 13px; }
+.market-count > span:first-child { font: 11px var(--font-mono); letter-spacing: 0.08em; }
+
+.market-tabs { display: flex; justify-content: flex-start; width: 100%; gap: 24px; padding: 0 0 7px; border-bottom: 1px solid #d9e2ea; }
+.market-tabs > * { display: flex; align-items: center; gap: 10px; padding: 9px 3px; font-size: 14px; color: #62717d; }
+.market-tabs > .active { color: var(--foreground); box-shadow: inset 0 -2px 0 var(--foreground); }
+.count { padding: 0 6px; border-radius: 4px; background: #e5edf4; font-size: 11px; }
+
+.prediction-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 23px; margin-top: 25px; }
+.prediction-card {
+  display: block;
+  padding: 23px;
+  background: #fff;
+  border: 1px solid #dce5ed;
+  border-radius: 8px;
+  min-width: 0;
+  text-decoration: none;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.prediction-card:hover { transform: translateY(-3px); box-shadow: 0 8px 23px rgba(65, 93, 112, 0.06); }
+.prediction-card:hover .market-open-action { text-decoration: underline; text-underline-offset: 4px; }
+
+.prediction-card-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 17px; color: #7c8a97; font-size: 12px; }
+.prediction-card-meta > .badge { background: #f0f5f9; color: #73818c; font-size: 10px; }
+/* ⚠️ `min-height` keeps the chart areas on one row aligned when questions differ in length — the
+   reference's own trick, and it is why the grid does not look ragged. */
+.prediction-card h2 { min-height: 63px; font-size: 28px; line-height: 1.12; letter-spacing: -0.02em; }
+.prediction-card > p { min-height: 36px; margin-top: 8px; color: #8a95a0; font-size: 12px; line-height: 1.5; }
+
+.prediction-chart .chart-container { width: 100%; min-width: 0; height: 295px; }
+.prediction-chart.compact .chart-container { height: 75px; margin: 8px 0 15px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+
+.prediction-outcomes { display: flex; flex-direction: column; gap: 10px; }
+.prediction-outcomes > div { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.prediction-outcomes span { display: flex; align-items: center; gap: 9px; }
+.prediction-outcomes b { font-weight: 400; }
+/* ⚠️ Round dots, 7px — the reference's, shared with the legend and the detail page's outcome rows. */
+.prediction-outcomes i, .chart-legend i, .outcome-row i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.prediction-card-footer { display: flex; justify-content: space-between; margin-top: 21px; padding-top: 15px; border-top: 1px solid #e5ebf0; color: #8a96a0; font-size: 11px; }
+.prediction-card-footer > span:last-child { display: flex; align-items: center; gap: 6px; }
+.market-open-action { display: flex; align-items: center; justify-content: space-between; margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+
+.prediction-card.rehearsal { background: rgba(255, 255, 255, 0.6); border-style: dashed; }
+.prediction-card.offchain { background: rgba(255, 255, 255, 0.45); border-style: dashed; }
+
+/* ── The pool bar — ⚠️ what stands where the reference draws a probability chart ─────────────────
+   Nothing stores a probability series and there is ONE stake row in the whole database, so a chart
+   would be a two-point line on one market and a flat line everywhere else. This is the same slot,
+   the same prominence, and real data: the two pools, read from the contract on every request. It is
+   the only thing on the page that moves when somebody stakes. */
+
+.pool-bar { display: grid; gap: 0.55rem; }
+.pool-track { display: flex; height: 0.75rem; border-radius: 999px; overflow: hidden; background: var(--muted); }
+.pool-track > span { display: block; height: 100%; }
+.pool-true { background: var(--chart-1); }
+.pool-false { background: var(--chart-2); }
+.pool-legend { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; font-size: 0.8125rem; }
+.pool-legend > span { display: inline-flex; align-items: center; gap: 7px; }
+.pool-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.pool-legend strong { font-weight: 500; }
+/* ⚠️ One-sided is the normal case today and must NOT read as a landslide. */
+.pool-onesided { margin: 0; font-size: 0.8125rem; color: #8a6d28; background: var(--warn-bg); border: 1px solid var(--warn-edge); border-radius: 6px; padding: 0.6rem 0.8rem; }
+.prediction-card .pool-track { height: 0.4rem; }
+
+/* ── Market detail — `prediction-*.html`'s two-column grid ───────────────────────────────────── */
+
+.market-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.5rem; align-items: start; }
+.market-main { display: grid; gap: 1.25rem; min-width: 0; }
+.market-title .eyebrow { display: block; margin-bottom: 0.5rem; }
+.market-title h1 { font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.375rem); line-height: 1.1; letter-spacing: -0.025em; }
+.market-title > p { margin-top: 0.6rem; color: var(--lede); font-size: 0.9375rem; line-height: 1.55; }
+
+.market-chart-panel { padding: 1.15rem 1.25rem 1.25rem; display: grid; gap: 1rem; }
+.chart-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.range-buttons { display: inline-flex; gap: 4px; }
+.range-buttons > * { padding: 3px 9px; border-radius: 5px; border: 1px solid var(--border); background: rgba(255,255,255,0.6); font-size: 0.6875rem; color: var(--muted-foreground); font-family: var(--font-mono); }
+.market-statline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; padding-top: 0.85rem; border-top: 1px solid #eef2f6; font-family: var(--font-mono); font-size: 0.6875rem; color: var(--statline); }
+
+/* ⚠️ `SIDE / POOL / SHARE`. The reference's third column is ACTION with a Back button per row and
+   it is CUT, not marked — `stake(marketId, claimId)` takes no side, the contract reads it off the
+   claim, and a per-row control would build the hole the contract closed. These rows are DISPLAY. */
+.outcome-header, .outcome-row { display: grid; grid-template-columns: 1fr auto auto; gap: 1rem; align-items: center; padding: 0.6rem 0; }
+.outcome-header { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.12em; text-transform: uppercase; color: #737d87; border-bottom: 1px solid var(--border); }
+.outcome-row { border-bottom: 1px solid #eef2f6; font-size: 0.9375rem; }
+.outcome-row:last-child { border-bottom: 0; }
+.outcome-row .mono { text-align: right; }
+.outcome-row.chosen { font-weight: 500; }
+.outcome-row .side-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 8px; }
+
+.supporting-research { padding: 1.15rem 1.25rem 1.25rem; }
+.supporting-row { display: flex; gap: 0.9rem; align-items: flex-start; padding: 0.85rem 0; border-top: 1px solid #eef2f6; text-decoration: none; }
+.supporting-row:first-of-type { border-top: 0; }
+.supporting-thumbnail { width: 3.5rem; height: 4.25rem; flex: none; border-radius: 4px; border: 1px solid #e3e9ee; background: #fff; overflow: hidden; padding: 6px; }
+.supporting-thumbnail .mini-body > span { height: 4px; }
+.supporting-row h3 { font-family: var(--font-display); font-size: 1rem; font-weight: 400; line-height: 1.25; margin: 0 0 0.25rem; }
+.supporting-row p { font-size: 0.75rem; color: var(--muted-foreground); }
+
+.resolution-rules { padding: 1.15rem 1.25rem; }
+.resolution-rules summary { cursor: pointer; font-family: var(--font-display); font-size: 1.125rem; }
+.resolution-rules p { margin-top: 0.8rem; font-size: 0.875rem; line-height: 1.6; color: var(--muted-foreground); }
+
+/* ── The position panel — the reference's dark aside ─────────────────────────────────────────── */
+
+.dark-panel { background: #211c1c; color: #fff; border-radius: 10px; }
+.position-panel { padding: 1.25rem 1.35rem 1.4rem; display: grid; gap: 0.85rem; position: sticky; top: 5rem; }
+.position-panel h2 { font-size: 1.25rem; }
+.position-panel > p { font-size: 0.875rem; color: #b6b2b0; line-height: 1.5; }
+.position-panel label { font-size: 0.75rem; font-family: var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; color: #9a9490; }
+.amount-field { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 6px; background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14); }
+.amount-field input { flex: 1; min-width: 0; background: transparent; border: 0; color: #fff; font-family: var(--font-mono); font-size: 0.9375rem; }
+.amount-field input:focus { outline: none; box-shadow: none; }
+.amount-field > span { font-family: var(--font-mono); font-size: 0.6875rem; color: #9a9490; letter-spacing: 0.08em; }
+.amount-shortcuts { display: flex; gap: 6px; }
+.amount-shortcuts > * { flex: 1; padding: 5px 0; border-radius: 5px; border: 1px solid rgba(255,255,255,0.16); background: transparent; color: #cfcbc8; font-family: var(--font-mono); font-size: 0.75rem; }
+.amount-shortcuts > .active { background: #fff; border-color: #fff; color: #211c1c; }
+.payout-estimate { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; padding: 0.7rem 0.8rem; border-radius: 6px; background: rgba(255,255,255,0.06); }
+.payout-estimate > span { font-size: 0.6875rem; color: #9a9490; font-family: var(--font-mono); letter-spacing: 0.06em; }
+.position-sub { font-size: 0.75rem; color: #9a9490; line-height: 1.55; }
+.position-disclaimer { font-size: 0.6875rem; color: #8f8b88; line-height: 1.5; }
+.arc-evidence { display: grid; gap: 0.6rem; padding-top: 0.9rem; border-top: 1px solid rgba(255,255,255,0.12); }
+.arc-evidence .eyebrow { color: #9a9da1; font-size: 0.625rem; }
+.arc-evidence dl { display: grid; gap: 0.5rem; margin: 0; }
+.arc-evidence dl > div { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.75rem; }
+.arc-evidence dt { color: #8f8b88; font-family: var(--font-mono); font-size: 0.6875rem; }
+.arc-evidence dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+.button-row { display: flex; gap: 0.5rem; }
+.position-panel .buy-stage, .position-panel .position-sub { color: #b6b2b0; }
+.position-panel .buy-error { color: #f0a8a2; }
+.position-panel button.buy { width: 100%; background: #fff; color: #211c1c; border-color: #fff; }
+.position-panel button.buy:hover:not(:disabled) { background: #e9e6e3; }
+.position-panel button.buy:disabled { background: transparent; color: #8f8b88; border-color: #4a4644; }
+
+/* ── ⚠️ The reading page. NO REFERENCE EXISTS — composed from the orphan classes. ─────────────────
+   `.locked-preview`, `.purchase-bar`, `.report-paper`, `.paper-masthead`, `.paper-title`,
+   `.paper-byline`, `.paper-footer` and `.financial-table` are all defined in the reference
+   stylesheet and drawn in none of its ten files. This is the one screen the x402 argument rests on
+   and the package does not contain it, so it is built from those parts to read as the same product. */
+
+.report-layout { display: grid; grid-template-columns: minmax(0, 1fr) 20rem; gap: 1.5rem; align-items: start; }
+.report-aside { display: grid; gap: 1rem; position: sticky; top: 5rem; }
+
+.report-paper {
+  background: #fff;
+  border-radius: 4px;
+  padding: 2.25rem 2.5rem 2rem;
+  box-shadow: 0 6px 28px rgba(37, 62, 77, 0.07);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  position: relative;
+}
+.paper-masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-bottom: 0.9rem;
+  border-bottom: 1px solid #a6aaad;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  color: #555c61;
+}
+.paper-title { margin: 1.75rem 0 1.5rem; }
+.paper-title h1 { font-size: clamp(1.875rem, 1.2rem + 2.6vw, 2.5rem); line-height: 1.06; letter-spacing: -0.03em; margin: 0.6rem 0 0.4rem; }
+.paper-byline { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: #737d87; overflow-wrap: anywhere; }
+.paper-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; margin-top: 2rem; padding-top: 0.9rem; border-top: 1px solid #d3d6d9; font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.08em; color: #737d87; }
+
+.financial-table { border-collapse: collapse; width: 100%; border: 1px solid var(--rule-strong); font-family: var(--font-display); font-size: 0.875rem; line-height: 1.3; margin: 1.5rem 0; }
+.financial-table th, .financial-table td { border: 1px solid var(--rule-strong); padding: 0.5rem 0.6rem; text-align: right; }
+.financial-table th:first-child, .financial-table td:first-child { text-align: left; }
+.financial-table th { font-family: var(--font-mono); font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 400; color: #737d87; background: var(--muted); }
+
+/* ⚠️ **The locked half, and it is CSS over an ABSENCE.** The figures, the table and the assessment
+   are never sent — `app/report/[hash]/page.tsx` does not call `render()` — so there is nothing here
+   to un-blur. These bars are drawn from nothing. A CSS-hidden table would not be a paywall. */
+.locked-preview { position: relative; margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px dashed #c8d2dc; display: grid; gap: 0.6rem; }
+.locked-rows { display: grid; gap: 8px; filter: blur(3px); opacity: 0.55; user-select: none; }
+.locked-rows > span { display: block; height: 9px; border-radius: 2px; background: #dfe6ec; }
+.locked-rows > span:nth-child(3n) { width: 76%; }
+.locked-rows > span:nth-child(4n) { width: 64%; }
+.locked-stamp { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.1em; text-transform: uppercase; color: #737d87; }
+
+.purchase-bar { display: grid; gap: 0.8rem; padding: 1.15rem 1.25rem 1.25rem; }
+.purchase-bar .price { margin-bottom: 0.15rem; }
+.purchase-bar > p { font-size: 0.8125rem; line-height: 1.55; color: var(--muted-foreground); }
+.unlocked-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; padding: 0.8rem 1rem; border-radius: 6px; background: var(--paid-bg); border: 1px solid #cfe0d6; font-size: 0.8125rem; }
+.transaction-receipt { display: grid; gap: 0.45rem; padding: 0.9rem 1rem; border-radius: 6px; background: var(--muted); font-family: var(--font-mono); font-size: 0.6875rem; }
+.transaction-receipt > div { display: flex; justify-content: space-between; gap: 0.75rem; }
+.transaction-receipt span:last-child { overflow-wrap: anywhere; text-align: right; }
+
+/* ── Narrow ──────────────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 1250px) { .report-grid, .prediction-grid { gap: 17px; } }
+@media (max-width: 1000px) { .report-grid, .prediction-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .report-grid, .prediction-grid { grid-template-columns: 1fr; gap: 20px; } }
+
+@media (max-width: 62rem) {
+  .market-detail-grid, .report-layout { grid-template-columns: minmax(0, 1fr); }
+  .position-panel, .report-aside { position: static; }
+}
+@media (max-width: 40rem) {
+  .site-header { gap: 1rem; padding: 0.75rem 1rem; flex-wrap: wrap; }
+  .site-header nav { gap: 1rem; order: 3; width: 100%; overflow-x: auto; }
+  .page-container { padding: 1.75rem 1rem 1rem; }
+  .page-heading { flex-direction: column; }
+  .report-paper { padding: 1.5rem 1.25rem; }
+}
+
+/* ── The console's own framing, where it meets the shared chrome ─────────────────────────────── */
+.workspace-links { display: flex; flex-wrap: wrap; gap: 1.5rem; margin-top: 2rem; padding-top: 1.25rem; border-top: 1px solid var(--border); font-size: 0.875rem; }
+.workspace-links a { text-decoration: none; color: var(--muted-foreground); }
+.workspace-links a:hover { color: var(--foreground); text-decoration: underline; }
+
+/* ⚠️ Two classes the market-detail route uses that had no rule here. Taken from the reference's own
+   stylesheet, not approximated. The `[data-slot]` selectors are the shadcn Switch the reference
+   ships inside `.switch-row`; they are kept so the control looks right wherever it survives. */
+.market-detail { padding-top: 26px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 23px 0 11px; font-size: 13px; }
+.switch-row [data-slot=switch] { background: rgba(255, 255, 255, 0.145); }
+.switch-row [data-state=checked] { background: #bdcbd6; }
+.switch-row [data-slot=switch-thumb] { background: #fff; }

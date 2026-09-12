@@ -9,6 +9,7 @@
 // and the chain is the authority over anything we recorded when we sent it.
 
 import { Inventory } from './inventory.js';
+import { SiteHeader } from '../ui/chrome.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,22 +21,24 @@ export const metadata = {
 
 export default function HoldingsPage() {
   return (
-    <main>
-      <p className="back"><a href="/">← All reports</a></p>
-
-      <header className="masthead">
-        <h1>Holdings</h1>
-        <p className="lede">
-          Every published report can be issued as an ATS security token on Hedera testnet, one token
-          per report. This is who holds them.
-        </p>
-        <p className="lede">
+    <>
+      <SiteHeader current="/holdings" />
+      <main className="page-container">
+        <a className="back-link" href="/">← All reports</a>
+        <div className="page-heading">
+          <div>
+            <span className="eyebrow">Hedera · ATS securities</span>
+            <h1>Holdings</h1>
+            <p>Every published report can be issued as an ATS security token, one per report.
+               This is who holds them.</p>
+          </div>
+        </div>
+        <p className="meta">
           ⚠️ Balances are read from the chain with <span className="mono">balanceOf</span>, not from
-          our record of where we last sent a token. Where the two ever disagree, the chain is right.
+          our record of where we last sent a token. Where the two disagree, the chain is right.
         </p>
-      </header>
-
-      <Inventory />
-    </main>
+        <Inventory />
+      </main>
+    </>
   );
 }

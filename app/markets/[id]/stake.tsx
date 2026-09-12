@@ -27,6 +27,7 @@
 //    checked here, before signing, because a revert costs the staker gas for nothing.
 
 import { useState } from 'react';
+import { Unbuilt } from '../../ui/unbuilt.js';
 
 const ARC_CHAIN_ID = '0x4cef52';   // 5042002
 const UNIT_SCALE = 1_000_000_000_000n;   // 1e12 — AlphaMarket.sol's own constant
@@ -177,61 +178,114 @@ export function Stake(props: {
   const analystPool = props.side ? pools.t : pools.f;
   const otherPool = props.side ? pools.f : pools.t;
 
+  // ⚠️ The reference's `.arc-evidence` block, with real values.
+  const evidence = (
+    <div className="arc-evidence">
+      <span className="eyebrow">ARC / ONCHAIN EVIDENCE</span>
+      <dl>
+        <div><dt>Network</dt><dd>Arc testnet</dd></div>
+        <div><dt>Market</dt><dd className="mono">#{props.marketId}</dd></div>
+        <div><dt>Claim</dt><dd className="mono">#{props.claimId}</dd></div>
+        <div><dt>Analyst&rsquo;s side</dt><dd className="mono">{fromWei(analystPool)} USDC</dd></div>
+        <div><dt>Other side</dt><dd className="mono">{fromWei(otherPool)} USDC</dd></div>
+      </dl>
+      <div className="button-row">
+        <a className="btn dark-outline sm" target="_blank" rel="noreferrer"
+           href={`https://testnet.arcscan.app/address/${props.contractAddress}`}>View contract →</a>
+        {txHash && (
+          <a className="btn dark-outline sm" target="_blank" rel="noreferrer"
+             href={`https://testnet.arcscan.app/tx/${txHash}`}>Your transaction →</a>
+        )}
+      </div>
+    </div>
+  );
+
+  // ⚠️ **The reference's aside, element for element, minus one thing.** `h2` · `p` · the stake-amount
+  // label · `.amount-field` · `.amount-shortcuts` · `.switch-row` · `.payout-estimate` · the button ·
+  // `.arc-evidence` · `.position-disclaimer`.
+  //
+  // ⚠️ **CUT, not marked: the "Outcome" label, its `.choice` combobox and its hidden `<select>`.**
+  // `stake(marketId, claimId)` takes no side — `_add(m, marketId, c.side, msg.value)` reads it off
+  // the claim. A picker would let two people back opposite sides of one claim and the claim would
+  // stop meaning anything. Marking it would assert a roadmap that cannot exist without a different
+  // contract. **Its presence anywhere on this page is a bug.**
   if (!props.open) {
     return (
-      <section className="buy">
+      <aside className="position-panel dark-panel">
         <h2>Staking is closed</h2>
-        <p className="empty">This market passed its close time. No further stakes can be accepted.</p>
-      </section>
+        <p>This market passed its close time. No further stakes can be accepted; stakes already
+           placed are unaffected.</p>
+        {evidence}
+        <p className="position-disclaimer">Settlement re-reads The Graph for the observed day.</p>
+      </aside>
     );
   }
 
   return (
-    <section className="buy">
-      <h2>Stake alongside the analyst</h2>
+    <aside className="position-panel dark-panel">
+      <h2>Your position</h2>
       <p>
         Your stake joins the <strong>{props.side ? 'TRUE' : 'FALSE'}</strong> side, because that is
-        the side of claim #{props.claimId}. You pay from your own wallet in Arc testnet USDC.
+        the side of claim #{props.claimId}. <strong>There is nothing to choose.</strong> To take the
+        other side, somebody has to publish their own claim.
       </p>
 
-      <p>
-        <label>
-          Amount (USDC){' '}
-          <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
-                 size={12} disabled={busy} aria-label="Stake amount in USDC" />
-        </label>
-      </p>
+      <label htmlFor="stake-amount">Stake amount</label>
+      <div className="amount-field">
+        <input id="stake-amount" value={amount} disabled={busy} inputMode="decimal"
+               aria-label="Stake amount in USDC"
+               onChange={(e) => setAmount(e.target.value)} />
+        <span>USDC</span>
+      </div>
+
+      {/* ⚠️ WIRED — they only set a field this component already owns. The reference's
+          25/50/100/250 are sized for its invented five-figure pools; ours are sized for a
+          contract holding 1.02 USDC and a 6-decimal unit rule. */}
+      <div className="amount-shortcuts">
+        {['0.5', '1', '5', '10'].map((v) => (
+          <button key={v} type="button" className={amount === v ? 'active' : ''}
+                  onClick={() => setAmount(v)} disabled={busy}>{v}</button>
+        ))}
+      </div>
 
       {invalid && <p className="buy-error">{invalid}</p>}
 
-      <p>
-        <button className="buy" onClick={go} disabled={busy || invalid !== null}>
-          {busy ? 'Working…' : account ? `Stake ${amount} USDC` : 'Connect wallet and stake'}
-        </button>
-        {txHash && !recorded && (
-          <>{' '}<button className="buy" onClick={retry} disabled={busy}>Record it</button></>
-        )}
-      </p>
+      {/* ⚠️ MARKED. A stake carries no report — only a *claim* cites one, and `claims.report_hash`
+          is a foreign key the analyst writes at commit time. */}
+      <div className="switch-row">
+        <Unbuilt label="Attaching a report to a stake">
+          <span>Attach supporting report</span>
+        </Unbuilt>
+      </div>
 
-      {account && <p className="meta mono">Connected: {account}</p>}
+      {/* ⚠️ MARKED, and not because the arithmetic is hard. The parimutuel is
+          `stake + stake * losingPool / winningPool` and both pools are on this page — but every pool
+          in this contract is one-sided, so the honest output is always "your stake back". Rendered
+          as a headline figure that reads as a broken calculator. */}
+      <Unbuilt label="Potential payout">
+        <span className="payout-estimate"><span>Potential total payout</span><strong>—</strong></span>
+      </Unbuilt>
+
+      <button className="btn white full buy" onClick={go} disabled={busy || invalid !== null}>
+        {busy ? 'Working…' : account ? `Stake ${amount} USDC` : 'Connect wallet and stake'}
+      </button>
+      {txHash && !recorded && (
+        <button className="btn dark-outline full" onClick={retry} disabled={busy}>Record it</button>
+      )}
+
+      {account && <p className="position-sub mono">Connected: {account}</p>}
       {stage && <p className="buy-stage">{stage}</p>}
       {error && <p className="buy-error">{error}</p>}
 
-      {txHash && (
-        <p className="settled-links mono">
-          <a href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer">
-            {txHash.slice(0, 24)}… on arcscan →
-          </a>
-        </p>
-      )}
+      {evidence}
 
-      {recorded && (
-        <dl className="identity">
-          <div><dt>Analyst&rsquo;s side now</dt><dd className="mono">{fromWei(analystPool)} USDC</dd></div>
-          <div><dt>Other side</dt><dd className="mono">{fromWei(otherPool)} USDC</dd></div>
-          <div><dt>Total pool</dt><dd className="mono">{fromWei(pools.t + pools.f)} USDC</dd></div>
-        </dl>
-      )}
-    </section>
+      {/* ⚠️ The reference says "Demo funds only. No transaction will be broadcast." The opposite is
+          true here and it is the point of this panel. */}
+      <p className="position-disclaimer">
+        ⚠️ <strong>Real funds.</strong> You sign from your own wallet. Arc&rsquo;s native gas token is
+        USDC at 18 decimals, a stake must be a whole 6-decimal unit of at most {fromWei(max)} USDC,
+        and it cannot be withdrawn before settlement.
+      </p>
+    </aside>
   );
 }

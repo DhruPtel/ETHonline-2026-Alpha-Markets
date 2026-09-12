@@ -16,6 +16,7 @@ import { Spend, buyExtra } from './spend.js';
 import { StateTables } from './state.js';
 import { Accounts } from './accounts.js';
 import { DocumentPane, type ConsoleDoc } from './document.js';
+import { Unbuilt } from '../ui/unbuilt.js';
 
 export function Panel() {
   const log = useLog();
@@ -80,15 +81,14 @@ export function Panel() {
 
   return (
     <>
-      {/* ⚠️ **The secret comes FIRST, above everything.** Five of the six console routes are now
-          locked — the three that spend, the accounts panel, and the report door — so a console
-          opened without it would show a wall of 401s and read as a broken deployment. */}
+      {/* ⚠️ **The secret comes FIRST.** Five console routes are locked, so a console opened without
+          it would show a wall of 401s and read as a broken deployment. */}
       <section className="op op-secret">
         <h2>Console secret</h2>
         <p className="op-note">
-          Paste the value of <span className="mono">CONSOLE_SECRET</span> to use this console.
-          Generate, Tokenize and Transfer spend real funds; Accounts reads our key state; and
-          &ldquo;View body&rdquo; returns the same bytes the paywall sells. All five are locked.
+          Paste <span className="mono">CONSOLE_SECRET</span> to use this console. Generate, Tokenize
+          and Transfer spend real funds; Accounts reads our key state; and the unpaid read returns
+          the same bytes the paywall sells. All five are locked.
         </p>
         <label className="field">
           <span>CONSOLE_SECRET</span>
@@ -96,24 +96,50 @@ export function Panel() {
             placeholder="the value set in the environment"
             autoComplete="off" onChange={(e) => setSecret(e.target.value)} disabled={busy} />
         </label>
-        {/* ⚠️ Says what it is, so nobody mistakes it for a sign-in. */}
         <p className="op-note dim">
           A shared doorlock, not a sign-in — it identifies nobody and grants nothing beyond this
-          console. It is held for this tab only: reloading loses it. ⚠️ The x402 paywall on{' '}
-          <span className="mono">/api/reports/[hash]</span> is a separate mechanism, it is not
-          affected by anything here, and nothing on this page can bypass it for a stranger.
+          console. Held for this tab only. ⚠️ The x402 paywall on{' '}
+          <span className="mono">/api/reports/[hash]</span> is a separate mechanism and nothing here
+          can bypass it for a stranger.
         </p>
       </section>
 
-      <Accounts onPickRecipient={setRecipient} onPickSigner={setSigner} signer={signer}
-        refreshToken={refreshToken} secret={secret} />
+      {/* ══ THE WORKSPACE — `console.html`'s two-panel split. ═══════════════════════════════════ */}
+      <div className="workspace">
 
-      <div className="console-grid">
-        <div className="ops">
-          <Generate log={log} busy={busy} setBusy={setBusy} secret={secret}
-            onSaved={(h) => { setTarget(h); refresh(); }} />
+        {/* ── LEFT: the light viewer ────────────────────────────────────────────────────────── */}
+        <section className="viewer">
+          <div className="viewer-toolbar">
+            <div className="seg">
+              <span className="seg-opt active">Report</span>
+              <span className="seg-opt">Source data</span>
+            </div>
+            <span className="file-name">{doc ? `${doc.reportHash.slice(0, 18)}…` : 'no report loaded'}</span>
+            {/* ⚠️ MARKED — the reference's zoom and page navigation. There is no pagination model:
+                a report is one markdown document, not a paginated file. */}
+            <div className="viewer-tools">
+              <Unbuilt label="Zoom and page navigation">
+                <span className="viewer-tools">
+                  <button type="button" tabIndex={-1}>−</button>
+                  <span>100%</span>
+                  <button type="button" tabIndex={-1}>+</button>
+                  <i />
+                  <button type="button" tabIndex={-1}>‹</button>
+                  <span>1 / 1</span>
+                  <button type="button" tabIndex={-1}>›</button>
+                </span>
+              </Unbuilt>
+            </div>
+          </div>
 
-          <section className="op op-target">
+          <div className="document-stage">
+            <DocumentPane doc={doc} onClose={() => setDoc(null)} />
+          </div>
+
+          {/* The reference's `.source-panel` below the stage. Ours carries the operations and the
+              store tables, which is what this console's source data actually is. */}
+          <div className="source-panel">
+            <section className="op op-target">
             <h2>Target report</h2>
             <p className="op-note">
               The report the operations below act on. Pick one from the table, or paste a hash.
@@ -208,15 +234,70 @@ export function Panel() {
               </label>
             }
             extra={buyExtra(setDoc)} log={log} busy={busy} setBusy={setBusy} onDone={refresh} />
-        </div>
 
-        <Terminal lines={log.lines} onClear={log.clear} />
+            {/* ⚠️ Restored: the signing accounts and the store tables. Both were dropped when this
+                file was restructured into the workspace, and neither is optional — `Accounts` is
+                what stops a page full of spend buttons implying a connected wallet. */}
+            <Accounts onPickRecipient={setRecipient} onPickSigner={setSigner} signer={signer}
+              refreshToken={refreshToken} secret={secret} />
+            <StateTables target={target} setTarget={setTarget} log={log}
+              refreshToken={refreshToken} onView={(h) => void viewUnpaid(h)} busy={busy} />
+          </div>
+        </section>
+
+        {/* ── RIGHT: the dark Atlas panel. ⚠️ THIS WAS MISSING ENTIRELY. ────────────────────── */}
+        <aside className="atlas-console">
+          <div className="atlas-inner">
+            <div className="atlas-top">
+              <span>ATLAS<small> / {busy ? 'RUNNING' : 'IDLE'}</small></span>
+              <div className="seg">
+                <span className="seg-opt active">Agent view</span>
+                <span className="seg-opt">Terminal</span>
+              </div>
+            </div>
+
+            {/* The orbit. `running` while an operation is in flight — it is the one thing on the
+                page that says the server is still working. */}
+            <div className="agent-visual">
+              <div className={`orbit${busy ? ' running' : ''}`}>
+                <span className="orbit-track outer"><i /><i /></span>
+                <span className="orbit-track inner"><i /><i /></span>
+                <span>A</span>
+              </div>
+              <p>{busy ? 'Working…' : 'Ready for your next question.'}</p>
+              <span className="eyebrow">Atlas research agent</span>
+            </div>
+
+            {/* Status rows. ⚠️ Driven by what the console actually knows, not by a fixture. */}
+            <div className="agent-status">
+              <div>The Graph<code>{doc ? 'report loaded' : 'idle'}</code></div>
+              <div>Checks<code>{targeted ? 'target set' : 'no target'}</code></div>
+              <div>Report<code>{doc ? `${doc.markdown.length} chars` : '—'}</code></div>
+            </div>
+
+            {/* ⚠️ The reference's query-evidence block. The Graph has no surface outside a
+                generation run — `/api/console/source` does not exist yet — so the fields are
+                present and MARKED rather than filled with invented values. */}
+            <div className="query-evidence">
+              <span className="eyebrow">The Graph / query evidence</span>
+              <Unbuilt label="Live subgraph evidence">
+                <dl>
+                  <dt>Subgraph</dt><dd>—</dd>
+                  <dt>Deployment</dt><dd>—</dd>
+                  <dt>Block</dt><dd>—</dd>
+                  <dt>Records</dt><dd>—</dd>
+                  <dt>Retrieved</dt><dd>—</dd>
+                </dl>
+              </Unbuilt>
+            </div>
+
+            <div className="mini-terminal"><Terminal lines={log.lines} onClear={log.clear} /></div>
+
+            <Generate log={log} busy={busy} setBusy={setBusy} secret={secret}
+              onSaved={(h) => { setTarget(h); refresh(); }} />
+          </div>
+        </aside>
       </div>
-
-      <DocumentPane doc={doc} onClose={() => setDoc(null)} />
-
-      <StateTables target={hash} setTarget={setTarget} log={log} refreshToken={refreshToken}
-        onView={(h) => void viewUnpaid(h)} busy={busy} />
     </>
   );
 }

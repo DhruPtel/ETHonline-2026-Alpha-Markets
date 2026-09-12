@@ -9117,3 +9117,625 @@ own two functions, not `/api/console/report`), appears **0 times** in the unpaid
 ⚠️ **Unit 14's staking control has no side picker** — `/markets/6` renders **0** `<select>` elements
 and **0** radio inputs, and still carries *"The side is the claim's, read by the contract from the
 claim itself — there is nothing to choose."*
+
+---
+
+## 2026-09-12 — Phase 5 Unit 4: the whole front end built from the references
+
+Every screen the design package draws, plus the one it does not. `npx tsc -p tsconfig.json --noEmit`
+exits **0**, `npm run build` passes, all nine URLs answer, `/markets/999` still 404s. No `src/`
+change, no schema change, no new dependency, no route deleted. `PHASE-5.md` amended.
+
+### ⚠️ The seam, named before writing and built along
+
+```
+A · chrome + layout CSS   app/ui/{chrome,unbuilt,price}.tsx · layout.tsx · globals.css (+504 lines)
+B · the marketplace       app/page.tsx
+C · the reading page      app/report/[hash]/{page,buy}.tsx      ← no reference; composed
+D · the market pages      app/markets/page.tsx · markets/[id]/{page,stake}.tsx
+E · the console framing   app/console/page.tsx
+F · holdings              app/holdings/page.tsx
+```
+
+**Six commits. A is a prerequisite for B–F; B–F are independent.** `globals.css` went 423 → 930
+lines and is the single largest piece.
+
+### ⚠️ The reading page had no reference, so here is what was composed and decided
+
+`front-end-design/` has ten files and none is the report page — **the one screen the x402 argument
+rests on.** What it *does* carry is the CSS: `.locked-preview`, `.purchase-bar`, `.unlocked-bar`,
+`.transaction-receipt`, `.report-paper`, `.paper-masthead`, `.paper-title`, `.paper-byline`,
+`.paper-footer`, `.financial-table` — all defined in its stylesheet and **drawn in none of its ten
+files.** The page is built from those.
+
+**Three things had to be decided:**
+
+1. ⚠️ **The control sits BESIDE the document, not inside it.** Inline, the page reads as an article
+   interrupted by an advert; in the aside it reads as a price on a thing. So the layout is
+   `.report-layout` — paper left, `.purchase-bar` panel right.
+2. ⚠️ **One client component owns BOTH columns.** The bought body replaces the locked block *inside
+   the paper* while the button that buys it lives *in the aside*. Two components would be two copies
+   of one piece of state. `Ledgers` stays a **server** component passed in as a child, so its query
+   weight never reaches the browser.
+3. **The coverage counts became a `.financial-table`** rather than a `dl`, so the public half of the
+   page already looks like the document rather than like a form.
+
+⚠️ **The paper's byline reads the real analyst, block and full hash.** The reference's paper says
+*"PREPARED BY ATLAS RESEARCH · DEMO DATA"*, which is a mockup's byline for invented numbers.
+
+### ⚠️ The paywall, probed harder than before
+
+`.locked-preview` is **CSS over an absence, not over content** — the page still never calls
+`render()`. Proof, with the oracle taken offline via `load()` + `render()` rather than through
+`/api/console/report`:
+
+```
+figure from the paid body ($2214.84B)  → 0 occurrences in the unpaid HTML
+every one of the 6 fact VALUES         → 0 of 6 present
+the assessment text                    → absent
+```
+
+⚠️ **Checking all six fact values individually is stronger than the single-figure grep this probe has
+used until now**, and it is what the new blurred block deserved.
+
+### What each screen does with data the references assume is abundant
+
+- **`/` (11 reports)** — `reports.html`'s `.report-grid`. ⚠️ The reference's card has a category, a
+  one-line subtitle and its own price. **None of those was invented**: no category column exists
+  (marked), the subtitle slot holds the analyst id and block because they are true and they are what
+  tells two reports on one protocol apart, and there is one constant price through `Price`. The
+  thumbnail is **drawn from nothing** — bars, not text, because a legible preview would give away
+  the thing being sold. The token chip is a real two-state control, since **7 of 11 are untokenized**.
+  ⚠️ **The "related market" link is real**: one batched join on `claims.report_hash`, which is a
+  foreign key, so a report that backs a market links to it and the rest simply have no link.
+- **`/markets` (2 forecasts, 4 rehearsals, 2 off chain)** — `.prediction-grid` in three sections.
+  ⚠️ The reference's sparkline, five-figure volume and "12 reports" have no source. The sparkline
+  slot holds the **pool bar** (real, chain-read); volume is `poolTrue + poolFalse`, which is 1.01
+  and 0.01 USDC and is shown at that size; a market cites **one** report, so the card links to it.
+  The record strip is **designed for its empty case first** — `scores` has zero rows.
+- **`/markets/[id]`** — the reference's two-column `.market-detail-grid`. ⚠️ **The chart panel, ~40%
+  of the page, has no chart**: nothing stores a probability series and there is one stake row in the
+  database. The **pool bar** takes the slot at the same prominence, and ⚠️ **a one-sided pool is
+  labelled rather than drawn as a race** — every pool is one-sided today and a 100/0 bar implies a
+  weight of opinion when it means nobody took the other side.
+- **`/holdings` (4 tokens)**, **`/console`** — chrome and framing; the console's workspace links now
+  go somewhere real.
+
+### ⚠️ WIRED · MARKED · CUT
+
+**Wired:** the buy button (`/api/buy`, spends 0.001 HBAR) · the stake control and its amount
+shortcuts · Record it · generate, tokenize, transfer, the report door (all behind `CONSOLE_SECRET`) ·
+every nav link and every card link.
+
+**Marked** — 16 on `/`, 4 on `/markets`, 3 on `/markets/6`: search · category filters · My reports ·
+Publish a report · categories on each card · My positions · the 1D/1W/1M/All range buttons · the
+probability chart · the potential payout · more supporting research · **Connect wallet in the
+header**.
+
+**Cut, and their presence anywhere is a bug:** the Outcome select · a per-row Back button · any third
+outcome · attach-a-report-to-a-stake · the Demo toggle · every "Demo data / no transaction will be
+broadcast" string. ⚠️ Verified: `<select>` **0**, radios **0**, `>Back<` **0**, `>Outcome<` **0**
+across `/markets` and markets 6, 7 and 8.
+
+⚠️ **The marker is never interactive.** `Unbuilt` renders a `<span>` with `aria-disabled`,
+`pointer-events: none` and a dashed rule plus a monospace *"— not built"* tag. **Checked
+structurally: 0 `<button>`, `<input>` or `<a>` inside any of the 23 markers rendered.**
+
+### Traced sizes, and the bundle
+
+```
+                 Unit 3        now
+markets/[id]     2.23 MB  →   2.23 MB
+markets          2.16 MB  →   2.17 MB
+report/[hash]    1.77 MB  →   1.78 MB
+/                1.70 MB  →   1.71 MB
+console          1.69 MB  →   1.70 MB
+holdings         1.67 MB  →   1.67 MB
+```
+
+**+0.01 MB on four routes, which is `app/ui/`'s three small files.** ⚠️ `src/arc/abi.ts` is in **no**
+client chunk — `bytecode` 0 hits, the `608060405` EVM init prefix 0 hits. ⚠️ **No `NEXT_PUBLIC_`
+anywhere**: all five mentions in the repo are prose warning against it, and **no client component
+reads `process.env` at all.** `layout.tsx` and `app/ui/*` import nothing from `src/`.
+
+### Two things worth recording
+
+⚠️ **`next build` caught a duplicate `const` that `tsc` did not.** Rewriting `stake.tsx` re-declared
+`analystPool`/`otherPool` that already existed six lines above; `tsc -p tsconfig.json` exited 0 and
+Turbopack failed with *"the name `analystPool` is defined multiple times"*. **The root typecheck does
+not cover `app/`** — `tsconfig.app.json` does, and `next build` is what runs it. Both checks are
+needed and neither substitutes for the other.
+
+⚠️ **The header is rendered per page, not in the layout.** The reference marks the current nav item,
+and a layout cannot know the pathname without `usePathname()` — which would make the header a client
+component and ship it to every visitor to highlight one link. Six pages each passing `current` keeps
+the whole header on the server. The footer needs no such thing and lives in the layout.
+
+### ⚠️ What could not be built and was marked instead
+
+| | why |
+|---|---|
+| the probability chart and its ranges | no time series; one stake row in the database |
+| the payout estimate | the maths is trivial and both pools are on the page — but every pool is one-sided, so the honest output is always "your stake back", which reads as a broken calculator |
+| search, category filters, categories | no column, no index; deriving a category from a directive's words renders a guess as a fact |
+| My reports / My positions / Connect wallet | no identity system; `payments/auth.ts` is the declared cut point |
+| Publish a report / upload | no product route generates or accepts one; an uploaded PDF has no canonical form this pipeline can hash |
+| 4–12 supporting reports per market | a market has one claim citing one report |
+
+---
+
+## 2026-09-12 — `front-end-design/README.md`: what the directory is, and what was taken from it
+
+81 lines, matching the voice of the `src/*/README.md` files. **Documentation only** — no code, no
+change to the references, no change to `app/`.
+
+A reviewer opening that directory finds ten HTML files that look like part of the application. The
+document says in its first line that they are not: generated separately as a mockup, exported,
+stripped of their framework, **imported by nothing and running nothing** — verified, the only
+mentions of `front-end-design` anywhere in `app/`, `src/` or `scripts/` are five comments.
+
+It covers the four screens across ten files and what each maps to; that **every value in them is
+placeholder** (`DEMO-lending-q2`, "RUN 042", `124,850 USDC vol.`, `PREPARED BY ATLAS RESEARCH · DEMO
+DATA`) and that reading them as live values misreads the directory; the ~55 KB taken against the
+~135 KB of Tailwind and ~240 KB of fonts left behind; the eight divergences that are decisions rather
+than omissions; the four things the application says that the references do not; and the one screen
+with no reference at all.
+
+### ⚠️ Writing it caught an overclaim I had been repeating
+
+The draft said the reading page was composed from classes *"defined here and drawn in none of the ten
+files"* and listed ten of them. **Six of those ten are drawn** — `.report-paper`, `.paper-masthead`,
+`.paper-title`, `.paper-byline`, `.paper-footer` and `.financial-table` all appear in
+`console.html`'s document stage. Only **four** are genuine orphans: `.locked-preview`,
+`.purchase-bar`, `.unlocked-bar` and `.transaction-receipt`.
+
+⚠️ **Corrected in the README, and the corrected version is the more interesting fact:** the reading
+page is composed from four orphan classes *plus* the document sheet the console already draws, which
+is why a bought report and a generated one are visibly the same artefact rather than two designs for
+one object.
+
+⚠️ **The same overclaim is still in three places this unit was not allowed to touch**, and it should
+be fixed by whichever unit next edits each file:
+
+```
+app/globals.css:859              "drawn in none of its ten files"
+app/report/[hash]/page.tsx:7     the same sentence, listing all ten classes
+tracking/phases/PHASE-5.md:485   the same, in the superseded Unit 11 brief
+```
+
+Each is a comment; nothing resolves through them and nothing behaves differently. The claim was wrong
+in the same way in all four places because it was written once and carried forward, which is the
+argument for checking a number against the files rather than against the last document that stated it.
+
+---
+
+## 2026-09-12 — Phase 5 Unit 4b: the pages rebuilt FROM the reference markup
+
+The previous unit took values from the references and reconstructed the layouts. That was the wrong
+method and it produced different layouts. This one opens each file, takes its DOM — nesting,
+containers, class names, element order — and makes that the component's structure. `next build`
+passes, all six pages 200.
+
+### ⚠️ The check that failed before, now run per screen
+
+The order in which each reference class first appears, against the same list in the built page:
+
+```
+REPORTS   23 of 23 classes present · SAME ORDER
+          site-header → brand → header-actions → page-heading → eyebrow → filter-bar →
+          search-field → filter-chips → results-meta → report-grid → report-card →
+          document-preview-button → mini-document → mini-heading → mini-body → mini-copy →
+          mini-chart → report-card-info → report-card-title → report-card-buttons →
+          report-market-link → card-evidence → site-footer
+
+MARKETS   16 of 16 present · SAME ORDER
+          … prediction-card → prediction-card-meta → badge → prediction-chart → chart-container →
+          prediction-outcomes → prediction-card-footer → market-open-action → site-footer
+
+CONSOLE   23 of 23 present · SAME ORDER
+          … workspace → viewer → viewer-toolbar → file-name → viewer-tools → document-stage →
+          source-panel → atlas-console → atlas-inner → atlas-top → agent-visual → orbit →
+          orbit-track → agent-status → query-evidence → atlas-composer → composer-meta →
+          composer-buttons → workspace-footer → workspace-links → site-footer
+```
+
+⚠️ **The first console run came back one short — `.workspace-footer` was missing**, because I had
+rendered `.workspace-links` bare where the reference wraps it in a footer with a caption beside it.
+Added. **That is exactly the class of miss this check exists to catch, and it caught it.**
+
+### What was actually wrong, and what the reference said instead
+
+**Chrome.** `.brand > span` is `25px/1 Editorial, serif` — I had **12px monospace**, which is most of
+why the header had no presence. The header is a `grid-template-columns: 1fr auto 1fr` at **70px** with
+`padding: 0 34px`; the brand mark is 25×29, not 17×21; and the active nav item is a **2px `:after`
+bar overhanging the label by 6px each side**, not a border-bottom. ⚠️ `.page-container` is **1540px**,
+not the 72rem I used — a three-across grid needs it.
+
+**Reports.** ⚠️ I had built uniform dark boxes. The reference card is **two-tone**: a
+`.document-preview-button` panel in white carrying `.mini-document` (an `h3` + icon in `.mini-heading`,
+a subtitle `<p>`, then `.mini-body.blurred` holding `.mini-copy` — five bars at 95/88/81/74/89% — and
+`.mini-chart`), then `.report-card-info` on `#211c1c` beneath. **I had no light half, no thumbnail,
+no `.mini-chart`, no Preview/Unlock buttons and no `.card-evidence` `<details>`.** All present now.
+The grid is `repeat(3, minmax(0,1fr))` with gap 23px, falling to 2 at 1000px and 1 at 760px — the
+reference's own breakpoints, which I had approximated.
+
+**Markets.** The card was flat. It now has all seven sections in order: `.prediction-card-meta`
+(identity left, status badge right), a **28px** `h2` with `min-height: 63px` — the reference's trick
+for keeping chart areas aligned across a row — the criterion `p`, `.prediction-chart.compact`, the
+`.prediction-outcomes` rows with **round 7px dots** and percentages, `.prediction-card-footer`, and
+`.market-open-action` with its arrow.
+
+**Console.** ⚠️ **The dark panel did not exist.** `.workspace` is
+`minmax(0,1fr) 370px`: a light `.viewer` (toolbar with tabs, `.file-name`, `.viewer-tools`; then
+`.document-stage`; then `.source-panel`) and a dark `.atlas-console` carrying `.atlas-top`,
+`.agent-visual` with the **two counter-rotating `.orbit-track` rings**, `.agent-status` rows,
+`.query-evidence`, and `.atlas-composer` at the bottom. `Generate` was rewritten into the composer
+shape — label with an eyebrow, textarea, `.composer-meta`, two-column `.composer-buttons`.
+
+### ⚠️ Three bugs I made restructuring the console, and how they were caught
+
+1. **`<Accounts>` and `<StateTables>` were dropped entirely** when I spliced the ops block into
+   `.source-panel`. Restored. ⚠️ `Accounts` is not optional — it is what stops a page full of spend
+   buttons implying a connected wallet.
+2. **A duplicate `<Terminal>` with the wrong props** (`log={log}` against a component that takes
+   `{lines, onClear}`), plus a duplicate `<Generate>`.
+3. **Unbalanced JSX** — a stray `</div>` and an unclosed fragment.
+
+⚠️ **`npx tsc -p tsconfig.json --noEmit` exited 0 with all three present.** The root typecheck
+**excludes `app/`**; only `next build` runs `tsconfig.app.json` over it. This is the second time that
+has bitten in two units. **For anything under `app/`, `next build` is the check and `tsc` is not a
+substitute.**
+
+### Where I could not match the reference, and why — decisions, not oversights
+
+| reference | built | why |
+|---|---|---|
+| `.prediction-chart` probability series | the section is **present**; the pool split fills it | nothing stores a series, and there is one human stake in the database |
+| card subtitle ("Market structure, growth and key risks") | the analyst id and block | no column behind it; inventing one renders a guess as a fact |
+| category label top-left | the market's chain identity | no category column |
+| "12 reports" per market | "1 report" / "no report" | a market has one claim citing one report |
+| `.query-evidence` values | the block is **present and marked** | The Graph has no surface outside a generation run; `/api/console/source` is not built |
+| `.viewer-tools` zoom and paging | **present and marked** | a report is one markdown document; there is no pagination model |
+| Unlock on the card | **present and marked** | there is no unlock-from-index path, and building one puts a spend control on a list |
+| the Demo toggle | **cut** | it offers to make real data fake |
+
+### The standing checks
+
+```
+paywall   $2214.84B in the unpaid /report/<hash> HTML → 0
+side      <select> 0 · radios 0 · >Back< 0   across /markets and /markets/6
+nav       4 links resolve from all four top-level pages
+bundle    abi bytecode in client chunks → 0
+traced    2.23 / 2.17 / 1.78 / 1.71 / 1.70 / 1.67 MB — unchanged from Unit 4
+```
+
+### The seam
+
+Four commits, as before: **A** chrome (`ui/chrome.tsx`, header CSS, `.page-container`) · **B** reports
+(`app/page.tsx`, report-card CSS) · **C** markets (`app/markets/page.tsx`, prediction-card CSS) ·
+**D** console (`panel.tsx`, `generate.tsx`, `console/page.tsx`, workspace CSS). A first; B, C, D
+independent.
+
+---
+
+## 2026-09-12 — Phase 5 Unit 4c: the console page REPLACED, in two passes
+
+The previous console kept Phase 3's page — banner, eyebrow, heading, description, `CONSOLE_SECRET`
+section, explanation — and inserted the reference workspace into the middle of it. `console.html` is
+a two-panel workspace, a footer of links, and the tokenize section. **That is the entire page.**
+`next build` passes; all six routes 200.
+
+### Pass one — the transcription, and it is checkable
+
+`console.html`'s body converted mechanically into `app/console/page.tsx`: `class` → `className`,
+`for` → `htmlFor`, `tabindex`/`maxlength` to numbers, SVG's hyphenated attributes to camelCase,
+`value` → `defaultValue` on form controls, `style="…"` to an object. **Nothing else.** Every string
+the reference's own — "Lending protocols / Q2 2026", "Atlas Research", `DEMO-lending-eth`,
+`DEMO-deploy-01`, `24,800,000`, "RUN 042", "5 USDC per unlock", "PREPARED BY ATLAS RESEARCH".
+
+**The check, and it is exact:**
+
+```
+reference class tokens : 430
+transcription          : 430
+identical sequence     : ✅ YES
+```
+
+⚠️ **The only difference was what `app/layout.tsx` adds** — a `.shell` wrapper and a second
+`.site-footer`, so the page had two footers. `layout.tsx` is outside this unit's constraints, so it
+was resolved in pass two from inside `app/console/` by dropping the transcribed footer instead.
+
+⚠️ **`console.html` already contains the tokenize section** — `tokenization.html` is that same markup
+exported again as its own file, not a separate screen. Transcribed in place, below the workspace,
+with the footer's "Tokenize" anchor reaching it.
+
+**25 classes had no rule in our stylesheets** — `.tokenize-section`, `.tokenize-grid`,
+`.publish-steps`, `.tokenize-form`, `.listing-preview`, `.token-flow`, `.receipt-grid`, `.file-row`,
+`.source-options`, `.field-label`, `.choice`, `.edit-toolbar`, `.mini-terminal`, `.paper-scale`,
+`.fit-panel` and the rest. ⚠️ **Taken verbatim from the reference's own stylesheet, not approximated**
+— 68 rules appended to `console.css`.
+
+### ⚠️ Two things the transcription exposed that a reading would not have
+
+1. **`.source-panel` is an empty, `hidden`, *inactive* tab panel in the reference.** It is the second
+   tab of the viewer, not a visible section. I had been treating it as a place to put operator
+   panels, which is why they ended up stacked under the workspace.
+2. **`.fit-panel` / `.fit-panel-content` carry `transform: translateX(-50%) scale(1)` and a fixed
+   pixel width from the exporter's own script** — `README.txt` says *"A small inline script fits the
+   report and console to the screen."* That script does not ship. The wrappers are presentation
+   scaffolding, not design, and pass two removed them.
+
+### Pass two — the wiring, into slots the reference already provides
+
+`app/console/atlas.tsx` (new) renders **the reference's four slots in the reference's order** and
+adds nothing beside them: `.agent-visual` (the orbit takes `running` while a run is in flight, and
+renders **ATLAS**, not the "A" I had) · `.agent-status` (three rows driven by the run's own NDJSON
+stages; before a run they say *"no run yet"* rather than claiming "Data retrieved") ·
+`.query-evidence` (**marked** — those five values come off `/api/console/source`, which is not built)
+· `.atlas-composer` (the real `Generate`).
+
+⚠️ **`CONSOLE_SECRET` moved inside the layout, above the composer it gates** — a `.field-label` in
+the dark panel. Putting it in a section of its own above the workspace is precisely how the reference
+layout got inserted into Phase 3's console instead of replacing it.
+
+### ⚠️ Operator controls with no slot in the reference — a decision for you, not a section I appended
+
+`Target report`, `Transfer`, `Buy`, `Accounts` and the store `StateTables` have **no home in
+`console.html`**. The reference's only operator affordances are the composer, the viewer tabs and the
+tokenize form. Following the brief, **I did not append them above or below the workspace.** They are
+currently not rendered. The options, none of which I took unilaterally:
+
+- the viewer's second tab (`.source-panel`) — which is what that empty inactive panel is *for*;
+- the tokenize form's own fields, for the ones that are tokenize inputs;
+- a separate operator route that is not this page.
+
+⚠️ **`Accounts` being absent is the one with a cost**: it is what stops a page of spend buttons
+implying a connected wallet. Worth deciding soon.
+
+### The four faults named in the brief
+
+```
+mark          viewBox 0 0 100 100, the reference's "A" path + dot   ✅ (was an invented house shape)
+wordmark      25px/1 Editorial serif                                 ✅ (was 12px mono)
+nav           3 items, Console / Reports / Markets                   ✅ Holdings removed
+orbit         renders ATLAS                                          ✅ (was "A")
+footers       1 on the page                                          ✅ (was 2)
+```
+
+⚠️ **Holdings is no longer in the nav.** It is still reachable from a tokenized report's ledgers panel
+and from the console's workspace footer. **Putting it back is a design change and yours to make.**
+
+### ⚠️ `next build` caught what `tsc` could not, again — and then missed one itself
+
+`tsc` is excluded from `app/`, so `next build` is the check. But this unit also hit a fault **neither**
+catches at compile time: `onSaved={() => {}}` from a server component to a client one threw
+*"Event handlers cannot be passed to Client Component props"* **at render**, with a green build. The
+page 500'd. ⚠️ **A build that passes is not a page that renders — the route has to be requested.**
+That is now part of the standing check.
+
+### Standing checks
+
+```
+/ · /report/<hash> · /markets · /markets/6 · /holdings · /console   all 200
+console section order vs the reference                              29 of 29, SAME ORDER
+paywall  $2214.84B in the unpaid report HTML                        0
+side     <select> 0 · radios 0 across /markets and /markets/6
+```
+
+### The seam
+
+Two commits: **pass one** the transcription plus the 68 reference CSS rules; **pass two** the wiring,
+`ui/chrome.tsx`'s mark and nav, and the removal of the exporter's fit wrappers.
+
+---
+
+## 2026-09-12 — `single-frontend/` assessed: the same material, rearranged, plus three real answers
+
+Read-only. No edits, no conversion, no build, no git.
+
+### What it is
+
+**One file, `alpha-markets.html`, 626 KB.** Not a new design and not a new generation — it is
+`front-end-design/`'s ten files concatenated into a single document with a hash router.
+
+```
+line 3       437,720 bytes of CSS  ⚠️ md5 IDENTICAL to front-end-design's
+line 6       one shared <header class="site-header">
+lines 7–16   ten <main data-route="…" hidden> blocks
+line 17      one shared <footer class="site-footer">
+lines 18–53  the fit script, then a ~30-line hash router
+```
+
+Routes: `console · reports · markets · tokenization · prediction-*` ×6 — **the same ten screens.**
+
+### ⚠️ The class names match, because the stylesheet is the same bytes
+
+`md5 c29dab930c03e57769252b744fb1fd1f` for both. **`app/globals.css` was extracted from this exact
+file**, so every rule applies and nothing would render unstyled. That was the question worth asking
+and the answer is the best possible one.
+
+### ⚠️ The markup is identical too — checked section by section
+
+Class-token sequence per route against its ten-file counterpart:
+
+```
+console 416/416 · reports 173/173 · markets 162/162 · tokenization 151/151
+prediction-lending-2027 150/150 · dex-volume 137/137 · spark-growth 132/132
+stablecoins-2027 137/137 · aave-revenue-2026 120/120 · stablecoin-supply 114/114
+```
+
+**All ten IDENTICAL.** A token-level diff of the `reports` section shows **nine** differing spans and
+every one is mechanical: `data-route="…" hidden` added to the `<main>`, and `foo.html` →
+`#/foo`. Placeholder content is unchanged — `DEMO-lending-eth`, `DEMO-deploy-01`, `24,800,000`,
+"RUN 042", `124,850 USDC vol.`, "12 reports", "PREPARED BY ATLAS RESEARCH", "5 USDC per unlock", all
+present at the same counts. The one count that drops is *"Demo data · Stored on this device"*, 10 → 1,
+because there is now one footer instead of ten.
+
+**So: the same material in a different arrangement.** It does not change the markup to work from, the
+CSS, the data problem, or the conflicts.
+
+### ⚠️ But it answers three things the ten files could not
+
+1. **The chrome is shared, and the active-nav mapping is written down.** Ten files each carried their
+   own copy of the header, so "does the header belong to the layout or to the page" was unanswerable
+   from them. Here there is **exactly one header and one footer**, and the router sets the active item
+   from `NAV_ACTIVE = {reports:'reports', markets:'markets', tokenization:'console'}` with
+   `prediction-* → markets`. ⚠️ **That contradicts what I built**: Unit 4 put `<SiteHeader current>`
+   in each page on the grounds that a layout cannot know the route. The design's answer is one shared
+   header whose active item is derived — which is `app/layout.tsx` plus the pathname, not six copies.
+2. **Routes map 1:1 to the ten screens**, and `/markets/[id]` is one route shape, not six. The six
+   `prediction-*` blocks are six instances of one layout — already how `app/markets/[id]` works.
+3. ⚠️ **The tokenize section appears TWICE in the file** — once as `#console--tokenize` inside the
+   console route, once as a standalone `tokenization` route (`#tokenization--tokenize`), with
+   identical content. The combiner included `tokenization.html` as a route even though `console.html`
+   already contains that section. `NAV_ACTIVE` maps the standalone route back to the Console nav item,
+   so it is a deep-link alias rather than a screen. **`app/console/` transcribing it once, below the
+   workspace, is correct and there is no second page to build.**
+
+### The honest path — and it does not change the method
+
+⚠️ **Transcription is still right, and this directory does not make it more right.** The bytes are
+the same ones `app/console/page.tsx` was transcribed from last unit. What is left is not a sourcing
+problem:
+
+| screen | state | what remains |
+|---|---|---|
+| `/console` | **transcribed verbatim** last unit, 430/430 tokens | wire the operator controls that have no slot — still your decision |
+| `/` and `/markets` | **rebuilt from the DOM**, class order verified identical | not verbatim; a transcribe-then-wire pass would close the gap the same way it closed the console's |
+| `/markets/[id]` | rebuilt from the DOM | same |
+| `/report/[hash]` | ⚠️ **no reference exists, here either** | this file has ten routes and none is the reading page. Composed, and it stays composed |
+
+**So: correct the remaining pages against these bytes using the console's two-pass method, rather
+than starting over from this file.** The one thing worth changing on this evidence is the header —
+moving it to the layout with a derived active item, per finding 1.
+
+### What has no data behind it — unchanged from the ten-file assessment
+
+`reports` assumes six cards with categories, a subtitle, per-report prices and a token on each: the
+store has **11 reports, 4 tokenized**, one constant HBAR price, no category or subtitle column.
+`markets` assumes five-figure volumes and "12 reports" per market: **8 markets, 2 forecasts, 1.02 USDC
+of volume, one claim citing one report.** The prediction pages assume a probability series: **1 stake
+row**, no series. Scores: **0 rows** — the record strip reads empty. `tokenization` assumes upload and
+an editable price: neither exists.
+
+### The conflicts, and where they are in this file
+
+```
+Outcome select          6   one per prediction route
+"Back" buttons         13   per-outcome, across the six
+Aave / Morpho / Other   3   multi-outcome — the contract is binary
+"Upload your report"    2   console--tokenize and the tokenization route
+"5 USDC per unlock"     2   same two
+Connect wallet          8   1 header + 6 stake panels + 1 tokenize
+My positions            7   markets + the six prediction routes
+Demo toggle            12
+```
+
+**All identical to the ten files.** Cut or marked as already decided — the side picker and multi-outcome
+are cuts, the rest are marked.
+
+### Stated plainly
+
+**This is the same design, the same markup and the same stylesheet in one file instead of ten.** It
+removes the risk of composing ten sources and it settles the header question. It does not remove the
+interpretation problem, because the interpretation problem was never about which file to read — it
+was about transcribing before wiring, which the console unit has now done once and which the other
+pages still need.
+
+---
+
+## 2026-09-12 — Phase 5 Unit 4d: `/markets/[id]` transcribed, then wired
+
+Two passes, the method that worked on the console. `next build` passes; `/`, `/markets`,
+`/markets/{6,7,8}`, `/holdings`, `/console`, `/report/<hash>` all 200; `/markets/999` 404.
+
+### Pass one — the transcription
+
+The `prediction-stablecoins-2027` route's `<main>` from `single-frontend/alpha-markets.html`, copied
+into `app/markets/[id]/page.tsx`. Only mechanical edits: `class` → `className`, `for` → `htmlFor`,
+void tags self-closed, `style` → object, `tabindex`/`maxlength` → numbers, SVG hyphenated attributes
+→ camelCase. Every string the reference's own — "Which stablecoin grows the most in 2027?", `100`
+USDC, `217.39`, `USDC 46% / USDT 36% / Other 18%`, the polyline points, "Demo funds only."
+
+```
+reference class tokens : 199
+built                  : 199
+identical sequence     : ✅ YES
+```
+
+⚠️ **Two deviations, both from the COMBINER rather than the design.** `data-route="…"` and `hidden`
+were added by the single-file build so its hash router could show one `<main>` at a time. There is no
+router here and **a `hidden` `<main>` renders nothing.** Removing them restores exactly the `<main>`
+that `front-end-design/prediction-stablecoins-2027.html` carries. Recorded in the file's header.
+
+⚠️ **Two classes had no rule** — `.market-detail` and `.switch-row` (plus its three `[data-slot]`
+selectors for the shadcn Switch). **Taken from the reference's own stylesheet, not approximated.**
+
+⚠️ **An extraction bug worth recording:** my `</?main\b` regex ends *before* the `>`, so the
+fragment came out missing its final `>` and the converter emitted `/main` as text. The build caught
+it. The class-token comparison did **not** — it had already passed at 199/199 with the file
+unbuildable, because a missing bracket changes no class attribute. **A structural check and a build
+check catch different things and neither substitutes for the other.**
+
+### Pass two — the wiring, inside a skeleton that was already right
+
+Queries restored verbatim from `HEAD` — market row, the single-claim query with its report and
+score, the batched chain read, the recorded stakes. **Nothing about the data layer changed.**
+
+| reference slot | now |
+|---|---|
+| `.market-title` | the real question from `spec_json`, the criterion, and ⚠️ **the rehearsal and void banners** — the things the reference has no concept of |
+| `.range-buttons` | **MARKED** — a time range needs a time series |
+| `.prediction-chart` / `.chart-container` | ⚠️ **the section stays and says why it is empty**, and carries the real pool split at the same prominence |
+| `.chart-legend` · `.market-statline` | real TRUE/FALSE pools, volume, stake count, standing |
+| `.outcome-header` / `.outcome-row` | **SIDE / POOL / SHARE**, two rows |
+| `.supporting-research` | the one report the claim cites, its full hash, and ⚠️ **the score with two of three ABSENT rather than zero** |
+| `.resolution-rules` | the real criteria and the four landmarks |
+| `.position-panel` | Unit 14's control, rendering the reference's own inner skeleton |
+| `.payout-estimate` · attach-report | **MARKED** |
+
+⚠️ **CUT, and verified absent: `<select>` 0 · radios 0 · `>Back<` 0 · `>Outcome<` 0.** The reference's
+ACTION column with a Back button per row, its Outcome combobox and its hidden `<select>` are removed,
+not disabled and not marked — `stake(marketId, claimId)` takes no side, and marking them would assert
+a roadmap that cannot exist without a different contract. **Two outcome rows, never three.**
+
+Reference placeholders all gone: "Which stablecoin" 0 · "217.39" 0 · "46%" 0 · "USDT" 0 · "Demo funds
+only" 0.
+
+### ⚠️ Three things the verification caught in my own wiring
+
+1. **A region edit over-reached and silently ate three sections.** Balancing `<div>` by line, the
+   `.prediction-chart` span swallowed `.chart-legend`, `.market-statline`, `.outcome-header` and the
+   rows, leaving an orphan `))}`. The build caught the orphan; **the section-order check is what
+   proved the three sections were gone.**
+2. **I reused `.market-statline` for marker text inside the chart container**, which put that class
+   in the document *before* the real statline and made the order read wrong against the reference.
+   Exactly the "invent or reuse a class" failure. Removed — the marker text now carries no class.
+3. **Four `outcome-row` hits, not two.** Two are real; the other two are the RSC flight payload,
+   which serialises the tree a second time. A precise `class="outcome-row…"` grep shows **exactly
+   two**: `outcome-row chosen` and `outcome-row `.
+
+### ⚠️ What the closed clock hides
+
+`.amount-field`, `.amount-shortcuts`, `.switch-row` and `.payout-estimate` do **not** appear on
+`/markets/6` — because **market 6's staking closed at 2026-09-11 23:59 UTC and it is now 05:15 UTC on
+the 12th**, so the panel renders its closed branch. That is correct behaviour, not a missing section,
+and there is no open market left to show the other branch against. ⚠️ **The open branch is therefore
+built but unproven in the browser** — said rather than implied.
+
+### Final state
+
+```
+section order vs the reference   20 of 20, SAME ORDER
+CUT items                        select 0 · radio 0 · Back 0 · Outcome 0 · rows 2
+paywall $2214.84B unpaid         0
+routes                           all 200 · /markets/999 404
+```
+
+**LIVE** — the amount field and its four shortcuts (they set state) · *Connect wallet and stake*
+(opens the wallet, asks for Arc) · *Record it* · every link. **MARKED** — the range buttons, the
+probability series, the payout estimate, attach-supporting-report, more-supporting-research.
+⚠️ **DO NOT PRESS** — do not complete a stake. Markets 6 and 7 hold real money including a human's
+1.00 USDC.
+
+**Two commits: pass one the transcription plus the two reference rules; pass two the wiring.**

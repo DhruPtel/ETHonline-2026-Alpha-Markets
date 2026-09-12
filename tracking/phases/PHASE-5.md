@@ -62,6 +62,61 @@ around.
 
 ---
 
+---
+
+## ⚠️ AMENDMENT — 2026-09-12: the site is built first, then functions are wired into it
+
+**This supersedes the unit-per-page sequence below.** That plan built the design across nine page
+units (7–15b), each one *"one function wired to its place"*. The owner's call, and it is the right
+one: **build every screen from the references first, then wire functions into a site that already
+stands.**
+
+**Why the original order was wrong for this job.** It assumed the reference layouts were a restyle
+of Phase 4's markup. They are not — `reports.html`'s `.report-card`, `markets.html`'s
+`.prediction-card` and the prediction pages' `.market-detail-grid` need markup that did not exist,
+so a per-page sequence meant nine units each inventing a fragment of one design and nothing looking
+like the product until the last one landed. Building the shell first means **every later unit is a
+wiring unit against a page that is already the right shape.**
+
+### What actually happened
+
+| | |
+|---|---|
+| **Units 1, 2, 2b, 3** | ✅ as planned — buyer route move, doorlock, the two leaky console routes, the design system |
+| **Unit 4 (new)** | ✅ **THE WHOLE SITE.** Header and nav, the marketplace, the reading page, both market pages, holdings, the console framing, and the `Unbuilt`/`Price` contracts. Six commits, seamed below |
+| **Units 5–15b (old)** | ⚠️ **SUPERSEDED.** Their *content* survives — every decision, warning and query note in them still holds and was applied — but they are no longer a sequence of page units |
+| **Units 16, 17** | unchanged: deletions last, play gap last of all |
+
+### ⚠️ The seam Unit 4 was built along — six commits, in this order
+
+```
+A · chrome + layout CSS   app/ui/{chrome,unbuilt,price}.tsx · layout.tsx · globals.css
+B · the marketplace       app/page.tsx
+C · the reading page      app/report/[hash]/{page,buy}.tsx      ← no reference; composed
+D · the market pages      app/markets/page.tsx · markets/[id]/{page,stake}.tsx
+E · the console framing   app/console/page.tsx
+F · holdings              app/holdings/page.tsx
+```
+
+**A is a prerequisite for B–F. B–F are independent of each other.**
+
+### What is left, and it is now genuinely wiring
+
+The functions that still have no surface, in the order the product runs. ⚠️ **These are what the old
+Units 7–12 were really about, and they are unchanged in substance:**
+
+| | the function | where it lands |
+|---|---|---|
+| **5** | `graph/client.ts::querySubgraph` + `buildEvidence` | the console's source panel — ⚠️ still needs `app/api/console/source/route.ts`, the one route this phase adds |
+| **6** | the generate stream's nine NDJSON stages | the console's terminal, status chips and evidence panel |
+| **7** | `tokenize/ats.ts` | the tokenize section below the console |
+
+Everything else the old plan listed as a unit is done: the paywall is wired, the stake control is
+wired, the queries are unchanged, and the marked-versus-cut rule is applied on every screen.
+
+
+---
+
 ## Status
 
 **Foundation — everything needs these and nothing works without them.**
@@ -76,6 +131,8 @@ around.
 | **6** | `app/ui/chrome.tsx` + `app/layout.tsx` — nav and footer | ⬜ · *smallest change, largest effect* |
 
 **The product, in the order it runs.** One function each.
+⚠️ **SUPERSEDED by the amendment above — Unit 4 built all of these screens at once.** The rows are
+kept because every warning and query note in them still holds; only the sequencing changed.
 
 | Unit | the function | wired to | Status |
 |---|---|---|---|

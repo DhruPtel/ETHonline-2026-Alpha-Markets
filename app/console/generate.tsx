@@ -79,22 +79,33 @@ export function Generate({ log, onSaved, busy, setBusy, secret }: {
     }
   };
 
+  const chars = directive.length;
+
+  // ⚠️ The reference's `.atlas-composer`: a label row with an eyebrow, a textarea, `.composer-meta`
+  // and a two-column `.composer-buttons`. Same element order; the buttons are ours.
   return (
-    <section className="op op-primary">
-      <h2>Generate a report</h2>
-      <p className="op-note">
-        compose → execute → narrate → save. Costs model tokens, no HBAR. Roughly 50 seconds;
-        <strong> execute stops itself at 240s</strong> and the function is killed at 300s.
-      </p>
-      <label className="field">
-        <span>Directive</span>
-        <textarea rows={3} value={directive} placeholder="Balance overview for Aave v3 on Ethereum"
-          onChange={(e) => setDirective(e.target.value)} disabled={busy} />
+    <div className="atlas-composer">
+      <label htmlFor="directive">
+        Ask Atlas
+        <span>⌘ / Ctrl + Enter</span>
       </label>
-      <button type="button" className="go" onClick={run} disabled={busy || !directive.trim()}>
-        {busy ? 'Running…' : 'Generate'}
-      </button>
-    </section>
+      <textarea id="directive" value={directive} disabled={busy}
+        placeholder="Balance overview for Aave v3 on Ethereum"
+        onChange={(e) => setDirective(e.target.value)}
+        onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') void run(); }} />
+      <div className="composer-meta">
+        {/* ⚠️ The real ceiling, not the 300 the route still declares. A routine run is 34–47s. */}
+        <span>compose → execute → narrate → save · ~50s against a 60s cap</span>
+        <span>{chars} / 1000</span>
+      </div>
+      <div className="composer-buttons">
+        <button type="button" className="btn primary" onClick={run}
+                disabled={busy || !directive.trim()}>
+          {busy ? 'Running…' : 'Generate report'}
+        </button>
+        <a className="btn outline" href="#tokenize">Tokenize →</a>
+      </div>
+    </div>
   );
 }
 
