@@ -12849,3 +12849,91 @@ DEMO in served HTML     0
 structure               113 tokens, 81 distinct · no new class
 ```
 
+
+---
+
+## 2026-09-12 — Two of the five evidence rows became links, and one premise was wrong
+
+`app/components/AtlasPanel.tsx` only. `next build` exit 0. **Block not restructured — five rows.**
+**No CSS touched, no new class**, structure unchanged at **113 tokens / 81 distinct**.
+
+### ⚠️ The Graph's explorer does NOT render a deployment hash
+
+The brief said *"QmcXE5… is an IPFS hash identifying the subgraph deployment, and The Graph's
+explorer renders it."* **Measured, and it does not:**
+
+```
+https://thegraph.com/explorer/subgraphs/QmcXE5QVcBcvcaJddPxd8mFs6W9xt7STmwfgguoiM6ddAd   404
+https://thegraph.com/explorer/subgraph?id=QmcXE5QVcBcvcaJddPxd8mFs6W9xt7STmwfgguoiM6ddAd 404
+https://thegraph.com/explorer/subgraphs/JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk     200
+```
+
+⚠️ **The explorer takes a SUBGRAPH id, not a deployment hash** — two different identifiers, and the
+one the block displays is the second. Linking the displayed hash to the explorer would have shipped a
+404 under a heading that says "evidence".
+
+**What the deployment hash does resolve to** is its own content, on the gateway it lives on:
+
+```
+https://api.thegraph.com/ipfs/api/v0/cat?arg=QmcXE5…   200 · 9,662 bytes
+  dataSources: - kind: ethereum · mapping: abis: - name: LendingPoolAddressesProvider …
+```
+
+⚠️ **That is the subgraph's manifest** — the contracts it indexes and the schema it serves. It is a
+stronger destination than an explorer page: it is the deployment itself, not a page about it.
+⚠️ `ipfs.io` and `cloudflare-ipfs.com` both returned `000` from this machine, so **I did not ship
+either** — an unverified gateway in an evidence block is the fault this task exists to avoid.
+
+### ⚠️ Etherscan 403s every automated client, including its own root
+
+```
+https://etherscan.io/block/25963125        403
+https://etherscan.io/  (root)              403     ← blanket bot blocking, not a dead page
+```
+
+**So I could not fetch that page and I am not claiming I did.** What I verified instead is the thing
+the page would show, straight off the chain through `ETHEREUM_RPC_URL`:
+
+```
+eth_getBlockByNumber 0x18c2a75
+  number     25,963,125
+  timestamp  2026-09-12T18:27:47.000Z
+  hash       0x9cfaf5fa53586c97c44fbef09d62ef540fb1331e8c53eb8a9bc95803352aed20
+
+the report's observedAt   2026-09-12T18:27:47.000Z
+```
+
+⚠️ **They are the same second — which corrects something I wrote two tasks ago.** I said *"retrieved
+is our clock"*. **It is not.** `observedAt` is the block's own timestamp, off the chain, so **Retrieved
+is checkable too** — and it is checked by the very link beside it.
+
+### The two URLs, for the report currently on screen
+
+```
+Deployment  https://api.thegraph.com/ipfs/api/v0/cat?arg=QmcXE5QVcBcvcaJddPxd8mFs6W9xt7STmwfgguoiM6ddAd
+Block       https://etherscan.io/block/25963125
+```
+
+**What a judge compares against what:**
+
+| link | what it shows | the check |
+|---|---|---|
+| Deployment | the subgraph manifest — `kind: ethereum`, the Aave `LendingPoolAddressesProvider` ABI, the entities | ⚠️ **the deployment we say we read is real, public, and indexes Aave** — not a string we made up |
+| Block | block 25,963,125 and its timestamp | ⚠️ **compare Etherscan's timestamp against `Retrieved` in the same block: 18:27:47 UTC both.** The read happened at the block we name, on the chain, at the time we state |
+
+### The three left as text, and why
+
+`Subgraph` is our config's name for the deployment, `Records` is a count we computed, `Retrieved` is
+a value already corroborated by the block link beside it. ⚠️ **A link that leads back to our own
+assertion is decoration**, so none of the three has one.
+
+### ⚠️ No underline, and the reason is a rule I could not add
+
+`.query-evidence .text-link` sets `width: 100%` and `justify-content: flex-end`, so using the only
+inline-underline class here would right-align these two rows against three left-aligned ones. **The
+rule that would fix it is `.query-evidence dd a { text-decoration: underline; text-underline-offset:
+2px; }`** — one rule, no new class — and **`globals.css` is outside this task's constraints**, so I
+did not add it. The affordance is carried by **`↗`**, the design's own external marker, already used
+by this block's footer link. Both links also carry a `title` saying what they lead to and that they
+open in a new tab, and both are `target="_blank" rel="noreferrer"`.
+

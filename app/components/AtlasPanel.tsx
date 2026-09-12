@@ -345,18 +345,51 @@ export function AtlasPanel({
                   <>
                     <dt>Subgraph</dt>
                     <dd>{evidence.subgraph}</dd>
+                    {/* ⚠️ **CHECKABLE, and that is the whole point of linking it.** The deployment
+                        is an IPFS hash; this resolves it to the subgraph's own manifest — the
+                        contracts it indexes and the schema it serves. ⚠️ **The Graph's explorer does
+                        NOT render a deployment hash** (verified: 404 on both
+                        `/explorer/subgraphs/<Qm…>` and `/explorer/subgraph?id=<Qm…>`), so this points
+                        at the IPFS gateway the deployment actually lives on, which returns 200.
+                        ⚠️ No underline: `.query-evidence .text-link` forces `width:100%` and
+                        right-alignment, which would misalign these two rows against the other three,
+                        and globals.css is out of scope. The ↗ carries the affordance instead — the
+                        design's own external marker, already used by this block's footer link. */}
                     <dt>Deployment</dt>
                     <dd>
-                      {evidence.deployment.length > 20
-                        ? `${evidence.deployment.slice(0, 18)}…`
-                        : evidence.deployment}
+                      {evidence.deployment.startsWith('Qm') ? (
+                        <a
+                          href={`https://api.thegraph.com/ipfs/api/v0/cat?arg=${evidence.deployment}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="The subgraph manifest this deployment hash resolves to — opens in a new tab"
+                        >
+                          {evidence.deployment.slice(0, 18)}… <ArrowUpRight size={11} />
+                        </a>
+                      ) : (
+                        evidence.deployment
+                      )}
                     </dd>
                     {/* ⚠️ For a source read this is off the response's own `_meta`; for a report it
                         is the COMMON block every figure was read at, from the stored record. Neither
                         is our clock and neither is recomputed. `requestedBlock` is null: nothing is
                         pinned. */}
+                    {/* ⚠️ **The second checkable one.** Etherscan shows this block's own timestamp,
+                        and for a report that timestamp IS the Retrieved value below — verified
+                        against the chain: block 25,963,125's timestamp is 2026-09-12T18:27:47Z and
+                        the report's `observedAt` is the same second. So Retrieved is not our clock;
+                        it is the chain's, and a judge can check it. */}
                     <dt>Block</dt>
-                    <dd>{evidence.block.toLocaleString('en-US')}</dd>
+                    <dd>
+                      <a
+                        href={`https://etherscan.io/block/${evidence.block}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="This block on Etherscan — compare its timestamp with Retrieved below. Opens in a new tab"
+                      >
+                        {evidence.block.toLocaleString('en-US')} <ArrowUpRight size={11} />
+                      </a>
+                    </dd>
                     <dt>Records</dt>
                     <dd>{evidence.records}</dd>
                     <dt>Retrieved</dt>
