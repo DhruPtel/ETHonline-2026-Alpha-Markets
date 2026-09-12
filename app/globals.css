@@ -1,0 +1,1178 @@
+/* ============================================================================
+   ALPHA MARKETS
+   ----------------------------------------------------------------------------
+   The one stylesheet. Imported once, in app/layout.tsx.
+
+   Plain hand-written CSS. No Tailwind, no utility classes, no CSS modules, no
+   build step. Class names are the design's own — the rules are keyed on them.
+
+   Light only: no prefers-color-scheme block and no dark variant anywhere in
+   this file. `color-scheme: light` is set on :root below.
+
+   No web fonts. The three font roles resolve against system families only.
+
+   CLASS MAPPING — the design exports carried shadcn/Radix markup hooked by
+   [data-slot=...] attributes. Those are resolved to plain classes here:
+     [data-slot=tabs-list]          -> .tab-list   (add .line for the underline variant)
+     [data-slot=tabs-trigger]       -> .tab        (add .active for the selected tab)
+     [data-slot=table-head/cell]    -> th / td
+     [data-slot=switch]             -> .switch     (add .on when checked)
+     [data-slot=switch-thumb]       -> .switch-thumb
+     [data-slot=select-trigger]     -> .choice
+     [data-slot=select-value]       -> .choice-value
+     [data-slot=progress-indicator] -> .progress-bar
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Brand palette — the five named colours, with the hex the design contains. */
+  --ice:      #f3f9fd;  /* ICE      — page ground, inset wells, stat strips   */
+  --paper:    #ffffff;  /* PAPER    — the report sheet, cards, form fields    */
+  --ink:      #100f0e;  /* INK      — body text, primary button              */
+  --charcoal: #211c1c;  /* CHARCOAL — every dark panel and the edit toolbar   */
+  --black:    #000000;  /* BLACK    — used only inside shadow alphas (#0001)  */
+
+  /* Type roles. System families only — nothing is downloaded. The design's
+     own faces were metric clones of Times and Helvetica, so those lead the
+     serif and sans stacks and the rendered proportions are unchanged. */
+  --font-serif: 'Times New Roman', Times, Georgia, 'Nimbus Roman', serif;
+  --font-sans:  Helvetica, Arial, 'Nimbus Sans', 'Liberation Sans', sans-serif;
+  --font-mono:  ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   RESET
+   The source relied on Tailwind's preflight for these. They are spelled out
+   here so nothing depends on a framework being present.
+   ------------------------------------------------------------------------ */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+body { margin: 0; }
+h1, h2, h3, h4, p, figure, blockquote, dl, dd { margin: 0; }
+h1, h2, h3, h4 { font-size: inherit; font-weight: inherit; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+img, svg, video, canvas { display: block; vertical-align: middle; max-width: 100%; }
+table { border-collapse: collapse; border-spacing: 0; }
+button, input, textarea, select { font: inherit; color: inherit; margin: 0; }
+button { background: transparent; border: 0; padding: 0; }
+[hidden] { display: none !important; }
+summary::-webkit-details-marker { display: none; }
+
+/* ---------------------------------------------------------------------------
+   BASE
+   ------------------------------------------------------------------------ */
+body {
+  background: var(--ice);
+  color: var(--ink);
+  font: 16px/1.45 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+button:focus-visible, a:focus-visible { outline: 2px solid #6b7985; outline-offset: 4px; }
+a { text-decoration: none; color: inherit; }
+h1, h2, h3 { font-weight: 400; }
+h1, h2 { font-family: var(--font-serif); }
+svg { flex-shrink: 0; }
+code, .eyebrow { font-family: var(--font-mono); }
+.eyebrow { font-size: 12px; letter-spacing: .12em; color: #737d87; line-height: 1.5; }
+small { font-size: 12px; }
+input, textarea { outline: none; }
+input:focus, textarea:focus { border-color: #74818d !important; box-shadow: 0 0 0 2px #74818d15; }
+textarea { resize: vertical; }
+::selection { background: #dce2e7; color: var(--ink); }
+
+.muted { color: #727c85; line-height: 1.6; }
+.full { width: 100%; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   PRIMITIVES
+   ------------------------------------------------------------------------ */
+.text-link {
+  display: inline-flex; gap: 6px; align-items: center;
+  text-decoration: underline; text-underline-offset: 3px;
+  font-size: 13px; background: none; border: 0; padding: 0; cursor: pointer;
+}
+.text-link:hover { opacity: .75; }
+
+.btn {
+  display: inline-flex; justify-content: center; align-items: center; gap: 8px;
+  padding: 10px 17px; min-height: 40px; white-space: nowrap;
+  border: 1px solid transparent; border-radius: 6px;
+  font-size: 14px; font-weight: 500;
+  transition: background .18s, transform .18s, border-color .18s;
+}
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.primary:hover { background: #322d2b; }
+.btn.outline { border-color: #d8e0e6; background: #ffffff7a; color: #171717; }
+.btn.outline:hover { background: var(--paper); border-color: #aeb8c1; }
+.btn.white { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+.btn.white:hover { background: #eaf0f5; }
+.btn.dark-outline { border-color: #797573; background: transparent; color: var(--paper); }
+.btn.dark-outline:hover { background: #ffffff12; }
+.button-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 5px; background: #eaf0f5;
+  font-size: 12px; white-space: nowrap; color: #64717d;
+}
+.panel { border: 1px solid #e1e7ed; background: #ffffffcc; border-radius: 9px; }
+.dark-panel { background: var(--charcoal); color: var(--paper); border-radius: 9px; }
+.dark-panel .badge { background: #ffffff12; color: #c6c8cc; }
+
+.field, .choice {
+  width: 100%; min-height: 42px;
+  border: 1px solid #d4dce3; background: var(--paper);
+  border-radius: 6px; padding: 10px 12px; font-size: 14px;
+}
+.field-label { display: block; font-size: 14px; margin: 0 0 9px; }
+
+/* .choice is the resolved shadcn <SelectTrigger className="choice">.        */
+.choice {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: auto; min-width: 0; max-width: 100%; white-space: normal;
+  text-align: left; box-shadow: 0 1px 2px #0000000d; transition: color .15s, box-shadow .15s;
+}
+.choice > svg { width: 16px; height: 16px; opacity: .5; }
+.choice-value { text-align: left; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+.notice {
+  display: flex; gap: 9px; align-items: flex-start;
+  padding: 14px; background: #eaf0f56b; border-radius: 6px;
+  font-size: 13px; line-height: 1.6; color: #6d7881;
+}
+.notice svg { margin-top: 2px; }
+
+.section-title { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.section-title h2 { font-size: 26px; letter-spacing: -.03em; }
+
+.amount-field {
+  display: flex; align-items: center;
+  border: 1px solid #d4dce3; border-radius: 6px; min-height: 42px; background: var(--paper);
+}
+.amount-field input {
+  width: 100%; min-width: 0; border: 0; background: none;
+  padding: 10px 12px; border-radius: 6px; font-size: 14px;
+}
+.amount-field > span { font-size: 12px; color: #80909d; padding: 0 12px; }
+
+/* ---------------------------------------------------------------------------
+   TABS — resolved from components/ui/tabs.tsx
+   Default variant: pill list on a muted ground. Line variant: underline rule.
+   ------------------------------------------------------------------------ */
+.tabs { display: flex; flex-direction: column; gap: 8px; }
+.tab-list {
+  display: inline-flex; width: fit-content; align-items: center; justify-content: center;
+  height: 36px; padding: 3px; border-radius: 8px;
+  background: #edf2f6; color: #707984;
+}
+.tab-list.line { gap: 4px; background: transparent; border-radius: 0; }
+.tab {
+  position: relative; display: inline-flex; flex: 1;
+  height: calc(100% - 1px); align-items: center; justify-content: center; gap: 6px;
+  padding: 4px 8px; border: 1px solid transparent; border-radius: 6px;
+  font-size: 14px; font-weight: 500; white-space: nowrap;
+  color: #100f0e99;                       /* foreground at 60% */
+  transition: color .15s, background .15s, box-shadow .15s;
+}
+.tab:hover { color: var(--ink); }
+.tab > svg { width: 16px; height: 16px; pointer-events: none; }
+.tab.active { background: var(--ice); color: var(--ink); box-shadow: 0 1px 2px #0000000d; }
+.tab-list.line .tab, .tab-list.line .tab.active { background: transparent; box-shadow: none; }
+.tab-list.line .tab.active::after {
+  content: ''; position: absolute; inset-inline: 0; bottom: -5px;
+  height: 2px; background: var(--ink);
+}
+.tab-panel { flex: 1; outline: none; }
+
+/* ---------------------------------------------------------------------------
+   TABLE — resolved from components/ui/table.tsx
+   ------------------------------------------------------------------------ */
+.table-wrap { position: relative; width: 100%; overflow-x: auto; }
+table { width: 100%; caption-side: bottom; font-size: 14px; }
+thead tr { border-bottom: 1px solid #dfe5ea; }
+tbody tr { border-bottom: 1px solid #dfe5ea; transition: background .15s; }
+tbody tr:last-child { border-bottom: 0; }
+th {
+  height: 40px; padding: 0 8px; text-align: left; vertical-align: middle;
+  font-weight: 500; white-space: nowrap; color: var(--ink);
+}
+td { padding: 8px; vertical-align: middle; white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------
+   SWITCH — resolved from components/ui/switch.tsx
+   ------------------------------------------------------------------------ */
+.switch {
+  display: inline-flex; flex-shrink: 0; align-items: center;
+  width: 32px; height: 18.4px; padding: 0;
+  border: 1px solid transparent; border-radius: 9999px;
+  background: #d1d9df;                    /* --input */
+  box-shadow: 0 1px 2px #0000000d; transition: background .15s;
+}
+.switch-thumb {
+  display: block; width: 16px; height: 16px; border-radius: 9999px;
+  background: var(--ice); pointer-events: none;
+  transform: translateX(0); transition: transform .15s;
+}
+.switch.on .switch-thumb { transform: translateX(calc(100% - 2px)); }
+
+/* ---------------------------------------------------------------------------
+   SITE SHELL — app/layout.tsx + components/alpha/common.tsx
+   ------------------------------------------------------------------------ */
+.skip-link { position: fixed; top: -100px; left: 12px; background: var(--paper); color: var(--ink); padding: 12px; z-index: 100; }
+.skip-link:focus { top: 10px; }
+
+.site-header {
+  height: 70px; display: grid; grid-template-columns: 1fr auto 1fr;
+  gap: 30px; padding: 0 34px; align-items: center;
+  border-bottom: 1px solid #dce3e9; background: #f8fcfef2;
+  position: sticky; top: 0; z-index: 30; backdrop-filter: blur(14px);
+}
+.brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.brand svg { width: 25px; height: 29px; }
+.brand > span { font: 25px/1 var(--font-serif); letter-spacing: .05em; }
+.site-header nav { height: 100%; display: flex; gap: 34px; }
+.site-header nav a { display: flex; align-items: center; position: relative; font-size: 15px; color: #62717d; padding: 0 3px; }
+.site-header nav a.active { color: var(--ink); }
+.site-header nav a.active::after { content: ''; height: 2px; background: var(--ink); position: absolute; bottom: 0; left: -6px; right: -6px; }
+.header-actions { display: flex; gap: 22px; align-items: center; justify-content: flex-end; }
+.demo-toggle { display: flex; gap: 10px; align-items: center; font-size: 13px; }
+.wallet-button { min-height: 37px; padding: 8px 15px; font-size: 13px; }
+
+.site-footer {
+  margin: 0 32px; padding: 25px 0; display: flex; justify-content: space-between;
+  border-top: 1px solid #e0e6ec; font-size: 12px; color: #82909c; gap: 20px;
+}
+.site-footer > span:first-child { font-family: var(--font-serif); color: #53616b; }
+.footer-tag { margin-left: 12px; color: #84909b; font-family: var(--font-sans); }
+
+.page-container { max-width: 1540px; margin: auto; padding: 38px 40px 64px; min-height: calc(100vh - 140px); }
+.page-heading { display: flex; justify-content: space-between; align-items: center; gap: 25px; margin-bottom: 29px; }
+.page-heading h1 { font-size: 46px; letter-spacing: -.035em; line-height: 1.1; margin: 9px 0; }
+.page-heading p { font-size: 17px; color: #74818e; }
+
+/* ===========================================================================
+   SCREEN 1 — REPORT BUILDER / CONSOLE
+   components/alpha/console.tsx + document.tsx + fit-panel.tsx
+   Two columns: the paper viewer on the left, the dark Atlas panel on the right,
+   the prompt composer pinned to the bottom of that dark column.
+   ========================================================================= */
+
+.console-page { padding: 22px 28px 0; max-width: 1800px; margin: auto; }
+
+.workspace {
+  display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 22px;
+  align-items: stretch;
+}
+/* .expanded is the state after the maximise control in the viewer toolbar. */
+.workspace.expanded { grid-template-columns: 1fr; }
+.workspace.expanded .atlas-console { display: none; }
+.workspace.expanded .paper-scale { max-width: 900px; }
+
+/* -- left column: the document viewer ------------------------------------ */
+.viewer {
+  border: 1px solid #dfe7ed; background: #f0f7fc; border-radius: 7px;
+  min-width: 0; position: relative; height: auto; overflow: visible;
+}
+.viewer > .tabs { height: auto; gap: 0; }
+
+.viewer-toolbar {
+  height: 55px; display: flex; align-items: center; gap: 15px; padding: 0 15px;
+  border-bottom: 1px solid #dce4eb; background: #f9fcfe;
+  flex-shrink: 0; border-radius: 7px 7px 0 0;
+}
+.viewer-toolbar .tab-list { flex-shrink: 0; }
+.viewer-toolbar .tab { font-size: 13px; padding: 8px 9px; }
+.viewer-toolbar .file-name {
+  margin: auto; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;
+  color: #48545e; font-size: 13px; max-width: 235px;
+}
+.viewer-tools { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #4d5a66; white-space: nowrap; }
+.viewer-tools button { width: 24px; height: 28px; display: grid; place-items: center; border-radius: 4px; }
+.viewer-tools button:hover { background: #e8eef3; }
+.viewer-tools i { height: 20px; width: 1px; background: #dce4eb; margin: 0 5px; }
+
+.document-stage { padding: 25px 25px 24px; position: relative; overflow: visible; min-height: 0; scrollbar-width: thin; }
+.paper-scale { max-width: 100%; min-width: 0; margin: 0 auto; transition: width .2s; }
+
+/* -- the report sheet itself (components/alpha/document.tsx) -------------- */
+.report-paper {
+  position: relative; background: var(--paper); padding: 36px 46px 30px;
+  box-shadow: 0 6px 28px #253e4d0b; min-height: 840px;
+  color: #141414; font-family: var(--font-serif); font-size: 17px; line-height: 1.35;
+}
+.paper-masthead {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding-bottom: 15px; border-bottom: 1px solid #a6aaad;
+  color: #555c61; font-size: 10px; font-family: var(--font-mono); letter-spacing: .1em;
+}
+.paper-masthead .brand > span { font-size: 15px; letter-spacing: .1em; }
+.paper-masthead .brand svg { width: 17px; height: 21px; }
+.paper-title { margin: 29px 0 25px; }
+.paper-title > .eyebrow { font-size: 10px; }
+.paper-title h1 { font-size: 42px; line-height: 1.06; letter-spacing: -.03em; margin: 12px 0 6px; }
+.paper-title > p { font-size: 25px; color: #515862; line-height: 1.2; margin: 0; }
+.paper-byline { display: block; font-family: var(--font-mono); font-size: 9px; letter-spacing: .04em; color: #747b80; margin-top: 20px; }
+.report-paper h2 { font-size: 22px; line-height: 1.2; margin: 25px 0 9px; }
+.report-paper h3 { font-size: 20px; margin: 24px 0 9px; }
+.report-paper p { margin-bottom: 15px; }
+
+.financial-table { margin: 24px 0; font-family: var(--font-serif); font-size: 14px; line-height: 1.3; border: 1px solid #d3d6d9; }
+.financial-table th {
+  background: #f9fbfc; font-family: var(--font-serif); color: #101010;
+  padding: 9px; border: 1px solid #d3d6d9; font-size: 13px; white-space: normal; height: auto;
+}
+.financial-table td { padding: 8px 9px; border: 1px solid #d3d6d9; font-size: 14px; }
+
+.paper-footer {
+  display: flex; justify-content: space-between; gap: 12px;
+  border-top: 1px solid #b7bbbf; margin-top: 30px; padding-top: 8px;
+  font-size: 12px; color: #6e757b;
+}
+.paper-notes { border-top: 1px solid #ddd; margin-top: 24px; }
+.paper-notes p { font-size: 15px; color: #66717a; }
+.paper-disclosure { font-style: italic; }
+/* Applied to a paragraph the analyst has text-selected. */
+.selected-passage { background: #e3e7ea; box-shadow: 0 0 0 3px #e3e7ea; }
+
+.edit-toolbar {
+  position: relative; margin: 10px auto 0; display: flex; align-items: center; justify-content: center;
+  background: var(--charcoal); border-radius: 7px; width: max-content; max-width: 100%;
+  color: var(--paper); padding: 7px; box-shadow: 0 6px 16px #0002; z-index: 5;
+  flex-wrap: wrap; flex-shrink: 0; font-size: 11px;
+}
+.edit-toolbar button { font-size: 12px; display: flex; align-items: center; gap: 7px; padding: 6px 11px; }
+.edit-toolbar button:hover { background: #ffffff10; border-radius: 4px; }
+.edit-toolbar > span { height: 17px; width: 1px; background: #645f5d; }
+
+/* Shown only while a run is in flight. */
+.document-building {
+  position: relative; margin: 5px 0 0; background: var(--paper);
+  border: 1px solid #dfe5ea; border-radius: 8px; padding: 10px 15px;
+  display: flex; align-items: center; gap: 10px; font-size: 11px; box-shadow: 0 6px 20px #0001;
+  flex-shrink: 0;
+}
+
+/* -- right column: the dark Atlas agent panel ---------------------------- */
+.atlas-console {
+  background: var(--charcoal); color: #f9fbfc; border-radius: 8px; padding: 15px;
+  display: flex; flex-direction: column; gap: 13px; min-width: 0;
+  overflow: visible; scrollbar-width: thin;
+}
+.atlas-inner { display: flex; flex-direction: column; gap: 13px; }
+
+.atlas-top { display: flex; align-items: center; justify-content: space-between; gap: 5px; font-family: var(--font-serif); font-size: 18px; }
+.atlas-top small { font: 10px var(--font-mono); color: #adb6be; }
+.atlas-top .tab-list { padding: 3px; background: #ffffff07; border: 1px solid #ffffff18; height: 33px; }
+.atlas-top .tab { font: 12px var(--font-sans); color: #c0c6cd; padding: 5px 9px; }
+.atlas-top .tab.active { background: var(--paper) !important; color: #161414 !important; }
+
+.agent-visual { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; padding: 8px 0 3px; }
+.agent-visual > p { font-family: var(--font-serif); font-size: 19px; }
+.agent-visual > .eyebrow { font-size: 9px; color: #9a9da1; letter-spacing: .13em; }
+
+.orbit {
+  position: relative; width: 150px; height: 150px; margin: 0 auto 10px;
+  display: grid; place-items: center; font-family: var(--font-serif); font-size: 21px;
+}
+.orbit-track { position: absolute; border: 1px solid #e3e6e999; border-radius: 50%; animation: orbit-spin 28s linear infinite; inset: 0; }
+.orbit-track.inner { inset: 21px; animation: orbit-spin 35s linear infinite reverse; }
+.orbit-track i { position: absolute; width: 7px; height: 7px; background: var(--paper); border-radius: 50%; left: calc(50% - 3px); top: -4px; }
+.orbit-track i:nth-child(2) { top: auto; bottom: 11px; left: 12%; }
+/* .running is the state while the agent is working. */
+.orbit.running .outer { animation-duration: 5s; }
+.orbit.running .inner { animation-duration: 7s; }
+.orbit.running::after { content: ''; position: absolute; inset: 50px; border-radius: 50%; border: 1px solid #ffffff29; animation: pulse 2s infinite; }
+.orbit.small { width: 70px; height: 70px; font-size: 12px; }
+
+.agent-status { border: 1px solid #ffffff20; border-radius: 6px; background: #100f0e29; }
+.agent-status > div { display: flex; align-items: center; gap: 12px; padding: 11px 13px; font-size: 13px; border-bottom: 1px solid #ffffff13; }
+.agent-status > div:last-child { border: 0; }
+.agent-status code { margin-left: auto; font-size: 11px; color: #c1d4e1; }
+
+.query-evidence { background: #ffffff04; border: 1px solid #ffffff23; border-radius: 6px; padding: 13px 14px; }
+.query-evidence > .eyebrow { color: #c7d3df; font-size: 10px; letter-spacing: .08em; }
+.query-evidence dl {
+  display: grid; grid-template-columns: 95px 1fr; margin: 11px 0 13px; gap: 4px;
+  font: 11px/1.4 var(--font-mono); color: #c7ced8;
+}
+.query-evidence dt { color: #a6afb9; }
+.query-evidence dd { overflow-wrap: anywhere; }
+.query-evidence .text-link { font-size: 11px; color: #d4dfe8; justify-content: flex-end; width: 100%; }
+
+.mini-terminal { background: #100f0e77; border: 1px solid #ffffff1f; border-radius: 5px; padding: 10px 12px; color: #c9d3dd; font: 10px/1.8 var(--font-mono); }
+/* The Terminal tab of the agent panel (alternate to the orbit view). */
+.terminal-large { min-height: 211px; padding: 10px 2px; color: #e1e7ec; font: 11px/1.7 var(--font-mono); }
+.terminal-large > div { display: flex; gap: 9px; padding-bottom: 15px; color: #b5c3cc; }
+.terminal-large p { margin: 5px 0; display: flex; gap: 7px; }
+.terminal-large p span { color: #73818b; }
+.terminal-large b { color: #d3dee6; }
+.terminal-cursor { width: 7px; height: 14px; background: #dce3e8; display: block; margin-top: 9px; animation: pulse 1s infinite; }
+/* Run progress, shown only during a run. */
+.run-progress { height: 3px; background: #ffffff20; overflow: hidden; border-radius: 2px; }
+.run-progress .progress-bar { height: 100%; background: var(--paper); }
+
+/* -- the prompt box at the bottom of the dark column --------------------- */
+.atlas-composer { background: var(--paper); color: #151515; border-radius: 6px; padding: 13px 10px 10px; margin-top: auto; }
+.atlas-composer label { display: flex; justify-content: space-between; align-items: center; margin: 0 3px 7px; font-size: 16px; }
+.atlas-composer label > span { font: 9px var(--font-mono); letter-spacing: .09em; color: #87919b; }
+.atlas-composer textarea { width: 100%; height: 76px; min-height: 70px; font-size: 13px; padding: 7px 5px; border: 0; resize: vertical; }
+.atlas-composer textarea::placeholder { color: #82909d; }
+.atlas-composer textarea:focus { box-shadow: none; }
+.composer-meta { display: flex; justify-content: space-between; padding: 0 4px 8px; color: #97a0a8; font-size: 10px; }
+.composer-buttons { display: grid; grid-template-columns: 1.3fr 1fr; gap: 8px; }
+.composer-buttons .btn { font-size: 12px; padding: 9px 8px; min-height: 39px; }
+
+.workspace-footer { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; color: #82909c; padding: 16px 5px 25px; min-height: 44px; }
+.workspace-footer a { display: flex; gap: 8px; align-items: center; color: #596b78; }
+.workspace-links { display: flex; gap: 22px; align-items: center; flex-wrap: wrap; }
+.workspace-links a { white-space: nowrap; }
+
+/* Desktop: the workspace is fitted to the viewport and each panel owns its
+   own scroll. Below 761px the columns stack and the page scrolls once. */
+@media (min-width: 761px) {
+  .console-page { padding-top: 16px; }
+  .workspace { height: calc(100dvh - 140px); min-height: 0; grid-template-columns: minmax(0, 1fr) min(520px, 42%); }
+  .workspace.expanded { grid-template-columns: minmax(0, 1fr); }
+  .viewer { height: 100%; overflow: hidden; }
+  .viewer > .tabs { height: 100%; min-height: 0; }
+  /* The source sets overflow:hidden here and scales the sheet with a
+     ResizeObserver (FitPanel) so it always fits. With no script, these two
+     panels scroll instead — the only behavioural change in this extraction. */
+  .document-stage { display: flex; flex-direction: column; min-height: 0; overflow: auto; padding: 14px 20px 12px; }
+  .document-stage .paper-scale { width: 100%; max-width: none; }
+  .atlas-console { height: 100%; min-height: 0; padding: 14px; overflow: auto; }
+  /* Sticky because this extraction scrolls the stage rather than scaling it.
+     The source's own earlier rule read position:sticky;bottom:0 for exactly
+     this case, before FitPanel removed the scroll and made it relative. */
+  .edit-toolbar { position: sticky; bottom: 0; }
+  .atlas-inner { gap: 10px; }
+  .atlas-inner .agent-visual { padding: 5px 0; }
+  .atlas-inner .orbit { width: 112px; height: 112px; }
+  .atlas-inner .query-evidence { padding: 10px 0; }
+  .atlas-inner .query-evidence dl { margin: 7px 0; gap: 4px; }
+  .atlas-inner .mini-terminal { display: none; }
+  /* The Atlas column is viewport-fitted, so the panel's contents fill it and
+     the composer takes the slack: the textarea grows and the shortcut row and
+     buttons stay pinned beneath it, against the bottom of the panel. Done with
+     flex rather than margin-top:auto so the typing area gets the room.
+     .fit-panel-content is min-height, not height: if the contents ever exceed
+     the frame it grows instead, and useFitPanel reads the larger scrollHeight
+     and scales to fit exactly as before. */
+  .atlas-console .fit-panel-content { min-height: 100%; display: flex; flex-direction: column; }
+  .atlas-console .atlas-inner { flex: 1 1 auto; }
+  .atlas-inner .atlas-composer { margin-top: 0; padding: 12px; flex: 1 1 auto; display: flex; flex-direction: column; }
+  .atlas-inner .atlas-composer textarea { flex: 1 1 auto; height: auto; min-height: 76px; }
+  .workspace-footer { padding: 10px 0; }
+}
+
+/* The source scales the paper to fill the column with a ResizeObserver
+   (components/alpha/fit-panel.tsx). Kept as layout only — no script here. */
+.fit-panel { position: relative; flex: 1; min-height: 0; width: 100%; }
+.fit-panel-content { position: absolute; top: 0; left: 50%; transform-origin: top center; transform: translateX(-50%); }
+
+/* ===========================================================================
+   SCREEN 2 — TOKENIZE YOUR REPORT
+   components/alpha/tokenization.tsx
+   In the source this is a <section id="tokenize"> that sits below the console
+   workspace on the same route ("/"). Three numbered steps and a form on the
+   left, a dark marketplace preview sticky on the right.
+   ========================================================================= */
+
+.tokenize-section { border-top: 1px solid #d8e1e8; padding: 63px 20px 68px; scroll-margin-top: 72px; }
+.tokenize-heading h1 { font-size: 47px; line-height: 1.2; letter-spacing: -.03em; margin: 11px 0 8px; }
+.tokenize-heading > p { color: #74818b; font-size: 17px; }
+.tokenize-grid {
+  display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(330px, 1fr);
+  gap: 28px; margin-top: 32px; align-items: start;
+}
+
+.publish-steps { display: flex; gap: 20px; justify-content: space-between; margin: 0 0 25px; }
+.publish-steps > div { display: flex; align-items: center; gap: 11px; flex: 1; }
+.publish-steps b {
+  width: 38px; height: 38px; border: 1px solid #d1dce4; border-radius: 50%;
+  display: grid; place-items: center; font-size: 12px; font-weight: 400; flex-shrink: 0;
+}
+.publish-steps .complete b { background: #111; color: var(--paper); border-color: #111; }
+.publish-steps strong { font-weight: 400; font-size: 14px; display: block; }
+.publish-steps small { display: block; color: #81909b; font-size: 11px; margin-top: 3px; }
+.publish-steps svg:last-child { margin-left: auto; color: #82919e; }
+
+.tokenize-form { padding: 23px; }
+.source-options {
+  display: flex !important; width: 100% !important; height: auto !important;
+  background: #f1f6fa !important; padding: 4px !important;
+  border: 1px solid #e2e8ed; gap: 7px !important; margin-bottom: 10px;
+}
+.source-options .tab { font-size: 13px !important; padding: 12px !important; min-height: 43px; }
+
+.file-row {
+  display: flex; align-items: center; gap: 12px; padding: 13px 12px;
+  border: 1px solid #e4eaf0; border-radius: 6px; font-size: 13px; background: #f5f9fc;
+}
+.file-row > span { flex: 1; min-width: 0; }
+.file-row small { display: block; font-size: 11px; color: #82909b; margin-top: 3px; }
+.file-row .btn { font-size: 12px; min-height: 33px; padding: 6px 11px; }
+
+/* The alternate "Upload your report" tab panel. */
+.upload-zone {
+  border: 1px dashed #aebdc9; padding: 22px; border-radius: 7px;
+  display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; text-align: center;
+}
+.upload-zone strong { font-size: 14px; max-width: 100%; overflow-wrap: anywhere; }
+.upload-zone > span { font-size: 12px; color: #82909b; }
+.upload-zone .btn { font-size: 12px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px 20px; margin: 25px 0; }
+.form-grid label { font-size: 13px; display: block; margin-bottom: 9px; }
+.form-grid textarea { min-height: 149px; }
+.form-grid .second-label { margin-top: 20px; }
+
+.integration-detail { border: 1px solid #dfe7ed; border-radius: 6px; padding: 12px 13px; margin-top: 12px; font-size: 12px; }
+.integration-detail summary { display: flex; align-items: center; justify-content: space-between; cursor: pointer; gap: 12px; font-size: 11px; list-style: none; }
+.integration-detail summary::before { content: '+'; font-size: 16px; }
+.integration-detail[open] summary::before { content: '−'; }
+.integration-detail summary > span:first-child { margin-right: auto; }
+.integration-detail .badge { font-size: 10px; }
+.integration-detail > p { margin-top: 13px; line-height: 1.6; color: #71808b; }
+
+.receipt-grid { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 17px; padding: 12px; background: var(--ice); }
+.receipt-grid small { display: block; color: #82909b; margin-bottom: 5px; font-size: 11px; }
+.receipt-grid code { font-size: 11px; overflow-wrap: anywhere; }
+.receipt-grid .text-link { font-size: 11px; }
+
+/* -- the dark marketplace preview ---------------------------------------- */
+.listing-preview { padding: 26px; position: sticky; top: 95px; }
+.listing-preview .section-title { margin-bottom: 23px; }
+.listing-preview .section-title h2 { font-size: 26px; }
+.listing-preview .mini-document { border-radius: 5px; min-height: 215px; padding: 23px; }
+.listing-preview .mini-document h3 { color: var(--ink); font-size: 27px; }
+.listing-preview .mini-document p { font-size: 13px; }
+.listing-preview > h3 { font-family: var(--font-serif); font-size: 27px; margin: 24px 0 6px; }
+.listing-preview > p { font-size: 13px; color: #b8b8ba; }
+.listing-price { font-size: 27px; font-weight: 400; display: block; margin: 19px 0; }
+.listing-price small { font-size: 17px; }
+.related-preview { padding: 18px 0; border-top: 1px solid #ffffff25; margin: 0 0 21px; }
+.related-preview > span { font-size: 12px; color: #b1b2b7; display: block; margin-bottom: 9px; }
+.related-preview a { display: flex; align-items: center; gap: 14px; font-size: 14px; text-decoration: underline; text-underline-offset: 4px; }
+.listing-preview .full + .full { margin-top: 10px; }
+.token-flow {
+  display: flex; justify-content: space-between; gap: 9px; align-items: center;
+  border-top: 1px solid #ffffff26; margin-top: 27px; padding-top: 23px;
+  font-size: 11px; color: #aaaeb4;
+}
+.token-flow b { display: inline-block; font-size: 12px; color: var(--paper); font-weight: 400; margin-top: 6px; }
+.listing-preview .notice { background: #ffffff06; border: 1px solid #ffffff1c; font-size: 11px; line-height: 1.5; margin-top: 25px; color: #aeb4bb; }
+
+/* ===========================================================================
+   SCREEN 3 — REPORT MARKETPLACE
+   components/alpha/reports.tsx + the MiniDocument in common.tsx
+   A three-up grid of cards: a light document preview on top (blurred while
+   locked), a charcoal detail block below it.
+   ========================================================================= */
+
+.filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 24px 0 14px; }
+.search-field {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid #d6e0e8; border-radius: 6px; background: var(--paper);
+  padding: 0 14px; height: 42px; color: #8995a1; flex: 1; max-width: 350px; min-width: 190px;
+}
+.search-field input { width: 100%; padding: 10px 0; background: transparent; border: 0; font-size: 14px; color: var(--ink); box-shadow: none; }
+.filter-chips { display: flex; gap: 7px; flex-wrap: wrap; }
+.filter-chips button { border: 1px solid #dae3eb; background: #ffffff66; padding: 10px 17px; font-size: 13px; border-radius: 5px; transition: background .15s; }
+.filter-chips button:hover { background: #e6edf3; }
+.filter-chips button.active { background: #171515; color: var(--paper); border-color: #171515; }
+.my-reports { margin-left: auto; }
+.my-reports.selected { background: #151515; color: var(--paper); }
+.results-meta { display: flex; justify-content: space-between; font-size: 12px; color: #84919d; margin: 17px 0; }
+
+.report-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 23px; }
+.report-card {
+  border: 1px solid #dce4eb; border-radius: 7px; overflow: hidden;
+  transition: box-shadow .2s, transform .2s; display: flex; flex-direction: column;
+}
+.report-card:hover { box-shadow: 0 10px 30px #3a536312; transform: translateY(-2px); }
+.document-preview-button { display: block; text-align: left; width: 100%; border: 0; padding: 0; background: var(--paper); }
+
+/* The light preview sheet — shared by screens 2, 3 and 4. */
+.mini-document { background: var(--paper); color: #161616; padding: 23px 23px 19px; min-height: 177px; overflow: hidden; }
+.mini-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.mini-heading h3 { font: 23px/1.12 var(--font-serif); letter-spacing: -.03em; }
+.mini-heading svg { color: #88939d; margin-top: 2px; }
+.mini-document > p { font-family: var(--font-serif); font-size: 15px; color: #7b848d; margin-top: 6px; }
+.mini-body { display: flex; align-items: center; gap: 20px; margin-top: 22px; height: 61px; }
+.mini-body.blurred { filter: blur(2.3px); opacity: .57; user-select: none; }
+.mini-copy { width: 56%; display: flex; gap: 6px; flex-direction: column; }
+.mini-copy span { height: 4px; background: #b8bec4; display: block; }
+/* The design set these five widths with an inline style attribute. They are
+   fixed values, not runtime-computed, so they live here instead. */
+.mini-copy span:nth-child(1) { width: 95%; }
+.mini-copy span:nth-child(2) { width: 88%; }
+.mini-copy span:nth-child(3) { width: 81%; }
+.mini-copy span:nth-child(4) { width: 74%; }
+.mini-copy span:nth-child(5) { width: 89%; }
+.mini-chart { width: 44%; height: 61px; }
+.mini-chart svg { width: 100%; height: 100%; }
+.mini-table { display: flex; flex-direction: column; gap: 3px; font-size: 8px; color: #7f8a93; }
+.mini-table > div { display: flex; justify-content: space-between; border-bottom: 1px solid #ddd; }
+
+/* The dark half of each card. */
+.report-card-info { padding: 19px 20px 17px; background: var(--charcoal); color: var(--paper); flex: 1; }
+.report-card-title { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }
+.report-card-title h2 { font-size: 22px; line-height: 1.15; letter-spacing: -.02em; }
+.report-card-title strong { font-size: 16px; white-space: nowrap; padding-top: 3px; font-weight: 400; }
+.report-card-title small { font-size: 11px; }
+.report-card-info > p { font-size: 12px; color: #c4c7ca; margin-top: 8px; }
+.report-card-buttons { display: flex; align-items: center; gap: 24px; margin: 16px 0; }
+.report-card-buttons .btn { min-height: 35px; padding: 7px 18px; font-size: 12px; }
+.report-card-buttons .text-link { font-size: 12px; color: #cad5df; }
+.report-card-buttons .badge { color: #c1c7ce; background: #ffffff16; font-size: 10px; }
+.report-market-link { font-size: 11px; color: #bccedb; display: flex; align-items: center; gap: 7px; line-height: 1.5; margin: 6px 0 13px; }
+.report-market-link:hover { text-decoration: underline; }
+.card-evidence { font: 10px/1.5 var(--font-mono); border-top: 1px solid #ffffff33; padding-top: 11px; color: #cad1d7; }
+.card-evidence summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+.card-evidence summary::after { content: '+'; font-size: 13px; }
+.card-evidence[open] summary::after { content: '−'; }
+.card-evidence > div { display: flex; justify-content: space-between; gap: 10px; background: #ffffff07; padding: 10px; margin-top: 10px; overflow-wrap: anywhere; }
+.card-evidence .text-link { margin-top: 9px; font-size: 10px; margin-right: 13px; }
+
+/* Empty result state for the grid. */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 85px 24px; gap: 17px; color: #8896a2;
+  border: 1px dashed #d6e0e8; border-radius: 9px; background: #ffffff6b; margin-top: 25px;
+}
+.empty-state h2 { font-size: 31px; color: #1e252b; }
+.empty-state p { font-size: 15px; max-width: 500px; margin-bottom: 10px; }
+
+/* ===========================================================================
+   SCREEN 4 — PREDICTION MARKET DETAIL
+   components/alpha/markets.tsx (MarketDetail + PredictionChart)
+   Chart panel and outcome rows on the left, dark "Your position" panel
+   sticky on the right.
+   ========================================================================= */
+
+.back-link { display: inline-flex; align-items: center; gap: 9px; color: #70808e; font-size: 13px; margin-bottom: 24px; }
+.back-link:hover { color: var(--ink); }
+.market-detail { padding-top: 26px; }
+.market-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 25px; align-items: start; }
+.market-main { min-width: 0; }
+.market-title { margin: 5px 0 26px; }
+.market-title h1 { font-size: 42px; line-height: 1.1; letter-spacing: -.03em; margin: 12px 0; }
+.market-title p { color: #7e8a96; font-size: 14px; }
+
+.market-chart-panel { padding: 23px 24px 9px; }
+.chart-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+.chart-top .eyebrow { font-size: 10px; }
+.range-buttons { display: flex; gap: 4px; background: #f4f7fa; border-radius: 5px; padding: 3px; }
+.range-buttons > span { font-size: 12px; padding: 5px 10px; border-radius: 4px; color: #84909a; }
+.range-buttons > span.active { background: var(--paper); color: #1b1b1b; box-shadow: 0 1px 3px #0001; }
+
+.prediction-chart .chart-container { height: 295px; width: 100%; min-width: 0; }
+/* Axis furniture for the inline-SVG chart. The plot itself is stretched to the
+   container by preserveAspectRatio="none", so the labels are HTML and sit
+   outside it. The 45px gutter, the #7a8490 tick colour and the 12px size are
+   the design's own axis values. */
+.chart-grid { display: grid; grid-template-columns: 45px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 22px; height: 100%; padding-top: 15px; }
+.chart-axis-y { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-end; padding-right: 8px; font-size: 12px; color: #7a8490; line-height: 1; }
+.chart-axis-y span { transform: translateY(-50%); }
+.chart-axis-y span:first-child { transform: none; }
+.chart-axis-y span:last-child { transform: translateY(-100%); }
+.chart-plot { min-width: 0; min-height: 0; }
+.chart-plot svg { display: block; width: 100%; height: 100%; }
+.chart-axis-x { grid-column: 2; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7a8490; overflow: hidden; }
+.prediction-chart.compact .chart-container { overflow: hidden; }
+.prediction-chart.compact .chart-container { height: 75px; margin: 8px 0 15px; }
+.chart-legend { display: flex; justify-content: center; gap: 23px; padding-top: 17px; flex-wrap: wrap; }
+.chart-legend > span { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #677480; }
+.chart-legend strong { font-size: 12px; font-weight: 400; color: #1c2630; }
+
+.market-statline { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #87939e; padding: 27px 0 24px; }
+.market-statline span { display: flex; gap: 7px; align-items: center; }
+
+.outcome-header, .outcome-row { display: grid; grid-template-columns: 1fr 130px 85px; gap: 10px; align-items: center; }
+.outcome-header { font: 10px var(--font-mono); color: #929ba4; padding: 15px 0; border-top: 1px solid #dfe6ec; }
+.outcome-row { border-top: 1px solid #e5ebf0; padding: 16px 0; }
+.outcome-row > div { display: flex; gap: 10px; align-items: center; }
+.outcome-row strong { font-size: 15px; font-weight: 400; }
+.outcome-row > b { font-size: 22px; font-weight: 400; }
+.outcome-row .outcome-state { font: 11px var(--font-mono); letter-spacing: .06em; color: #7c8892; text-align: right; }
+.outcome-row.chosen .outcome-state { color: #151515; }
+/* The colour dots on outcomes, legend and card summaries. */
+.prediction-outcomes i, .chart-legend i, .outcome-row i { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+.supporting-research { margin-top: 20px; padding: 20px 24px; }
+.supporting-research .section-title h2 { font-size: 25px; }
+.supporting-row { display: flex; align-items: center; gap: 16px; padding-top: 18px; margin-top: 18px; border-top: 1px solid #e1e8ee; }
+.supporting-row > div:nth-child(2) { flex: 1; min-width: 0; }
+.supporting-row h3 { font-family: var(--font-serif); font-size: 21px; }
+.supporting-row p { font-size: 12px; color: #7f8b96; margin: 4px 0; }
+.supporting-row span { font-size: 12px; color: #96a0a9; }
+.supporting-thumbnail { width: 65px; height: 76px; overflow: hidden; flex-shrink: 0; border: 1px solid #e2e8ed; border-radius: 4px; }
+.supporting-thumbnail .mini-document { width: 400px; transform: scale(.17); transform-origin: top left; min-height: 440px; }
+
+.resolution-rules { padding: 18px 23px; margin-top: 20px; font-size: 14px; }
+.resolution-rules summary { cursor: pointer; }
+.resolution-rules p { font-size: 13px; line-height: 1.7; color: #7c8994; margin-top: 15px; }
+
+/* -- the dark "Your position" panel --------------------------------------- */
+.position-panel { padding: 26px; position: sticky; top: 96px; min-width: 0; }
+.position-panel > h2 { font-size: 32px; letter-spacing: -.02em; }
+.position-panel > p { font-size: 13px; color: #b6b8bd; margin-top: 6px; }
+.position-panel > label { font-size: 13px; display: block; margin: 24px 0 9px; }
+.position-panel .choice { background: #ffffff05; border-color: #ffffff35; color: var(--paper); font-size: 13px; min-height: 43px; }
+/* The contract removes the outcome select: a staker joins the side of the
+   claim their attached report backs, so the side is shown, not chosen. These
+   two take the select's place in the panel and inherit its dark treatment. */
+.stake-side { display: flex; align-items: center; gap: 10px; background: #ffffff05; border: 1px solid #ffffff35; border-radius: 6px; color: var(--paper); font-size: 13px; min-height: 43px; padding: 10px 13px; }
+.stake-side i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.stake-side strong { font-weight: 400; letter-spacing: .06em; font-family: var(--font-mono); }
+.stake-side span { margin-left: auto; color: #b8c1cb; font-size: 12px; }
+.attached-report { background: #ffffff05; border: 1px solid #ffffff25; border-radius: 6px; padding: 11px 13px; margin-top: 12px; font-size: 13px; color: var(--paper); }
+.attached-report small { display: block; margin-top: 4px; font-size: 11px; color: #b8c1cb; font-family: var(--font-mono); letter-spacing: .06em; }
+.position-panel .amount-field { background: #ffffff05; border-color: #ffffff35; }
+.position-panel .amount-field input { color: var(--paper); font-size: 22px; }
+.position-panel .amount-field span { color: #a9afb7; font-size: 12px; }
+.amount-shortcuts { display: flex; gap: 7px; margin: 10px 0; }
+.amount-shortcuts button { flex: 1; padding: 6px 0; border: 1px solid #ffffff24; border-radius: 4px; color: #c4c7cd; font-size: 12px; }
+.amount-shortcuts button.active { background: var(--paper); color: #1b1b1b; border-color: var(--paper); }
+.balance-line { font-size: 11px; color: #b1b6be; text-align: right; margin: 8px 0 16px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 23px 0 11px; font-size: 13px; }
+.switch-row .switch { background: #ffffff25; }
+.switch-row .switch.on { background: #bdcbd6; }
+.switch-row .switch-thumb { background: var(--paper); }
+.payout-estimate { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin: 25px 0 22px; font-size: 12px; color: #c3c7cd; }
+.payout-estimate small { display: block; font-size: 10px; color: #939ca6; margin-top: 5px; }
+.payout-estimate > strong { font-size: 23px; font-weight: 400; text-align: right; color: var(--paper); }
+.payout-estimate > strong > small { font-size: 10px; color: #b2bdc6; }
+.position-panel .btn.full { font-size: 13px; }
+.position-panel .validation-message { font-size: 12px; color: #e3b2b2; }
+.position-panel > .position-disclaimer { font-size: 10px; color: #949fa8; margin-top: 22px; }
+
+.arc-evidence { border-top: 1px solid #ffffff31; margin-top: 27px; padding-top: 24px; }
+.arc-evidence > .eyebrow { color: #d0d5dc; font-size: 10px; }
+.arc-evidence dl { display: grid; grid-template-columns: 105px 1fr; gap: 12px 6px; font-size: 11px; margin: 20px 0; color: #b8c1cb; }
+.arc-evidence dd { font-family: var(--font-mono); overflow-wrap: anywhere; font-size: 10px; }
+.arc-evidence .button-row { justify-content: space-between; }
+.arc-evidence .text-link { font-size: 11px; color: #c3d2dd; }
+.transaction-receipt { width: 100%; background: #ffffff07; border: 1px solid #ffffff25; border-radius: 5px; margin: 23px 0 0; padding: 12px; text-align: left; }
+.transaction-receipt span { font-size: 10px; font-family: var(--font-mono); color: #adbfcf; }
+.transaction-receipt b { font-weight: 400; font-size: 14px; display: flex; justify-content: space-between; margin-top: 6px; }
+
+/* ---------------------------------------------------------------------------
+   SCREEN 7 — ONE REPORT
+   The design reached these three states through a modal on the marketplace, so
+   the HTML export never rendered them and design/alpha-markets.css does not
+   carry their rules. They are lifted from the mockup's app/globals.css, which
+   authored them in plain CSS. Only .report-body is new: the design's
+   .modal-document constrained the sheet to 65vh inside a dialog, which is the
+   wrong treatment for a page, so the same ground and border are applied
+   without the scroll box.
+   ------------------------------------------------------------------------ */
+.report-page .page-heading { margin-bottom: 18px; }
+.report-excerpt { padding: 14px 5px; }
+.report-excerpt h2 { font-size: 31px; margin: 14px 0; }
+.report-excerpt > p { color: #63717d; line-height: 1.7; }
+.locked-preview { position: relative; margin-top: 25px; border: 1px solid #e1e7ed; border-radius: 6px; overflow: hidden; }
+.locked-preview > .mini-document { filter: blur(4px); opacity: .3; }
+.locked-preview > div:last-child { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 13px; }
+.purchase-bar { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-top: 22px; border-top: 1px solid #dfe5eb; }
+.purchase-bar > div > strong { font-size: 23px; font-weight: 400; }
+.purchase-bar > div > span { display: block; font-size: 12px; color: #788795; }
+.unlocked-bar { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 10px 0; font-size: 14px; }
+.unlocked-bar > span { display: flex; align-items: center; gap: 8px; }
+.report-body { margin-top: 20px; padding: 22px; background: var(--ice); border: 1px solid #dfe7ed; border-radius: 5px; }
+.report-body .report-paper { min-height: 0; padding: 35px; }
+.report-body .paper-title h1 { font-size: 39px; }
+
+@media (max-width: 760px) {
+  .report-excerpt h2 { font-size: 26px; }
+  .purchase-bar { flex-direction: column; align-items: stretch; gap: 15px; }
+  .report-body { padding: 10px; }
+  .report-body .report-paper { padding: 20px; font-size: 15px; }
+  .report-body .paper-title h1 { font-size: 30px; }
+}
+
+/* ---------------------------------------------------------------------------
+   SIDES — TRUE and FALSE
+   A market has exactly two sides. The design carried each outcome's colour as
+   an inline style attribute because it looped over a variable-length outcome
+   list; with a fixed pair they are ordinary classes. The two hex values are
+   the design's first and second outcome colours, unchanged.
+   ------------------------------------------------------------------------ */
+.dot-true { background: #526bd8; }
+.dot-false { background: #d18a3c; }
+.pct-true { color: #526bd8; }
+.pct-false { color: #d18a3c; }
+.line-true { stroke: #526bd8; }
+.line-false { stroke: #d18a3c; }
+.fill-true { fill: #526bd8; }
+.fill-false { fill: #d18a3c; }
+
+/* ---------------------------------------------------------------------------
+   SCREEN 5 — MARKET INDEX
+   No HTML export exists for this screen. The rules below are lifted from the
+   mockup's app/globals.css, which authored them in plain CSS, with the three
+   shadcn hooks it still carried resolved the same way as everywhere else:
+   [data-slot=tabs-trigger] -> .tab, and var(--border) -> its literal #dfe5ea.
+   ------------------------------------------------------------------------ */
+.market-count { text-align: right; display: flex; flex-direction: column; font-size: 13px; color: #7f8c98; gap: 7px; }
+.market-count > span:first-child { font: 11px var(--font-mono); letter-spacing: .08em; }
+
+.market-tabs { border-bottom: 1px solid #d9e2ea; width: 100%; justify-content: flex-start; padding: 0 0 7px; gap: 24px; border-radius: 0; }
+.market-tabs .tab { flex: initial; gap: 10px; font-size: 14px; padding: 9px 3px; }
+.count { background: #e5edf4; border-radius: 4px; padding: 0 6px; font-size: 11px; }
+
+.markets-page .filter-bar .choice { width: 140px; margin-left: auto; font-size: 13px; flex-shrink: 0; }
+
+.prediction-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 23px; margin-top: 25px; }
+.prediction-card { background: var(--paper); border: 1px solid #dce5ed; border-radius: 8px; padding: 23px; transition: box-shadow .2s, transform .2s; min-width: 0; }
+.prediction-card:hover { transform: translateY(-3px); box-shadow: 0 8px 23px #415d7010; }
+.prediction-card-meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #7c8a97; margin-bottom: 17px; }
+.prediction-card-meta > .badge { font-size: 10px; background: #f0f5f9; color: #73818c; }
+/* The mockup set .resolved on this badge but never wrote a rule for it, so a
+   resolved market read exactly like an open one. Given a value here. */
+.prediction-card-meta > .badge.resolved { background: #e7eef4; color: #4d5a66; }
+.prediction-card h2 { font-size: 28px; line-height: 1.12; letter-spacing: -.02em; min-height: 63px; }
+.prediction-card > p { font-size: 12px; color: #8a95a0; line-height: 1.5; margin-top: 8px; min-height: 36px; }
+
+.prediction-outcomes { display: flex; flex-direction: column; gap: 10px; }
+.prediction-outcomes > div { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.prediction-outcomes span { display: flex; align-items: center; gap: 9px; }
+.prediction-outcomes b { font-weight: 400; }
+
+.prediction-card-footer { display: flex; justify-content: space-between; font-size: 11px; color: #8a96a0; border-top: 1px solid #e5ebf0; padding-top: 15px; margin-top: 21px; }
+.prediction-card-footer > span:last-child { display: flex; gap: 6px; align-items: center; }
+
+.market-open-action { display: flex; justify-content: space-between; align-items: center; margin-top: 15px; padding-top: 14px; border-top: 1px solid #dfe5ea; font-size: 13px; font-weight: 600; }
+.prediction-card:hover .market-open-action { text-decoration: underline; text-underline-offset: 4px; }
+
+/* ---------------------------------------------------------------------------
+   SCREEN 6 — HOLDINGS
+   No design exists for this screen. It is assembled from helpers already
+   defined above — .page-container, .page-heading, .section-title, .eyebrow,
+   .badge and .financial-table — plus the two rules below, which only give the
+   table a panel to sit in and let it scroll on a narrow viewport.
+   ------------------------------------------------------------------------ */
+.holdings-panel { padding: 27px; margin-top: 26px; }
+.holdings-panel > .section-title { margin-bottom: 28px; }
+.holdings-panel .table-scroll { overflow-x: auto; }
+.holdings-panel .financial-table { width: 100%; min-width: 680px; }
+.holdings-panel td { font-size: 14px; padding: 15px 10px; white-space: nowrap; }
+.holdings-panel td:first-child { white-space: normal; }
+.holdings-panel td strong { font-weight: 400; font-family: var(--font-serif); font-size: 20px; }
+.holdings-sub { display: block; font-size: 12px; color: #8a96a0; margin-top: 5px; }
+
+/* ---------------------------------------------------------------------------
+   INERT
+   One treatment, defined once, for every control that is present in the design
+   but will not be wired in this front end: the wallet button, the demo menu,
+   the chart range buttons. Carries no handler; pair it with aria-disabled or a
+   disabled attribute on the element itself.
+   ------------------------------------------------------------------------ */
+.inert { opacity: .55; cursor: default; pointer-events: none; }
+.inert:hover { transform: none; box-shadow: none; opacity: .55; }
+
+/* ---------------------------------------------------------------------------
+   ANIMATION
+   ------------------------------------------------------------------------ */
+.spin { animation: orbit-spin 1s linear infinite; }
+@keyframes orbit-spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  .orbit-track { animation: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+   RESPONSIVE
+   Four breakpoints, carried over from app/globals.css. Only the rules for the
+   four extracted screens are kept.
+   ------------------------------------------------------------------------ */
+@media (min-width: 1600px) {
+  .workspace { grid-template-columns: minmax(0, 1fr) 520px; gap: 25px; }
+  .atlas-console { padding: 18px; gap: 15px; }
+  .agent-visual { padding: 12px 0; }
+  .orbit { width: 175px; height: 175px; }
+  .query-evidence dl { font-size: 12px; }
+  .atlas-composer textarea { height: 92px; }
+  .mini-terminal { font-size: 11px; }
+  .report-paper { font-size: 18px; padding: 40px 50px; }
+  .paper-title h1 { font-size: 47px; }
+}
+
+@media (max-width: 1250px) {
+  .site-header { padding: 0 22px; gap: 20px; }
+  .brand > span { font-size: 21px; }
+  .site-header nav { gap: 24px; }
+  .header-actions { gap: 13px; }
+  .workspace { grid-template-columns: minmax(0, 1fr) min(415px, 42%); gap: 16px; }
+  .console-page { padding: 18px 18px 0; }
+  .viewer-toolbar { gap: 8px; padding: 0 9px; }
+  .file-name { display: none; }
+  .viewer-tools { margin-left: auto; gap: 5px; }
+  .viewer-tools button:first-child, .viewer-tools button:nth-child(3) { display: none; }
+  .document-stage { padding: 23px 17px 65px; }
+  .report-paper { padding: 28px 30px; font-size: 16px; }
+  .paper-title h1 { font-size: 37px; }
+  .paper-title > p { font-size: 23px; }
+  .paper-masthead > span { font-size: 8px; }
+  .paper-title > .eyebrow { font-size: 9px; }
+  .report-paper h2 { font-size: 21px; }
+  .financial-table th { font-size: 12px; padding: 6px; }
+  .financial-table td { font-size: 12px; padding: 7px; }
+  .atlas-top { font-size: 16px; }
+  .atlas-top small { font-size: 9px; }
+  .atlas-top .tab { padding: 4px 6px; font-size: 11px; }
+  .query-evidence dl { grid-template-columns: 83px 1fr; }
+  .page-container { padding: 30px 25px 50px; }
+  .report-grid, .prediction-grid { gap: 17px; }
+  .prediction-card { padding: 19px; }
+  .prediction-card h2 { font-size: 26px; }
+  .report-card-info { padding: 17px; }
+  .report-card-title h2 { font-size: 21px; }
+  .report-card-title strong { font-size: 13px; }
+  .report-card-title small { font-size: 10px; }
+  .mini-document { padding: 20px; }
+  .mini-heading h3 { font-size: 21px; }
+  .mini-document > p { font-size: 14px; }
+  .report-card-buttons { gap: 13px; }
+  .report-card-buttons .btn { padding: 7px 12px; }
+  .market-detail-grid { grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; }
+  .market-title h1 { font-size: 36px; }
+  .position-panel { padding: 22px; }
+  .market-chart-panel { padding: 20px 17px 9px; }
+  .chart-legend { gap: 15px; }
+  .tokenize-section { padding: 48px 6px; }
+  .tokenize-grid { grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); gap: 20px; }
+  .tokenize-form { padding: 17px; }
+  .publish-steps { gap: 10px; }
+  .publish-steps > div { gap: 8px; }
+  .publish-steps small { font-size: 10px; }
+  .publish-steps > div > svg { display: none; }
+  .listing-preview { padding: 22px; }
+  .listing-preview .section-title h2 { font-size: 24px; }
+  .form-grid { gap: 18px 14px; }
+  .source-options .tab { font-size: 11px !important; padding: 10px 5px !important; }
+}
+
+@media (max-width: 1000px) {
+  .header-actions .demo-toggle { display: none; }
+  .site-header { gap: 15px; grid-template-columns: 1fr auto auto; }
+  .site-header nav { gap: 20px; }
+  .wallet-button svg { display: none; }
+  .workspace { grid-template-columns: minmax(0, 1fr) min(380px, 42%); }
+  .atlas-console { padding: 12px; gap: 13px; }
+  .atlas-top { flex-wrap: wrap; gap: 9px; }
+  .orbit { width: 130px; height: 130px; }
+  .agent-visual > p { font-size: 17px; }
+  .query-evidence { padding: 11px; }
+  .query-evidence dl { font-size: 10px; }
+  .agent-status > div { padding: 10px; font-size: 12px; }
+  .agent-status code { font-size: 10px; }
+  .composer-buttons { grid-template-columns: 1fr 1fr; }
+  .composer-buttons .btn { font-size: 11px; padding: 9px 5px; }
+  .composer-buttons svg { width: 13px; }
+  .report-paper { padding: 24px; font-size: 16px; }
+  .paper-title h1 { font-size: 33px; }
+  .paper-title > p { font-size: 20px; }
+  .paper-masthead .brand > span { font-size: 12px; }
+  .paper-masthead .brand svg { width: 13px; }
+  .report-paper h2 { font-size: 20px; }
+  .report-grid, .prediction-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .market-tabs { margin-bottom: 0; }
+  .report-card-title h2 { font-size: 24px; }
+  .tokenize-grid { grid-template-columns: 1fr; }
+  .listing-preview { position: static; display: grid; grid-template-columns: 1fr 1fr; column-gap: 30px; }
+  .listing-preview .section-title { grid-column: 1 / -1; }
+  .listing-preview > .mini-document { grid-column: 1; grid-row: 2 / 7; margin-bottom: 15px; }
+  .listing-preview > h3, .listing-preview > p, .listing-preview > .listing-price,
+  .listing-preview > .related-preview, .listing-preview > .btn { grid-column: 2; }
+  .listing-preview > .token-flow, .listing-preview > .notice { grid-column: 1 / -1; }
+  .listing-preview > h3 { margin-top: 0; }
+  .listing-preview .listing-price { margin: 10px 0; }
+  .tokenize-heading h1 { font-size: 43px; }
+  .page-heading h1 { font-size: 42px; }
+  .market-detail-grid { grid-template-columns: minmax(0, 1fr) 300px; gap: 17px; }
+  .position-panel { padding: 20px; }
+  .position-panel > h2 { font-size: 30px; }
+  .market-title h1 { font-size: 34px; }
+  .chart-legend { gap: 9px; }
+  .chart-legend > span { font-size: 11px; }
+  .outcome-header, .outcome-row { grid-template-columns: 1fr 90px 74px; gap: 6px; }
+  .market-chart-panel { padding: 18px 13px 8px; }
+  .market-statline { font-size: 10px; }
+  .section-title { gap: 12px; }
+}
+
+@media (max-width: 760px) {
+  .site-header { height: 106px; padding: 13px 17px 0; grid-template-columns: 1fr auto; gap: 0 15px; align-items: start; }
+  .brand > span { font-size: 20px; }
+  .brand svg { width: 22px; height: 26px; }
+  .site-header nav { grid-row: 2; grid-column: 1 / -1; justify-content: center; gap: 45px; margin-top: 7px; height: 44px; }
+  .site-header nav a { font-size: 14px; }
+  .header-actions { grid-row: 1; grid-column: 2; }
+  .wallet-button { font-size: 11px; padding: 7px 10px; min-height: 31px; }
+  .console-page { padding: 14px 12px 0; }
+  .workspace { display: flex; flex-direction: column; height: auto; max-height: none; gap: 15px; }
+  .viewer { height: auto; }
+  .viewer-toolbar { height: 49px; gap: 5px; }
+  .viewer-tools { font-size: 11px; gap: 2px; }
+  .viewer-tools i { margin: 0 3px; }
+  .viewer-tools > button:last-child { display: none; }
+  .viewer-toolbar .tab { padding: 8px 6px; font-size: 12px; gap: 5px; }
+  .viewer-toolbar .tab svg { width: 14px; }
+  .document-stage { padding: 17px 14px 18px; }
+  .report-paper { padding: 25px 23px; min-height: 780px; font-size: 16px; }
+  .paper-title h1 { font-size: 35px; }
+  .paper-title > p { font-size: 21px; }
+  .paper-masthead { padding-bottom: 12px; }
+  .paper-title { margin: 22px 0; }
+  .paper-byline { font-size: 8px; }
+  .financial-table th { font-size: 11px; padding: 5px; }
+  .financial-table td { font-size: 12px; padding: 6px; }
+  .edit-toolbar { padding: 5px; }
+  .edit-toolbar button { padding: 6px 8px; font-size: 11px; }
+  .atlas-console { padding: 20px; display: block; }
+  .atlas-inner { display: flex; flex-direction: column; gap: 13px; }
+  .atlas-top { font-size: 20px; }
+  .atlas-top small { font-size: 11px; }
+  .atlas-top .tab { font-size: 12px; padding: 5px 10px; }
+  .agent-visual > p { font-size: 17px; }
+  .agent-visual > .eyebrow { font-size: 8px; }
+  .orbit { width: 128px; height: 128px; }
+  .agent-status > div { padding: 10px 9px; gap: 7px; font-size: 11px; }
+  .agent-status code { font-size: 9px; }
+  .agent-status svg { width: 14px; }
+  .query-evidence dl { grid-template-columns: 85px 1fr; font-size: 12px; gap: 6px; }
+  .query-evidence > .eyebrow { font-size: 11px; }
+  .query-evidence .text-link { font-size: 12px; }
+  .mini-terminal { font-size: 8px; overflow: hidden; padding: 8px; }
+  .atlas-composer { margin-top: 0; padding: 14px; }
+  .atlas-composer label { font-size: 18px; }
+  .atlas-composer textarea { font-size: 15px; height: 95px; }
+  .composer-buttons .btn { font-size: 13px; padding: 10px; }
+  .composer-meta { font-size: 11px; }
+  .workspace-footer { font-size: 11px; flex-direction: column; gap: 12px; padding: 16px 4px 24px; }
+  .workspace-links { gap: 15px; }
+  .fit-panel { flex: auto; }
+  .fit-panel-content { position: relative; left: auto; width: 100% !important; transform: none !important; }
+  .tokenize-section { padding: 38px 5px 45px; scroll-margin-top: 115px; }
+  .tokenize-heading h1 { font-size: 37px; }
+  .tokenize-heading > p { font-size: 15px; }
+  .tokenize-heading > .eyebrow { font-size: 10px; }
+  .publish-steps { margin-bottom: 20px; gap: 9px; }
+  .publish-steps b { width: 30px; height: 30px; font-size: 10px; }
+  .publish-steps strong { font-size: 12px; }
+  .publish-steps small { font-size: 9px; }
+  .publish-steps > div { gap: 6px; }
+  .tokenize-form { padding: 15px; }
+  .form-grid { grid-template-columns: 1fr; gap: 18px; }
+  .form-grid textarea { min-height: 100px; }
+  .form-grid .second-label { margin-top: 18px; }
+  .source-options .tab { font-size: 12px !important; }
+  .file-row { font-size: 12px; }
+  .file-row small { font-size: 10px; }
+  .integration-detail summary { font-size: 10px; gap: 7px; }
+  .integration-detail summary > .badge { font-size: 9px; padding: 3px 5px; white-space: normal; }
+  .listing-preview { display: block; padding: 23px; }
+  .listing-preview > h3 { margin-top: 24px; }
+  .listing-preview .mini-document { min-height: 180px; }
+  .token-flow { font-size: 12px; }
+  .token-flow b { font-size: 13px; }
+  .listing-preview .notice { font-size: 12px; }
+  .page-container { padding: 25px 18px 40px; }
+  .page-heading { align-items: flex-start; gap: 15px; margin-bottom: 21px; }
+  .page-heading h1 { font-size: 37px; line-height: 1.05; }
+  .page-heading .eyebrow { font-size: 10px; }
+  .page-heading p { font-size: 15px; line-height: 1.5; }
+  .page-heading > .btn { font-size: 11px; padding: 7px 10px; min-height: 33px; margin-top: 7px; }
+  .page-heading > .btn svg { display: none; }
+  .filter-bar { gap: 10px; margin: 21px 0 13px; }
+  .search-field { max-width: none; flex: 1; min-width: 200px; }
+  .filter-chips { order: 3; flex: 1; width: 100%; gap: 6px; }
+  .filter-chips button { padding: 8px 12px; font-size: 12px; }
+  .my-reports { font-size: 11px; padding: 10px; gap: 5px; }
+  .my-reports svg { width: 14px; }
+  .report-grid, .prediction-grid { grid-template-columns: 1fr; gap: 20px; }
+  .market-count { display: none; }
+  .market-tabs .tab { font-size: 14px; }
+  .markets-page .filter-bar .choice { width: 135px; font-size: 12px; }
+  .prediction-card { padding: 23px; }
+  .prediction-card h2 { font-size: 30px; min-height: 0; }
+  .prediction-card > p { font-size: 13px; min-height: 0; }
+  .prediction-card-meta { font-size: 13px; }
+  .prediction-chart.compact .chart-container { height: 86px; margin: 13px 0 22px; }
+  .prediction-outcomes > div { font-size: 15px; }
+  .prediction-card-footer { font-size: 12px; }
+  .holdings-panel { padding: 18px 12px; }
+  .holdings-panel .section-title { display: block; }
+  .holdings-panel .section-title .badge { margin-top: 10px; }
+  .holdings-panel td { padding: 13px 8px; }
+  .holdings-panel td strong { font-size: 18px; }
+  .holdings-sub { font-size: 11px; }
+  .report-card-title h2 { font-size: 25px; }
+  .report-card-title strong { font-size: 17px; }
+  .report-card-title small { font-size: 12px; }
+  .mini-document { padding: 24px; min-height: 178px; }
+  .mini-heading h3 { font-size: 24px; }
+  .mini-document > p { font-size: 15px; }
+  .report-card-info { padding: 22px; }
+  .report-card-info > p { font-size: 13px; }
+  .report-card-buttons { gap: 24px; }
+  .report-card-buttons .btn { font-size: 13px; padding: 8px 18px; }
+  .report-card-buttons .text-link { font-size: 12px; }
+  .report-market-link { font-size: 12px; }
+  .card-evidence { font-size: 11px; }
+  .card-evidence .text-link { font-size: 11px; }
+  .results-meta { font-size: 11px; }
+  .market-detail-grid { display: flex; flex-direction: column; }
+  .market-main { width: 100%; }
+  .market-title h1 { font-size: 36px; }
+  .market-title p { font-size: 13px; line-height: 1.6; }
+  .market-title .eyebrow { font-size: 10px; }
+  .market-chart-panel { padding: 15px 12px 6px; }
+  .chart-top { gap: 10px; margin-bottom: 10px; }
+  .chart-top > .eyebrow { font-size: 9px; }
+  .range-buttons > span { font-size: 11px; padding: 5px 8px; }
+  .prediction-chart .chart-container { height: 260px; }
+  .chart-legend { gap: 17px; }
+  .chart-legend > span, .chart-legend strong { font-size: 12px; }
+  .market-statline { font-size: 10px; gap: 8px; }
+  .outcome-row, .outcome-header { grid-template-columns: 1fr 95px 73px; }
+  .outcome-header { font-size: 9px; }
+  .outcome-row strong { font-size: 15px; }
+  .outcome-row b { font-size: 22px; }
+  .position-panel { width: 100%; position: static; padding: 26px; margin-top: 5px; }
+  .position-panel > p, .position-panel > label, .position-panel .choice, .position-panel .stake-side, .position-panel .btn.full { font-size: 14px; }
+  .switch-row { font-size: 14px; }
+  .amount-shortcuts button { font-size: 14px; padding: 8px; }
+  .payout-estimate { font-size: 14px; }
+  .payout-estimate small { font-size: 11px; }
+  .arc-evidence > .eyebrow { font-size: 12px; }
+  .arc-evidence dl { font-size: 13px; grid-template-columns: 125px 1fr; }
+  .arc-evidence dd { font-size: 12px; }
+  .arc-evidence .text-link { font-size: 12px; }
+  .position-panel > .position-disclaimer { font-size: 12px; }
+  .supporting-research { padding: 20px 17px; }
+  .supporting-research .section-title h2 { font-size: 24px; }
+  .supporting-research .text-link { font-size: 12px; }
+  .supporting-row { gap: 12px; }
+  .supporting-row h3 { font-size: 21px; }
+  .supporting-row span { display: none; }
+  .supporting-row p { font-size: 11px; }
+  .site-footer { margin: 0 18px; flex-direction: column; gap: 8px; font-size: 11px; padding: 20px 0; }
+  .footer-tag { font-size: 10px; }
+  .empty-state { padding: 60px 20px; }
+  .empty-state h2 { font-size: 29px; }
+}

@@ -10273,3 +10273,99 @@ next/link imports under app/        0
 ⚠️ `.next` was cleared before the build, per the stale-route-validator lesson. Still necessary, still
 cheap.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 2: `app/globals.css`, moved verbatim
+
+One file, 1,178 lines, 68,863 bytes. **Zero edits — the md5 is the same on both sides of the move.**
+`next build` exit 0. Nothing under `src/`, `contracts/`, `scripts/` or `app/api/` changed.
+
+```
+rebuild/app/globals.css   15c9142cb768567ecfdcc90eba545d39   1178 lines  68863 bytes
+app/globals.css           15c9142cb768567ecfdcc90eba545d39   1178 lines  68863 bytes
+```
+
+### The three things that had to be checked before landing it, all clean
+
+⚠️ **No web fonts, and nothing to argue about.** `@font-face` 0 · `base64` 0 · `url(` 0 · `@import` 0.
+The stylesheet downloads nothing at all. The three type roles are system stacks that lead with the
+real faces and name the clones as fallback:
+
+```
+--font-serif: 'Times New Roman', Times, Georgia, 'Nimbus Roman', serif;
+--font-sans:  Helvetica, Arial, 'Nimbus Sans', 'Liberation Sans', sans-serif;
+--font-mono:  ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+```
+
+That is the licence question closed by construction rather than by a decision: the AGPL-3 exception
+on those faces covers *"a Postscript or PDF file"* and a web page is neither, so **serving them would
+be AGPL-3 distribution of this application.** Nimbus Roman and Nimbus Sans are metric clones of Times
+and Helvetica, so the stack above *is* the design on any machine that has either — at zero bytes and
+zero obligation.
+
+⚠️ **Light only, and `color-scheme: light` is on `:root` at line 27.** `prefers-color-scheme` appears
+**zero** times. The nine at-rules are five responsive breakpoints, two `@keyframes`, and one
+`prefers-reduced-motion` — an accessibility query, not a scheme query:
+
+```
+@media (min-width: 761px) · (max-width: 760px) ×2 · (min-width: 1600px)
+@media (max-width: 1250px) · (max-width: 1000px) · (prefers-reduced-motion: reduce)
+@keyframes orbit-spin · @keyframes pulse
+```
+
+⚠️ `.dark-panel` and `.btn.dark-outline` are **component classes for the charcoal panel, not a dark
+variant.** Worth saying because a grep for "dark" finds them and they look like the thing D1 deleted.
+
+### ⚠️ `next build` does NOT prove this file, so it was parsed separately
+
+Nothing imports `globals.css` yet — `app/layout.tsx` is its first and only consumer and it lands in
+commit 3. **An unimported stylesheet is never read by Turbopack**, so a green build says nothing
+about whether the CSS is valid. Parsed with the `postcss` already present in `node_modules`
+(transitively, via Next — nothing installed):
+
+```
+PARSE OK — valid CSS
+  744 rules · 2,018 declarations · 9 at-rules · 500 distinct selectors
+```
+
+### ⚠️ Why "remove the rule that looks unused" would have gutted the site
+
+The instruction not to prune was not hypothetical. Of the **190 distinct class names** in the file:
+
+```
+106  already referenced from app/
+ 68  referenced ONLY by pages still in rebuild/   ← would read as orphan today
+ 16  referenced from neither, yet
+```
+
+The 68 include `site-header`, `site-footer`, `page-container`, `page-heading`, `skip-link`,
+`dark-panel`, `console-page`, `workspace-footer`. **A pass that deleted everything with no consumer
+in `app/` would have deleted the entire site chrome the morning before commit 3 landed the layout
+that uses it.**
+
+The 16 with no consumer anywhere, named rather than quietly kept:
+
+```
+sr-only · dark-outline · expanded · paper-disclosure · selected-passage · document-building
+running · run-progress · progress-bar · spin · empty-state · balance-line
+position-disclaimer · transaction-receipt · fill-true · fill-false
+```
+
+Most are plainly the wiring commits' — `transaction-receipt` is the x402 receipt,
+`running`/`spin`/`run-progress`/`progress-bar`/`document-building` are the generate stream's states,
+`balance-line` and `position-disclaimer` are the stake panel's, `empty-state` is every empty query.
+⚠️ **Four look genuinely spare** — `sr-only`, `dark-outline`, and `fill-true`/`fill-false` (the chart
+draws strokes via `.line-true`/`.line-false` and no fills). **None was removed.** A CSS rule costs
+bytes; a deleted one that turns out to have a consumer costs a broken screen and a bisect.
+
+### State of the app
+
+⚠️ **Still nothing renders, and that is on plan.** `app/` holds fourteen API routes,
+`app/components/` + `app/hooks/` from commit 1, `markdown.tsx`, `README.md` and now one stylesheet
+that nothing imports. The route table is **15 and unchanged** — no page, no layout. The first thing
+a browser could load arrives in commit 3, which lands `layout.tsx` and `page.tsx` together because
+Next requires a root layout the moment a page segment exists.
+
+`.next` was cleared before the build, as it now always is after a move.
+
