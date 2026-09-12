@@ -1,123 +1,63 @@
 import {MarketplaceFilters} from './components/MarketplaceFilters.js';
-import {MiniDocument, type PreviewChart} from './components/MiniDocument.js';
+import {MiniDocument} from './components/MiniDocument.js';
 import {ArrowRight, ArrowUpRight} from './components/Icons.js';
+import {list} from '../src/store/reports.js';
+import {tokensFor} from '../src/store/tokens.js';
+import {db} from '../src/store/db.js';
+import {REPORT_PRICE_HBAR} from '../src/config/pricing.js';
+
+export const runtime = 'nodejs';
 
 /**
- * The report marketplace. A server component: it holds the data and passes it
- * down, and only the filter bar crosses into the client.
+ * ⚠️ **PER REQUEST, NEVER PRERENDERED, AND THIS LINE IS LOAD-BEARING.** Without it Next renders `/`
+ * once at build time and freezes the list at whatever was in Neon when the deploy ran — so a report
+ * generated a minute ago does not appear until the next deploy, which is the whole point of the
+ * page. `/console` lost this same directive once by accident and the symptom read as a refresh bug
+ * for two tasks.
  */
+export const dynamic = 'force-dynamic';
 
-// ---------------------------------------------------------------------------
-// Demo content. Swap this const for the database query; the markup below reads
-// from it and from nothing else.
-// ---------------------------------------------------------------------------
-type ReportCard = {
-  hash: string;
-  title: string;
-  subtitle: string;
-  category: string;
-  author: string;
-  price: number;
-  tokenId: string;
-  preview: PreviewChart;
-  owned: boolean;
-  marketId: string;
-  marketClaim: string;
-};
+/** Cut a long directive to a card-sized heading at a word boundary. */
+function shorten(text: string, max: number): string {
+  const t = text.trim().replace(/[?.]+$/, '');
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  return `${cut.slice(0, cut.lastIndexOf(' '))}…`;
+}
 
-const MARKETPLACE: {
-  categories: string[];
-  activeCategory: string;
-  settlementNote: string;
-  reports: ReportCard[];
-} = {
-  categories: ['All', 'Lending', 'Stablecoins', 'DEXs'],
-  activeCategory: 'All',
-  settlementNote: 'Hedera tokens · Access via x402',
-  reports: [
-    {
-      hash: '9f2c4a7e1b8d3056',
-      title: 'Lending protocols / Q2 2026',
-      subtitle: 'Market structure, growth and key risks',
-      category: 'Lending',
-      author: 'Atlas Research',
-      price: 5,
-      tokenId: 'DEMO-lending-q2',
-      preview: 'bars',
-      owned: false,
-      marketId: 'lending-2027',
-      marketClaim: 'Aave leads lending by end-2027',
-    },
-    {
-      hash: '3d81e6f09c24ab75',
-      title: 'Aave / Revenue quality',
-      subtitle: 'Assessing sustainability and drivers',
-      category: 'Lending',
-      author: 'Atlas Research',
-      price: 3,
-      tokenId: 'DEMO-aave-revenue',
-      preview: 'table',
-      owned: false,
-      marketId: 'aave-revenue-2026',
-      marketClaim: 'Aave revenue grows more than 20% in 2026',
-    },
-    {
-      hash: 'b570c93a4e12d8f6',
-      title: 'Morpho / Growth & risk',
-      subtitle: 'Scaling incentives, governance and tail risks',
-      category: 'Lending',
-      author: 'Atlas Research',
-      price: 4,
-      tokenId: 'DEMO-morpho-growth',
-      preview: 'line',
-      owned: false,
-      marketId: 'lending-2027',
-      marketClaim: 'Aave leads lending by end-2027',
-    },
-    {
-      hash: 'e4a1b26d70f5c839',
-      title: 'Stablecoin reserves',
-      subtitle: 'Composition, risk and market impact',
-      category: 'Stablecoins',
-      author: 'Atlas Research',
-      price: 4,
-      tokenId: 'DEMO-stablecoin-reserves',
-      preview: 'bars',
-      owned: false,
-      marketId: 'stablecoins-2027',
-      marketClaim: 'USDC grows the most of any stablecoin in 2027',
-    },
-    {
-      hash: '6c08f5b3d9a21e74',
-      title: 'DEX fee economics',
-      subtitle: 'Revenue, incentives and competitive dynamics',
-      category: 'DEXs',
-      author: 'Atlas Research',
-      price: 3,
-      tokenId: 'DEMO-dex-fees',
-      preview: 'table',
-      owned: false,
-      marketId: 'dex-volume',
-      marketClaim: 'Uniswap leads DEX volume in Q4 2026',
-    },
-    {
-      hash: 'a293e7c015b6d4f8',
-      title: 'Spark / Lending outlook',
-      subtitle: 'Growth drivers and market positioning',
-      category: 'Lending',
-      author: 'Atlas Research',
-      price: 2,
-      tokenId: 'DEMO-spark-outlook',
-      preview: 'line',
-      owned: false,
-      marketId: 'spark-growth',
-      marketClaim: 'Spark loans exceed $8B in 2027',
-    },
-  ],
-};
+export default async function ReportMarketplace() {
+  // ── ⚠️ THREE QUERIES, AND THE BATCHING IS THE POINT ───────────────────────────────────────────
+  // Taken from `trash/app/page.tsx`, which had this working before the rebuild: `list()`, then ONE
+  // `tokensFor(hashes)`, then ONE claims join over every hash. ⚠️ **Not one lookup per row** — a
+  // list page that fans out per card is what costs once the list gets long, and that file learned
+  // it. `store/` is not modified; the join is written here, as that page wrote it.
+  //
+  // ⚠️ **A server component reading the store directly — no API route, and none should be added.**
+  // A route here would be a second copy of `list()` behind a fetch the server makes to itself.
+  const reports = await list();
+  const hashes = reports.map((r) => r.hash);
+  const tokens = await tokensFor(hashes);
 
-export default function ReportMarketplace() {
-  const {categories, activeCategory, settlementNote, reports} = MARKETPLACE;
+  const cited = hashes.length === 0 ? [] : await db()<
+    {report_hash: string; chain_market_id: string | null; spec_json: string}[]
+  >`SELECT c.report_hash, m.chain_market_id, m.spec_json
+      FROM claims c JOIN markets m ON m.id = c.market_id
+     WHERE c.report_hash = ANY(${hashes}) AND m.chain_market_id IS NOT NULL
+     ORDER BY m.created_at DESC`;
+
+  const marketFor = new Map<string, {id: string; question: string}>();
+  for (const c of cited) {
+    if (marketFor.has(c.report_hash)) continue;
+    const s = JSON.parse(c.spec_json) as {
+      slug: string; metric: string; comparison: string; threshold: string; observedDay: string;
+    };
+    marketFor.set(c.report_hash, {
+      id: c.chain_market_id!,
+      question: `Will ${s.slug}'s ${s.metric} be ${s.comparison} $${Number(s.threshold).toLocaleString('en-US')} on ${s.observedDay}?`,
+    });
+  }
+
+  const tokenized = reports.filter((r) => tokens.has(r.hash)).length;
 
   return (
     <main className="marketplace-page page-container">
@@ -127,72 +67,128 @@ export default function ReportMarketplace() {
           <h1>Report marketplace</h1>
           <p>Research worth reading. Conviction worth backing.</p>
         </div>
+        {/* ⚠️ **There is no separate "publish".** Minting writes `report_tokens` and this page reads
+            it, so a report is listed the moment the row exists. The button said "Publish a report",
+            which implied a step that does not exist; it names what actually happens instead. */}
         <a href="/console#tokenize" className="btn outline">
-          Publish a report <ArrowUpRight size={16} />
+          Tokenize a report <ArrowUpRight size={16} />
         </a>
       </div>
 
-      <MarketplaceFilters categories={categories} activeCategory={activeCategory} />
+      <MarketplaceFilters categories={['All']} activeCategory="All" />
 
       <div className="results-meta">
-        <span>{reports.length} reports</span>
-        <span>{settlementNote}</span>
+        <span>{reports.length} reports · {tokenized} tokenized on Hedera</span>
+        {/* ⚠️ HBAR, one constant, every report. A USD-denominated price THROWS on testnet —
+            `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no HBAR
+            entry — and the USDC cutover belongs to mainnet. The design's six different USDC prices
+            had nothing behind them. */}
+        <span>{REPORT_PRICE_HBAR} HBAR each · x402 on Hedera testnet</span>
       </div>
 
+      {reports.length === 0 && (
+        <div className="empty-state">
+          <h2>No reports yet</h2>
+          <p>Generate one in the console and it appears here on the next request.</p>
+          <a className="btn primary" href="/console">Open the console</a>
+        </div>
+      )}
+
       <div className="report-grid">
-        {reports.map((report) => (
-          <article className="report-card" key={report.hash}>
-            <a
-              href={`/report/${report.hash}`}
-              className="document-preview-button"
-              aria-label={`Preview ${report.title}`}
-            >
-              <MiniDocument
-                title={report.title}
-                subtitle={report.subtitle}
-                preview={report.preview}
-                locked={!report.owned}
-              />
-            </a>
+        {reports.map((report) => {
+          const token = tokens.get(report.hash);
+          const market = marketFor.get(report.hash);
+          // ⚠️ **The narrator's title, or the directive shortened.** Eleven rows pre-date migration
+          // 008 and have none; those show the question they answer rather than a blank heading.
+          const heading = report.title ?? shorten(report.directive, 58);
+          return (
+            <article className="report-card" key={report.hash}>
+              <a
+                href={`/report/${report.hash}`}
+                className="document-preview-button"
+                aria-label={`Preview ${heading}`}
+              >
+                {/* ⚠️ The thumbnail is decoration and always was — blurred bars and a stylised
+                    chart. There is no per-report preview data and none is invented. `locked` is
+                    always true: there is no identity system, so nothing is "owned". */}
+                <MiniDocument
+                  title={heading}
+                  // ⚠️ NOT INVENTED. The design's one-line subtitle has no column behind it, so the
+                  // slot carries the analyst and the block — true, and what distinguishes two
+                  // reports on the same protocol.
+                  subtitle={`${report.analyst.slice(0, 10)}… · block ${report.block.toLocaleString('en-US')}`}
+                  preview="bars"
+                  locked
+                />
+              </a>
 
-            <div className="report-card-info">
-              <div className="report-card-title">
-                <h2>{report.title}</h2>
-                <strong>
-                  {report.price} <small>USDC</small>
-                </strong>
-              </div>
-              <p>By {report.author}</p>
+              <div className="report-card-info">
+                <div className="report-card-title">
+                  <h2>{heading}</h2>
+                  <strong>
+                    {REPORT_PRICE_HBAR} <small>HBAR</small>
+                  </strong>
+                </div>
+                <p>By {report.analyst.slice(0, 18)}…</p>
 
-              <div className="report-card-buttons">
-                <a href={`/report/${report.hash}`} className="btn white">
-                  {report.owned ? 'Read report' : 'Preview report'}
-                </a>
-                {!report.owned && (
+                <div className="report-card-buttons">
+                  <a href={`/report/${report.hash}`} className="btn white">
+                    Preview report
+                  </a>
                   <a href={`/report/${report.hash}`} className="text-link">
                     Unlock <ArrowUpRight size={14} />
                   </a>
-                )}
-                {report.owned && <span className="badge">Your report</span>}
-              </div>
-
-              <a className="report-market-link" href={`/markets/${report.marketId}`}>
-                {report.marketClaim} <ArrowRight size={14} />
-              </a>
-
-              <details className="card-evidence">
-                <summary>Hedera token · x402 access</summary>
-                <div>
-                  <span>Token</span>
-                  <code>{report.tokenId}</code>
                 </div>
-                <span className="text-link inert">
-                  View token receipt <ArrowUpRight size={13} />
-                </span>
-              </details>
-            </div>
-          </article>
-        ))}
+
+                {/* ⚠️ REAL — `claims.report_hash` is a foreign key, so a report that backs a market
+                    genuinely links to it. Most do not, and those simply have no link rather than a
+                    placeholder one. */}
+                {market && (
+                  <a className="report-market-link" href={`/markets/${market.id}`}>
+                    {market.question} <ArrowRight size={14} />
+                  </a>
+                )}
+
+                {/* ⚠️ **A TOKENIZED REPORT AND AN UNTOKENIZED ONE MUST NOT LOOK ALIKE.** The design
+                    showed "Hedera token · x402 access" on every card; five of eleven have a token.
+                    A tokenized one has an ISIN and a contract a stranger can check — that is the
+                    difference between a published document and a security, and the second state is
+                    not a faded version of the first. */}
+                <details className="card-evidence">
+                  <summary>
+                    {token ? `Tokenized · ${token.isin}` : 'Not tokenized · x402 access'}
+                  </summary>
+                  {token ? (
+                    <>
+                      <div>
+                        <span>ISIN</span>
+                        <code>{token.isin}</code>
+                      </div>
+                      <a
+                        className="text-link"
+                        href={`https://hashscan.io/testnet/contract/${token.proxyAddress}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        View the security on HashScan <ArrowUpRight size={13} />
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <span>Hash</span>
+                        <code>{report.hash.slice(0, 24)}…</code>
+                      </div>
+                      <a className="text-link" href={`/console?report=${report.hash}`}>
+                        Tokenize it in the console <ArrowUpRight size={13} />
+                      </a>
+                    </>
+                  )}
+                </details>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </main>
   );

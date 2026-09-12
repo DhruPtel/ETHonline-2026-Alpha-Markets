@@ -13442,3 +13442,96 @@ hash into **Report hash**, with or without whitespace, `0x`, or capitals.
 3. **Confirm** is the only press that spends. **Cancel** clears the plan and the panel returns to
    step 1.
 
+
+---
+
+## 2026-09-12 — `/` wired to the store. ⚠️ And the no-404 proof cannot be met in this scope.
+
+`app/page.tsx`, `app/components/MarketplaceFilters.tsx`. `next build` exit 0, `┌ ƒ /` — dynamic.
+
+### What I took from `trash/app/page.tsx`
+
+**Three reads, and the batching is the whole point**: `list()`, then **one** `tokensFor(hashes)`,
+then **one** claims join over every hash. ⚠️ *"A list page that fans out per row is what costs once
+the list gets long"* — that file learned it and the comment is carried over. The join is written in
+the page rather than added to `store/`, as it was there. Also taken: **a server component reading the
+store directly, no API route** — a route here would be a second copy of `list()` behind a fetch the
+server makes to itself.
+
+⚠️ **`force-dynamic` is on, and it is load-bearing.** The build confirms `┌ ƒ /` — server-rendered on
+demand, not `○` prerendered. Without it the list freezes at deploy time. `/console` lost this exact
+directive by accident and the symptom read as a refresh bug for two tasks.
+
+### What renders, measured
+
+```
+19 cards · 6 tokenized on Hedera · 0.001 HBAR each · x402 on Hedera testnet
+tokenized chips   6      untokenized chips  13
+HBAR prices      19      DEMO- 0   USDC 0
+market links      1      hashscan links 6   console links 13
+```
+
+### Field by field
+
+| card slot | |
+|---|---|
+| title | the narrator's, or **the directive shortened at a word boundary** — 16 of 19 rows pre-date migration 008 and have none. A card with no title reads *"Show me a balance overview of the MakerDAO markets on…"* |
+| subtitle | ⚠️ **NOT INVENTED** — no column. The analyst and the block, which are true and distinguish two reports on the same protocol |
+| price | ⚠️ **one constant, `0.001 HBAR`, every card.** The design's six different USDC prices had nothing behind them, and a USD price *throws* on testnet |
+| thumbnail | decoration, as it always was — blurred bars. No per-report preview data exists and none is invented |
+| category | **MARKED** — no column |
+| related market | ⚠️ **REAL** — `claims.report_hash` is a foreign key. **Exactly one of nineteen has one**; the other eighteen have no link rather than a placeholder |
+| owned | always false — no identity system |
+
+⚠️ **Tokenized and untokenized do not look alike.** The design showed *"Hedera token · x402 access"*
+on every card; 6 of 19 have a token. A tokenized card reads **`Tokenized · XXZ3KOQKJVW4`** and links
+the contract to HashScan; an untokenized one reads **`Not tokenized · x402 access`**, shows its hash,
+and links to `/console?report=<hash>` to mint it. **The second is not a faded version of the first** —
+it is the difference between a published document and a security.
+
+**Search, the category chips and "My reports" are marked, not removed** — visible, disabled, with the
+reason on them. **"Publish a report" became "Tokenize a report"**: minting writes `report_tokens` and
+this page reads it, so there is no separate publish step and the old label implied one.
+
+### ⚠️ THE NO-404 PROOF CANNOT BE MET HERE, and the brief's premise is wrong
+
+The brief says three demo cards 404 and *"those go away when the demo const does."* **They do not.**
+`app/report/[hash]/page.tsx` still renders its own demo `Record` — PHASE-6 task 6 has not run — so:
+
+```
+before   3 of 6 cards 404   (demo hashes with no demo record)
+after   19 of 19 cards 404  (real hashes, and the reading page knows only demo ones)
+```
+
+⚠️ **Wiring `/` made this worse, not better, and I am not going to hide that.** The fix is one file
+and it is explicitly outside this task's constraint. I considered pointing the cards at
+`/console?report=<hash>`, which resolves today — **and rejected it**: that is the operator console,
+not the reading page, and sending a buyer there to dodge a 404 would be a worse lie than the 404.
+**The links are semantically correct and will resolve the moment task 6 lands.**
+
+### ⚠️ The generate-then-appear proof also did not complete, and not because of this page
+
+Two generations, both failed, neither saved:
+
+```
+"Balance overview for Morpho Blue on Ethereum"    stop_reason tool_use   summary EMPTY
+"Balance overview for Compound v3 on Ethereum"    stop_reason max_tokens  assessment MISSING
+```
+
+⚠️ **Both are the narration degeneration `lessons.md` documents**, and the second shows the 4,000-token
+cap working as intended — it surfaced in ~35s instead of 207. **The card count correctly stayed at
+19 both times, which is itself the honest behaviour**: nothing was saved, so nothing appeared.
+
+**I stopped after two rather than keep spending.** What is proven mechanically is that the page is
+`ƒ` — re-rendered per request against the store — so a saved report appears on the next request.
+⚠️ **The end-to-end press is one generation away and it is yours to run**; the failure is in the
+narrator, not the marketplace.
+
+### What the page actually reads like
+
+Nineteen cards, three across, all at one price, **one** with a related market, six with an ISIN. ⚠️
+**It is sparser than the design assumes** — that design drew six cards with categories, six prices
+and a market on each. What is here is nineteen real reports at a real price, most of them untitled
+and showing the question they answer. **No slot was filled with an invented number to make it look
+fuller.**
+
