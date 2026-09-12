@@ -9739,3 +9739,121 @@ probability series, the payout estimate, attach-supporting-report, more-supporti
 1.00 USDC.
 
 **Two commits: pass one the transcription plus the two reference rules; pass two the wiring.**
+
+---
+
+## 2026-09-12 — Phase 5 Unit 5: The Graph gets a surface — one route, two slots
+
+`app/api/console/source/route.ts` (new), `app/console/graph.tsx` (new), `app/console/viewer.tsx`
+(new), and the Query Evidence block in `atlas.tsx`. `next build` passes; `/`, `/markets`,
+`/markets/6`, `/holdings`, `/console` all 200. No `src/` change, no schema change, no chain call, no
+write.
+
+### The two choices
+
+**Document: `balance-sheet`.** The menu has three. `markets` is one row per market and is walked to
+exhaustion — a deployment with 1,700 markets costs seven queries and returns a table nothing could
+render in a side panel. `financial-snapshots` needs a window the operator would have to supply.
+`balance-sheet` is **one row per deployment, one query, 21 fields** — legible in the space the
+reference allows.
+
+**Deployment: `aave-v3-ethereum`**, default and overridable. The flagship at ~$24.7B, what markets 6
+and 7 settle against, and its `liveSchemaVersion` matches what config declares. ⚠️ `protocols.ts`
+records its **revenue as poisoned** — *"one day in Jul 2024 booked $1.63e15 and the cumulative never
+recovered… balances and flows are clean across 1,300+ days"*. The document returns both, so **the
+panel names the three bad columns rather than quietly dropping them.** A console that hid them would
+be teaching an operator to trust a figure this project has already established is wrong.
+
+⚠️ **The slug is a parameter, not a constant.** `querySubgraph` already refuses an unknown slug with a
+`CONFIG` error naming `config/protocols.ts`, so a typo fails loudly.
+
+### ⚠️ It reads, and the evidence is the subgraph's own
+
+`buildEvidence` at tier **`record`**, never `record+raw` — PHASE-4's rule is *record by default,
+record+raw for settlement-backing queries only, tier set by the caller*. A console panel is not
+settlement-backing; `record+raw` would retain a response payload for a browser click.
+
+**This gives `buildEvidence` its second caller.** PHASE-4's open item — *"the builder exists and its
+only caller is a demo script"* — is closed by using it rather than by writing anything.
+
+⚠️ **The query is UNPINNED, deliberately.** A pinned read returns whatever block was asked for, which
+is the opposite of what this panel is for. `block` and `fetchedAt` come off the response's own
+`_meta`, never off our clock — which is what makes them evidence.
+
+### ⚠️ How to check it is current
+
+Two presses, six minutes apart:
+
+```
+05:36:22.802Z   block 25,959,277
+05:42:48.185Z   block 25,959,308
+```
+
+**31 blocks in ~6.4 minutes is ~12.4 s/block, which is Ethereum's cadence.** Check the number against
+any Ethereum explorer at the moment you press — if it is within a block or two of head, the read was
+live. The `requestedBlock` field is `null`, which is how you know nothing was pinned.
+
+### The two slots
+
+**Source data tab.** The reference's tabpanel was empty, `hidden` and `data-state="inactive"` — the
+second tab of the viewer. It now holds a `.section-title` with a **Read this deployment now** button,
+a `.source-meta` badge row (subgraph, network, indexing-error state, row count), the poisoned-revenue
+notice, the 21-field response as a `.financial-table`, and the document/response hashes with the tier.
+⚠️ **Before a query it says nothing has been read and what pressing would do. While one runs it says
+so. Without the secret it says to paste it in the Atlas panel first.** It shows no zeros and no DEMO
+values in any of those states.
+
+**Query Evidence.** Five real fields replacing `DEMO-lending-eth` and `24,800,000`. Before a read
+every value is an em dash and the subgraph line reads *not read* — not a zero.
+
+⚠️ **The two slots are not siblings** — one is in the light viewer, one in the dark Atlas panel — so
+the state lives in a context whose provider **renders no DOM element at all.** That is what lets it
+wrap transcribed markup without touching the class-token sequence.
+
+### ⚠️ The tab had to become pressable, which meant lifting the toolbar
+
+The tabs are Radix buttons with hardcoded `data-state`. To make one pressable, the toolbar and both
+tabpanels moved into `viewer.tsx` as a client component. **The toolbar's markup was lifted byte for
+byte** — same buttons, same `data-slot`/`aria-controls`, same zoom and page controls; the only edits
+are `onClick` and `data-state`/`aria-selected` derived from state. The report document is passed in as
+`children`, so its markup never crosses into a client bundle.
+
+⚠️ **Lifting it cost three JSX balance errors** — two surplus `</div>` from the old wrappers, an
+unclosed `.edit-toolbar`, and the Radix tabs wrapper whose close got consumed. **`next build` caught
+all three; `tsc` caught none, because the root typecheck excludes `app/`.**
+
+### ⚠️ A regression from Unit 4c, found by the structure check and fixed
+
+The class-token comparison against the reference console route showed **`.mini-terminal` absent**. When
+Unit 4c rewrote the Atlas panel it dropped `<Terminal>` entirely — so `log.lines` had nowhere to
+render and **a fifty-second generation would have shown three status rows and no sign of what it was
+doing.** Restored into the reference's own `.mini-terminal` slot.
+
+**The remaining delta against the reference, all from earlier units and all deliberate:** `fit-panel`
+and `fit-panel-content` ×2 (Unit 4c removed the exporter's scale-script wrappers) and six `lucide-*`
+icon classes dropped where wired markup replaced the reference's. **This unit added
+`section-title`, `btn primary sm`, `notice`, `op-note` — the Source data panel's own content, inside
+the panel the reference already had.** Nothing was restructured to make room.
+
+### What a press costs
+
+⚠️ **Graph quota, not money: one query per press.** `balance-sheet` is a single `querySubgraph` call —
+one POST to the gateway, one billable query, the cheapest of the three documents. `markets` on a large
+deployment would be seven or more; that is part of why it was not chosen. **Nothing is spent on
+chain, nothing is written, and no model tokens are used.**
+
+### Proof
+
+```
+route     no secret 401 · wrong secret 401 · correct 200
+live      block 25,959,308 · retrieved 2026-09-12T05:42:48Z · 1 row · 21 fields · no indexing errors
+page      .mini-terminal 1 · Source data tab 1 · "not read" before a query 1
+gone      DEMO-lending-eth 0 · 24,800,000 0
+```
+
+**LIVE** — *Read this deployment now* / *Read again* in the Source data tab, and *Inspect source
+data →* in the Query Evidence block; both run the same query and fill both slots. Both are disabled
+until `CONSOLE_SECRET` is typed. The Report / Source data tabs now switch.
+**MARKED** — unchanged elsewhere.
+⚠️ **DO NOT PRESS** — Generate (model tokens) and Tokenize (~7.7 HBAR and a permanent asset). ⚠️ The
+source query is safe to press repeatedly; it only costs Graph quota.
