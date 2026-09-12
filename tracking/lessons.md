@@ -1355,3 +1355,54 @@ produced this number?"* — asked once, against a report's own `provenance`, whi
   justification, and nobody has answered it. The age is recorded and printed instead. ⚠️ Adding a
   threshold because it sounds prudent is how an arbitrary number becomes a rule nobody can defend —
   if a limit is ever wanted it should come out of a scoring result, not out of taste.
+
+## 2026-09-12 — The same narration degeneration, a second time, now with a deployment ceiling
+
+**What we expected.** `lessons.md` 2026-09-07 had already measured this exact failure — five
+narrations of one 140-fact Aave draft, three exhausting `max_tokens` at ~200 seconds with a complete
+table and a missing assessment — and concluded that **the cap is where it surfaces, not why it
+happens**, and that raising it *"buys a longer pathology rather than a fix."* The cap was
+nevertheless sitting at 24,000.
+
+**What happened.** *"Aave v3 balance overview"* — the shortest, most obvious thing a user would type
+for the flagship deployment — failed at **207 seconds** with `stop_reason max_tokens`, a 502-char
+table and no assessment. Same shape as the five runs measured five days earlier.
+
+**What is new, and it is the part that matters.** The 2026-09-07 entry was written before there was
+a deployment. There is one now, and it has a **60-second function ceiling on Vercel Hobby, silently
+clamped from a declared 300**. That changes the finding in two ways:
+
+| | local | deployed |
+|---|---|---|
+| a degenerate run | 207s, then an `error` stage naming `stop_reason max_tokens` | killed at 60s **with no error event** — the stream simply stops |
+| what you learn | the cause | that it stopped |
+
+⚠️ **The diagnosis is lost in production, and that is worse than the hang.**
+
+**And the healthy case is not safe either.** Measured the same day: a *successful* run at **58.0s**,
+and after lowering the cap another successful run of the same directive at **60.45s — over the
+ceiling.** ⚠️ **This pipeline does not reliably complete a report inside Hobby's limit even when
+nothing goes wrong.** Compose is ~14–24s and narrate ~30–45s, both model calls, both variable, and
+their sum sits on the line.
+
+**What changed.** `max_tokens` 24,000 → **4,000**. ⚠️ **This does not make a failing report succeed
+and must not be recorded as if it does.** It converts a 207-second hang into a ~35-second legible
+failure that fits inside the ceiling. Measured before changing it: across all sixteen stored reports,
+including every 140-fact one, **the largest output ever emitted is ~1,819 tokens** — so 4,000 is 2.2×
+the biggest real report and cannot truncate a directive that works.
+
+**A gate went dead and it is worth knowing.** `narrate.ts` throws on `table.length > 40_000`. At
+4,000 tokens the model cannot emit 40,000 characters, so ⚠️ **that half of the length gate is now
+unreachable**. The `summary.length > 6_000` half still fires. The gate was left in place: it is the
+right guard if the cap is ever raised, and a dead branch that documents an intent is cheaper than
+rediscovering the intent.
+
+**What this costs us, said plainly.** **Live generation is not demonstrable against the deployed
+URL.** A healthy run is on the ceiling and a degenerate one is past it. Generate beforehand, or
+demonstrate generation locally — the reports in the store are real and this pipeline made them.
+
+**The habit that would have caught it earlier.** The 2026-09-07 entry ended with a rule about
+external explanations. This one adds a smaller one: ⚠️ **a measurement that produced a number should
+leave that number somewhere the code can be checked against.** "The widest legitimate output is
+~3,500 tokens" was written in `lessons.md` on 2026-09-07 and `max_tokens` stayed at 24,000 for five
+days, because nothing connected the finding to the constant.

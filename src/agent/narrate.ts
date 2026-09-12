@@ -183,7 +183,19 @@ directive, not a description of the checking that produced the figures.`;
     // real output; it was being consumed by degeneration. Raising it buys headroom for the honest
     // case and does not address the dishonest one — see `maxLength` on the tool and the fact cap
     // noted in `execute.ts`.
-    model: MODEL, max_tokens: 24000, system, tools: [WRITE],
+    // ⚠️ **4,000, and it does NOT make a failing report succeed.** Measured 2026-09-07: the widest
+    // legitimate output this call can be asked for is ~3,500 tokens. Measured again 2026-09-12 across
+    // all sixteen stored reports, including every 140-fact one: **the largest ever emitted is ~1,819
+    // tokens.** So 4,000 is 2.2× the biggest real report and below the widest honest ask — it cannot
+    // truncate a directive that works.
+    //
+    // ⚠️ **What it buys is a shorter failure, not a success.** A degenerate generation consumes the
+    // whole budget whatever it is; at 24,000 that was a 207-second hang, and 24,000 is seven times
+    // the largest honest answer. At 4,000 the same pathology surfaces in roughly 35 seconds — which
+    // matters because **Vercel Hobby kills the function at 60s**, and a run killed there ends with no
+    // error event at all: the stream simply stops and the diagnosis is lost. See lessons.md
+    // 2026-09-07 and 2026-09-12.
+    model: MODEL, max_tokens: 4000, system, tools: [WRITE],
     tool_choice: { type: 'tool', name: 'write_report' },
     messages: [{ role: 'user', content: context(draft) }],
   }).finalMessage();

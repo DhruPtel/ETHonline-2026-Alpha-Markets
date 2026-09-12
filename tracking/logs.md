@@ -12555,3 +12555,83 @@ the destructure at runtime is the generation in the next commit: `app/api/consol
 destructures `{report, title}` the same way and a real run exercises it. Different caller, same
 shape.
 
+
+---
+
+## 2026-09-12 — `max_tokens` 24,000 → 4,000, and what the proof run actually showed
+
+`src/agent/narrate.ts` (one constant), `tracking/lessons.md`. Root `tsc` exit 0, `next build`
+exit 0. ⚠️ **No pipeline logic changed, no route, no `Report` shape, no `canonical.ts`.**
+
+### ⚠️ It does not make a failing report succeed
+
+Stated here because it is the thing most likely to be misremembered. It converts a **207-second
+hang** into a **~35-second legible failure that fits inside the 60-second ceiling**. A degenerate
+generation consumes whatever budget it is given; 24,000 was seven times the largest honest answer and
+the extra only ever bought a longer pathology.
+
+### Does 4,000 break a directive that works today? No — measured, not assumed
+
+Every stored report, by what the model actually had to emit (title + table + summary + basis):
+
+```
+facts=140  table=2,624  summary=2,708  ≈1,819 tok   ← the largest ever produced
+facts=140  table=2,419  summary=2,082  ≈1,610 tok
+facts=132  table=2,184  summary=2,297  ≈1,502 tok
+facts=  6  table=  524  summary=1,221  ≈  568 tok
+                                   …16 reports
+```
+
+⚠️ **The worst case across every report this pipeline has made is ~1,819 tokens.** 4,000 is **2.2×**
+that, and below the ~3,500 measured on 2026-09-07 as the widest legitimate ask. **It cannot truncate
+a working directive.**
+
+### ⚠️ A gate went dead, and it was left in place
+
+`narrate.ts` throws on `table.length > 40_000 || summary.length > 6_000`. At 4,000 tokens the model
+**cannot emit 40,000 characters**, so the table half of that gate is now **unreachable**. The summary
+half still fires — 6,000 chars is ~1,670 tokens, well inside the budget. **Not removed**: it is the
+right guard if the cap is ever raised, and a dead branch documenting an intent is cheaper than
+rediscovering the intent.
+
+### ⚠️ The proof run failed the first time, and not for the reason being tested
+
+```
+run 1   narrate 18.2s   error: stop_reason REFUSAL, table 458 chars, summary EMPTY
+run 2   narrate 45.5s   ok · 6 facts · SAVED
+```
+
+⚠️ **`refusal` is not `max_tokens`** — it is the model declining, a different event entirely, and
+nothing about a smaller budget causes one. I re-ran once to tell "the cap broke it" from
+"intermittent", which the brief's *"do not re-run the failing directive"* does not cover: this was a
+**different directive failing in a new way**, and the required proof had not been obtained.
+
+**Run two is the proof.** The report saved, narrated fully, and emitted **672 tokens of a 4,000
+budget** — nowhere near the cap:
+
+```
+title    "Compound v3 Ethereum balance overview"
+facts    6 · table 580 chars · summary 1,495 chars
+```
+
+⚠️ **But it is also a second data point for intermittency**: one refusal and one success on the same
+directive, same build, minutes apart. The narration step is not deterministic and its failures are
+not one failure mode.
+
+### ⚠️ Narration time, and the number that matters more
+
+```
+baseline (2026-09-12, earlier)   30.3s
+this run                         45.5s
+whole run                        60.45s   ← OVER the 60s Hobby ceiling
+```
+
+**The cap does not slow generation** — a model emits until it stops, and 672 tokens is far from
+4,000. The 45.5s is variance in the same range compose and narrate have shown all day. ⚠️ **The
+finding is the total: 60.45 seconds. This successful run would have been killed in production.** The
+earlier successful run was 58.0s. **Two successful runs, one inside the ceiling by two seconds and
+one outside it.**
+
+**So the honest position is unchanged and now has a second measurement behind it: live generation is
+not demonstrable against the deployed URL.** Recorded in `lessons.md` rather than only here.
+
