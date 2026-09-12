@@ -30,6 +30,7 @@
 // event and say precisely that, because the failure is otherwise indistinguishable from a hang.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { locked } from '../lock.js';
 import { compose } from '../../../../src/agent/compose.js';
 import { build, recordContextDigest } from '../../../../src/agent/context.js';
 import { execute, DEFAULT_BUDGET } from '../../../../src/agent/execute.js';
@@ -50,6 +51,10 @@ export const maxDuration = 300;
 const ANALYST_ID = 'alpha-1';
 
 export async function POST(request: Request): Promise<Response> {
+  // ⚠️ **Locked: this spends Anthropic budget.** See `../lock.ts` — a shared doorlock, not auth.
+  const refusal = locked(request);
+  if (refusal) return refusal;
+
   const { directive } = (await request.json().catch(() => ({}))) as { directive?: string };
   const asked = directive?.trim();
   if (!asked) {

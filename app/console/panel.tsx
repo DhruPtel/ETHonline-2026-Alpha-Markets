@@ -23,6 +23,14 @@ export function Panel() {
   const [target, setTarget] = useState('');
   const [recipient, setRecipient] = useState('');
   const [site, setSite] = useState('');
+  /**
+   * ⚠️ **The console secret, typed by the operator — never built in, never persisted.** Component
+   * state only: it dies on reload and is retyped, which is the cost of not putting it in
+   * `sessionStorage` where any script on the page could read it. A `NEXT_PUBLIC_` value would have
+   * been inlined into the bundle and served to every visitor, which is not a secret at all.
+   * See `app/api/console/lock.ts`.
+   */
+  const [secret, setSecret] = useState('');
   /** Which configured account signs a transfer. ⚠️ A ROLE — the browser never sees a key. */
   const [signer, setSigner] = useState<'analyst' | 'buyer'>('analyst');
   const [refreshToken, setRefreshToken] = useState(0);
@@ -74,7 +82,31 @@ export function Panel() {
 
       <div className="console-grid">
         <div className="ops">
-          <Generate log={log} busy={busy} setBusy={setBusy}
+          {/* ⚠️ FIRST, above every control that spends, because a page full of spend buttons that
+              401 without explanation reads as a broken deployment rather than as a locked door. */}
+          <section className="op op-target">
+            <h2>Console secret</h2>
+            <p className="op-note">
+              Generate, Tokenize and Transfer are locked — they spend real funds. Paste the value of{' '}
+              <span className="mono">CONSOLE_SECRET</span> to use them. Reading is not locked and the
+              paywall is not affected.
+            </p>
+            <label className="field">
+              <span>CONSOLE_SECRET</span>
+              <input className="mono" type="password" value={secret} spellCheck={false}
+                placeholder="the value set in the environment"
+                autoComplete="off" onChange={(e) => setSecret(e.target.value)} disabled={busy} />
+            </label>
+            {/* ⚠️ Says what it is, so nobody mistakes it for a sign-in. */}
+            <p className="op-note dim">
+              A shared doorlock, not a sign-in — it identifies nobody and grants nothing beyond this
+              console. It is held for this tab only: reloading loses it. ⚠️ The x402 paywall on{' '}
+              <span className="mono">/api/reports/[hash]</span> is a separate mechanism and is not
+              affected by anything here.
+            </p>
+          </section>
+
+          <Generate log={log} busy={busy} setBusy={setBusy} secret={secret}
             onSaved={(h) => { setTarget(h); refresh(); }} />
 
           <section className="op op-target">
@@ -106,13 +138,13 @@ export function Panel() {
 
           <h2 className="band">Operations that spend</h2>
 
-          <Spend id="tokenize" title="Tokenize" cost="7.71 HBAR" path="/api/console/tokenize"
+          <Spend id="tokenize" title="Tokenize" cost="7.71 HBAR" path="/api/console/tokenize" secret={secret}
             note={<>Deploys an ATS ResolverProxy, grants ISSUER, issues 1. <strong>Mints a permanent
               asset</strong> whose creation event commits this report&rsquo;s hash.</>}
             armKey={hash} body={() => (targeted ? { reportHash: hash } : null)}
             log={log} busy={busy} setBusy={setBusy} onDone={refresh} />
 
-          <Spend id="transfer" title="Transfer" cost="0.43 HBAR" path="/api/console/transfer"
+          <Spend id="transfer" title="Transfer" cost="0.43 HBAR" path="/api/console/transfer" secret={secret}
             note={<>Moves the token between the two accounts, <strong>in either direction</strong>.
               The recipient is <strong>never defaulted</strong> — picking one would move a real asset
               to an address nobody chose. Use <em>send from</em> and <em>send to</em> above.</>}
@@ -150,7 +182,7 @@ export function Panel() {
           {/* ⚠️ `/api/buy`, not `/api/console/buy` — the route moved out of this directory on
               2026-09-11 because the product's paywall button calls it too, and one buyer path is
               the point. The console keeps calling it; it just is not the console's any more. */}
-          <Spend id="buy" title="Buy" cost="0.001 HBAR + fee" path="/api/buy"
+          <Spend id="buy" title="Buy" cost="0.001 HBAR + fee" path="/api/buy" secret={secret}
             note={<>Runs the server-side buyer agent against a gate: 402 → sign → pay → receive the
               body the preview withholds. <strong>Not a browser payment</strong> — x402 ships no Hedera
               paywall, and the product&rsquo;s buyer is an agent.</>}

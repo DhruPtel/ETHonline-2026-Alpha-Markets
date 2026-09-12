@@ -24,9 +24,21 @@ import type { ConsoleDoc } from './document.js';
 
 type Json = Record<string, unknown>;
 
-const post = async (path: string, body: Json): Promise<{ status: number; json: Json }> => {
+/**
+ * ⚠️ **The console secret rides on every console POST, and it is sent rather than stored.** It comes
+ * from a field the operator types into — nothing here is built into the bundle, because a
+ * `NEXT_PUBLIC_` value is served to every visitor and is therefore not a secret. See
+ * `app/api/console/lock.ts`.
+ *
+ * ⚠️ It is sent even to routes that do not check it — `/api/buy` is product and deliberately
+ * unlocked. A per-path allowlist in the client would be a second copy of the server's decision about
+ * which routes are locked, and the two would drift. Same origin, nothing logs it.
+ */
+const post = async (path: string, body: Json, secret: string): Promise<{ status: number; json: Json }> => {
   const res = await fetch(path, {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-console-secret': secret },
+    body: JSON.stringify(body),
   });
   const json = (await res.json().catch(() => ({}))) as Json;
   return { status: res.status, json };
@@ -51,6 +63,8 @@ interface SpendProps {
   readonly cost: string;
   readonly note: ReactNode;
   readonly path: string;
+  /** ⚠️ Typed by the operator, held in `Panel`'s state, never persisted and never built in. */
+  readonly secret: string;
   /** The request body, minus `confirm`. `null` means the inputs are not complete yet. */
   readonly body: () => Json | null;
   /** Everything that must be identical between the plan and the spend for the arming to hold. */
@@ -65,7 +79,7 @@ interface SpendProps {
 }
 
 export function Spend(props: SpendProps) {
-  const { id, title, cost, note, path, body, armKey, fields, extra, log, busy, setBusy, onDone } = props;
+  const { id, title, cost, note, path, secret, body, armKey, fields, extra, log, busy, setBusy, onDone } = props;
   const [armed, setArmed] = useState(false);
 
   // ⚠️ Any change to what the operation targets revokes the arming.
@@ -78,7 +92,7 @@ export function Spend(props: SpendProps) {
     log.begin(id, confirm ? `CONFIRMED — spending ~${cost}` : 'plan (nothing is sent)');
 
     try {
-      const { status, json } = await post(path, { ...payload, ...(confirm ? { confirm: true } : {}) });
+      const { status, json } = await post(path, { ...payload, ...(confirm ? { confirm: true } : {}) }, secret);
       dump(log, id, payload, 'plain', '→ ');
 
       if (json.stop) { log.write(id, `STOP  ${String(json.stop)}`, 'warn'); setArmed(false); return; }

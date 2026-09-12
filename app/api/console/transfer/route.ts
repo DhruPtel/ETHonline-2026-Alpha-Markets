@@ -16,6 +16,7 @@
 // `'analyst'`, which is what this route did before either direction was possible.
 
 import { NextResponse } from 'next/server.js';
+import { locked } from '../lock.js';
 import { prepare, send, type SignerRole } from '../../../../src/tokenize/transfer.js';
 import { ChainWriteError, hbar, settledBalance, usdPerHbar } from '../../../../src/tokenize/hedera.js';
 import { db } from '../../../../src/store/db.js';
@@ -30,6 +31,10 @@ const SM07_UNIT8 = 7.71195075;
 const SM07_FULL = 8.13891225;
 
 export async function POST(request: Request): Promise<NextResponse> {
+  // ⚠️ **Locked: this moves a real asset and spends gas.** See `../lock.ts`.
+  const refusal = locked(request);
+  if (refusal) return refusal;
+
   const { reportHash, to, confirm, signer } = (await request.json().catch(() => ({}))) as
     { reportHash?: string; to?: string; confirm?: boolean; signer?: string };
   if (!reportHash?.trim() || !to?.trim()) {

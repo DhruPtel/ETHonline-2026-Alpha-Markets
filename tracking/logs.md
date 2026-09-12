@@ -8751,3 +8751,131 @@ rewritten.
    `spent:false` and a `gateStatus` of 402 against the deployed gate. That is the no-spend check and
    it is the one to run.
 4. **`/console`'s Buy control still plans**, since it now calls the moved path.
+
+---
+
+## 2026-09-11 — Phase 5 Unit 2: a doorlock on the three console routes that spend
+
+`app/api/console/lock.ts` (new, 16 lines of code under its header), wired into
+`/api/console/{generate,tokenize,transfer}`, with the operator's field on the console page and the
+variable documented in `.env.example`. `npx tsc -p tsconfig.json --noEmit` exits **0**, `npm run
+build` passes, and **nothing was generated, tokenized or transferred to prove any of it.** No `src/`
+change, no gate change, no deletions.
+
+### ⚠️ The finding the brief asked for first: a browser console CAN hold a secret, if the human supplies it
+
+The brief asked whether this amounts to theatre before building a mechanism that pretends otherwise.
+It does not, but only for one reason and the reason is load-bearing:
+
+- ⚠️ **`NEXT_PUBLIC_CONSOLE_SECRET` would be theatre.** It is inlined into the client bundle at build
+  time and served to every visitor — a string in a `<script>` tag, not a secret. **Rejected, and the
+  rejection is written into `lock.ts`, `.env.example` and `panel.tsx` so nobody re-derives it.**
+- ✅ **A field the operator types into is a real lock.** The bundle contains no secret, so a stranger
+  who loads `/console` cannot obtain one from the page: the value exists only in the environment
+  (server side) and in the operator's head (browser side), and they meet in a request header.
+
+⚠️ **The corollary, and it bounds the whole mechanism: this works only because a human is at the
+keyboard.** It offers nothing to an automated caller. The moment something unattended needs one of
+these routes, this is the wrong shape and `CRON_SECRET`'s is the right one.
+
+**What it is not, recorded in three places on purpose:** it identifies nobody, it is one value shared
+by every operator, and it has no rotation, expiry, audit trail or rate limit. `payments/auth.ts`
+remains the declared cut point and this does not reopen it.
+
+### Which routes, and the two that were deliberately left open
+
+| route | | |
+|---|---|---|
+| `/api/console/generate` | **LOCKED** | spends Anthropic budget |
+| `/api/console/tokenize` | **LOCKED** | ~7.7 HBAR and a **permanent** ATS asset |
+| `/api/console/transfer` | **LOCKED** | moves a real asset, costs gas |
+| `/api/buy` | ⚠️ **OPEN, deliberately** | it left `app/api/console/` in Unit 1 and is what the paywall button on `/report/[hash]` calls. **A lock here breaks the product's only purchase path.** Bounded by `buyer.ts`'s own caps — 0.01 HBAR per payment, 0.05 per UTC day — exactly as before |
+| `/api/reports/[hash]` | **UNTOUCHED** | the x402 gate is the real payment boundary and works for a different reason: a settled on-chain payment, verifiable by a stranger, with no shared state. A shared secret near it would replace a cryptographic boundary with a password |
+
+⚠️ **The console sends the header on every one of its POSTs, including to `/api/buy`, which ignores
+it.** A per-path allowlist in the client would be a second copy of the server's decision about which
+routes are locked, and the two would drift.
+
+### ⚠️ TWO ROUTES THAT DO NOT SPEND AND SHOULD NOT SHIP AS THEY ARE
+
+Both are outside this unit's stated scope — *"the console routes that spend"* — so neither was
+touched. **Both must be resolved before Unit 6 puts `/console` in the nav.**
+
+⚠️ **1 · `/api/console/report` is a paywall bypass, and it is worse than anything the spend routes
+could do.** Its own header says so in capitals: *"THIS IS A DOOR AROUND THE PAYWALL AND IT IS NOT IN
+THE PRODUCT."* An unauthenticated POST returns `render(report)` — **the same string the x402 gate
+sells** — with no payment, no quote and no challenge. It was fine while `/console` was throwaway and
+deleted before submission. It is not fine on a linked page: anyone can `curl` it and get for free
+exactly what a settled payment buys, which makes every settled payment prove nothing — the property
+`app/README.md` opens with.
+
+⚠️ **It is not theoretical: this unit's own paywall probe used it as an unauthenticated oracle**,
+`curl`-ing a paid figure (`$24.93B`) out of it with no secret and no payment in order to grep the
+public page for that figure. That is the proof working and the hole working, in the same command.
+**Recommendation: lock it with the same `locked()` — one import and two lines — or delete it. Either
+is a one-line decision; leaving it is not.**
+
+⚠️ **2 · `/api/console/accounts` is a configuration disclosure.** It does not spend, but it reports
+**which environment keys are set** via its own `soft()` helper. `app/api/holdings/route.ts` already
+names this in its header as the reason it could not reuse it: *"a useful reading on a throwaway
+surface and a configuration disclosure on a public one."* It tells a stranger which of our keys are
+provisioned. Lower severity than the bypass; same deadline.
+
+### The proof, and it spent nothing
+
+**How a correct secret was shown to pass without spending: send it with an empty body.** The lock is
+the first statement in each handler, so the request either dies at the lock (**401**) or reaches the
+route's own validator (**400**, *"a report hash is required"* / *"a directive is required"*). 401
+versus 400 separates refused-at-the-door from past-the-door, and nothing downstream ever runs.
+
+```
+CONSOLE_SECRET set        no header   wrong header   correct header
+  /api/console/generate      401          401            400   ← past the lock, no model call
+  /api/console/tokenize      401          401            400   ← past the lock, nothing minted
+  /api/console/transfer      401          401            400   ← past the lock, nothing moved
+
+  /api/buy                   400  (its own guard — NOT 401; product path stays open)
+  /api/console/state         200  (read-only, unlocked)
+  /api/reports/[hash]        402  (the gate, untouched)
+```
+
+⚠️ **And the `config/env.ts` property, proven rather than asserted** — `requiredEnv` runs **before**
+the comparison, so the two failure modes are distinguishable from outside:
+
+```
+CONSOLE_SECRET absent     → 500 with and without a correct header
+CONSOLE_SECRET = ""       → 500, and an EMPTY header does NOT match an empty secret
+```
+
+That last line is the bug this project has shipped six times including once inside a vendor bundle.
+It is also the property that let `CRON_SECRET` be verified on the deployment without knowing its
+value: **500 means absent-or-blank, 401 means set-and-wrong.**
+
+**Nothing secret reaches the browser** — the 13 built client chunks contain the test secret **0
+times**, `timingSafeEqual` 0 times, and `process.env` **not at all**. The one hit for the string
+`CONSOLE_SECRET` is the on-screen label telling the operator which variable to paste.
+
+**Pages:** `/console`, `/report/<hash>` and `/` all 200. The field renders as a `type="password"`
+input above every control that spends. ⚠️ **The paywall was probed as it is on every change: a figure
+from the paid body appears 0 times in the unpaid page's HTML.**
+
+### ⚠️ What to set
+
+**`CONSOLE_SECRET`** — any long random string; `openssl rand -hex 32` is fine. Nobody has to remember
+it. Add it to `.env` **and** the Vercel project environment (Production). ⚠️ **A variable added to
+Vercel takes effect on the next deployment, not the current one**, and ⚠️ **never give it a
+`NEXT_PUBLIC_` prefix** — that inlines it into the bundle and undoes the entire unit. `.env.example`
+carries all of this at the new entry.
+
+⚠️ **Until it is set, the three locked routes return 500, not 401** — the console's Generate,
+Tokenize and Transfer will refuse with a configuration error rather than an auth one. That is the
+intended ordering and it is how you tell the two apart on the deployment.
+
+### Files touched
+
+`app/api/console/lock.ts` (new) · the three spending routes (one import, two lines each) ·
+`app/console/panel.tsx` (the field, and the secret passed to four controls) · `app/console/spend.tsx`
+(the header on the shared `post`) · `app/console/generate.tsx` (the header on its fetch) ·
+`.env.example`. ⚠️ `lock.ts` sits in `app/api/console/` with no `route.ts`, so **it produces no
+route** — confirmed in the build manifest — and it is deleted along with the directory whenever that
+happens.

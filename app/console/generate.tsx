@@ -20,8 +20,10 @@ interface Event {
 
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
-export function Generate({ log, onSaved, busy, setBusy }: {
+export function Generate({ log, onSaved, busy, setBusy, secret }: {
   log: Log; onSaved: (hash: string) => void; busy: boolean; setBusy: (b: boolean) => void;
+  /** ⚠️ The console secret, typed by the operator. See `spend.tsx`'s `post` and `../api/console/lock.ts`. */
+  secret: string;
 }) {
   const [directive, setDirective] = useState('');
 
@@ -34,7 +36,7 @@ export function Generate({ log, onSaved, busy, setBusy }: {
     try {
       const res = await fetch('/api/console/generate', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', 'x-console-secret': secret },
         body: JSON.stringify({ directive: asked }),
       });
       if (!res.ok || !res.body) {
