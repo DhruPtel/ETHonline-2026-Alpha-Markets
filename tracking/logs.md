@@ -10369,3 +10369,120 @@ Next requires a root layout the moment a page segment exists.
 
 `.next` was cleared before the build, as it now always is after a move.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 3: the shell, and the first thing a browser can load
+
+`app/layout.tsx` and `app/page.tsx`, landed together because Next requires a root layout the moment a
+page segment exists. `next build` exit 0, `/` **200**, and `src/`, `contracts/`, `scripts/` and
+`app/api/` unchanged.
+
+### ⚠️ The route table moved for the first time since the migration
+
+```
+before   15 routes · all of them /api/* plus /_not-found
+after    16 routes · ┌ ○ /   ← prerendered static
+```
+
+### What it actually looks like
+
+A 70px header on `#f3f9fd`: the reference's own "A" mark at 25×29 beside **ALPHA MARKETS** in
+25px Times, linking to `/console`; three nav items centred — **Console · Reports · Markets** — with
+Reports carrying `class="active" aria-current="page"`; and a single dark **Connect wallet** button
+right-aligned. Then `INDEPENDENT INTELLIGENCE` in mono caps over a 46px serif **Report marketplace**,
+an *Publish a report ↗* outline button on the same line, the filter bar, and `6 reports · Hedera
+tokens · Access via x402`. Below that a **three-across grid of two-tone cards**: a white
+`.document-preview-button` panel carrying a padlocked `.mini-document` thumbnail — five blurred copy
+bars and either a bar chart, a line chart or a mini table — over a `#211c1c` `.report-card-info`
+block with the title, the price, *By Atlas Research*, **Preview report** / **Unlock ↗**, the market
+link, and a `<details>` evidence drawer. Footer: **ALPHA MARKETS / Research with conviction.** left,
+**Hedera testnet · Arc testnet · health** right.
+
+### Against `single-frontend/alpha-markets.html`'s reports route
+
+Class-token comparison of the served `<main>` against the reference's:
+
+```
+reference  173 tokens, 35 distinct
+served     125 tokens, 30 distinct
+
+absent from ours (6):  lucide · lucide-arrow-up-right · lucide-search
+                       lucide-file-text · lucide-lock · lucide-arrow-right
+ours, not the reference (1):  inert
+```
+
+⚠️ **Every structural and semantic class in the reference is present.** All six absences are
+`lucide-*` icon classes — `Icons.tsx` draws the same paths without the library's class names, and
+**nothing in `globals.css` styles a `.lucide-*` selector**, so they are dead weight rather than
+design. The one addition is `.inert`, this project's marked-affordance treatment, which the
+reference has no concept of.
+
+**The real differences are content, not layout:** six demo reports at six different USDC prices
+against a store holding 11 reports at one constant HBAR price, and `DEMO-lending-q2` where a real
+ISIN goes. That is commit 9's problem and deliberately not this one's.
+
+### The cuts, grepped on the served HTML
+
+```
+Demo data                0        demo-toggle     0
+Stored on this device    0        >Demo<          0
+favicon                  0        "Demo "         0
+```
+
+⚠️ **The Demo toggle is CUT and the wallet button is MARKED, and the difference is the whole rule.**
+Mark what a reviewer would think we forgot; cut what the system forbids. A wallet connection is a
+coherent capability this build has not made, so it is shown, `.inert`, labelled. A "Demo" switch is
+not an unbuilt feature — everything here is a real receipt against a live network, and a control
+offering to make it fake asserts the opposite of the product's claim.
+
+⚠️ **The footer span was REPLACED, not deleted.** `.site-footer` is
+`display:flex; justify-content:space-between` and expects two children; removing the second would
+collapse it to one flush-left column. It now carries the line `trash/app/ui/chrome.tsx` already
+settled on — **Hedera testnet · Arc testnet · health** — and `/api/health` is a live route, verified
+200.
+
+⚠️ **`metadata.icons` dropped rather than satisfied.** It pointed at `/favicon.svg` and this repo has
+no `public/`. A missing favicon costs a default tab icon; an unbacked `icons` entry costs a 404 on
+every page load, and a whole `public/` directory for one file is more surface than it is worth.
+
+⚠️ **Two `.demo-toggle` rules in `globals.css` are now orphan and were left alone** — the constraint
+was these two files only, and commit 2 established that a rule with no consumer today is not evidence
+of a rule with no consumer.
+
+### The client-component trade, named rather than made quietly
+
+⚠️ **The layout stays a server component; only `<SiteNav/>` crosses.** The design marks the current
+nav item, a layout cannot know the pathname without `usePathname()`, and that is a client hook. The
+cheap-looking move is to mark the whole header `'use client'` — which would ship the brand mark, the
+wallet button and every icon inside them to every visitor in order to highlight one link. Isolating
+it ships **three anchors and a pathname read**, and leaves the rest of the header and the entire
+footer on the server. Confirmed in the flight payload: `SiteNav` is the only client reference in the
+layout tree.
+
+### Every destination, honestly
+
+```
+/                          200   the marketplace
+/api/health                200   the footer link
+/console                   404   commit 7
+/markets                   404   commit 5
+/markets/lending-2027      404   commit 6
+/holdings                  404   commit 8
+/report/9f2c…3056          404   commit 4
+```
+
+⚠️ **Two of the three nav items 404 right now**, and that is the sequence working rather than
+failing — pages arrive one commit at a time and each 404 closes on its own commit. ⚠️ Also worth
+recording for commit 6: the demo market links are **slugs** (`/markets/lending-2027`), and this
+repo's markets are numeric — `/api/markets/[id]/refresh` enforces `/^\d+$/`. The slugs die with the
+demo const.
+
+### `next/link` → `<a href>`, five elements
+
+`page.tsx`'s five `<Link>` became plain anchors for commit 1's reason: `next` ships no `exports` map,
+so a default import binds the module object and TypeScript refuses it as a JSX component. **Zero
+`next/link` imports and zero `@/` specifiers remain anywhere under `app/`.** The cost is a full page
+load per nav click, which a document site can afford. 14 `<Link>` elements remain, all on pages still
+in `rebuild/`.
+
