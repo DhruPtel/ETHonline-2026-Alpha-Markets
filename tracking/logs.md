@@ -10833,3 +10833,101 @@ above the composer it gates, precisely so it would not become a section bolted a
 ⚠️ **This is a wiring blocker for commits 16 and 17, not for this one.** Recorded now so it is a
 known requirement rather than a discovery.
 
+
+---
+
+## 2026-09-12 — Phase 5 rebuild, commit 8: `/holdings`, and the site clicks through
+
+121 lines. `next build` exit 0, route table **20 → 21**, `/holdings` 200, backend unchanged. Two
+`<Link>` became `<a href>`; nothing else changed. **`rebuild/` now contains only `MANIFEST.md`.**
+
+### ⚠️ No reference route for holdings either, so class coverage again
+
+Like `/report/[hash]`, this screen was never drawn — the ten routes are console, markets, reports,
+tokenization and six prediction pages. The manifest says so itself (§9.6: *"No design existed; the
+page is otherwise built from existing helpers"*). So the check runs inward:
+
+```
+distinct classes used  12
+defined in globals.css 11
+undefined               1   holdings-page
+```
+
+⚠️ **`.holdings-page` is a hook with no rule, and it is a pattern rather than a fault.** Checking all
+six page-scope modifiers:
+
+```
+.marketplace-page  0 rules  ← hook only        .markets-page    2 rules
+.holdings-page     0 rules  ← hook only        .market-detail   5 rules
+                                               .report-page     1 rule
+                                               .console-page    4 rules
+```
+
+Two of six carry no rule. `.page-container` does the layout in every case, so nothing renders wrong;
+they are naming hooks for page-scoped rules that were never needed. Recorded so neither reads as an
+omission later. **Same shape as `.source-panel` on the console** — a class in the markup with no
+selector behind it.
+
+### What it looks like
+
+`REPORT TOKENS` over a 46px serif **Holdings** and the line *Every report token held by this
+account.* Then one `.holdings-panel`: a `.section-title` with `HEDERA / ACCOUNT` over the account
+`0x7a3f…c218`, and a `3 tokens` badge right. Below it a five-column `.financial-table` — Report,
+Author, Token ID, Acquired, Related market — with three rows, each linking the report title to
+`/report/<hash>`, showing the hash beneath in `.holdings-sub`, the token id as `<code>`, and the
+related market as a `.text-link` with an arrow. Nothing on the page is interactive.
+
+```
+<select 0 · type="radio" 0 · >Back< 0 · >Outcome< 0
+```
+
+### ⚠️ The whole site, every internal link followed
+
+Every `href` harvested from all six pages and requested:
+
+```
+/                              200      /markets/aave-revenue-2026     200
+/console                       200      /markets/dex-volume            200
+/holdings                      200      /markets/lending-2027          200
+/markets                       200      /markets/spark-growth          200
+/api/health                    200      /markets/stablecoin-supply     200
+                                        /markets/stablecoins-2027      200
+/report/9f2c4a7e1b8d3056       200
+/report/3d81e6f09c24ab75       200      /report/e4a1b26d70f5c839       404
+/report/b570c93a4e12d8f6       200      /report/6c08f5b3d9a21e74       404
+                                        /report/a293e7c015b6d4f8       404
+```
+
+**Every nav link resolves. Every market resolves. The only 404s are the three report hashes
+`MANIFEST.md` §7 documents** — six are listed on `/` and in holdings, three have records, and the
+three that exist cover all three access states. ⚠️ **A demo-const gap, not a routing fault**, and it
+closes in commits 9–10 when `list()` and `load()` answer for the same set of rows.
+
+### ⚠️ What is real on this site right now: nothing
+
+Said plainly, because eight commits of green builds can read as progress toward data that has not
+moved:
+
+| surface | shows |
+|---|---|
+| `/` | six invented reports, six USDC prices, `DEMO-*` token ids — the store holds **11 reports, 4 tokenized, one constant HBAR price** |
+| `/report/[hash]` | three invented records, a hand-written lending table |
+| `/markets` · `/markets/[id]` | six invented markets with invented probability series — the chain holds **8 markets, 2 forecasts, ~1.02 USDC of volume, one human stake** |
+| `/console` | a placeholder report, a dead composer, a dead tokenize form |
+| `/holdings` | an invented account with three invented tokens |
+
+**Every control is a no-op.** The buy button, the stake button, generate, tokenize, save draft,
+choose file, search, the category chips — all stubs. `MANIFEST.md` §6 lists them by name. The site
+is a complete, correct, clickable shell, and commits 9 onward put the machine behind it.
+
+### Still open, carried forward
+
+- **Commit 15** — the attach-report toggle (D6 says cut, the old code marked it, the rebuild made it
+  work) and the payout estimate rendering a computed figure. Both in `StakeControl.tsx`.
+- **Commit 17** — the two tokenize CTAs lost `.full`, so they no longer span the form. In
+  `TokenizeForm.tsx`.
+- **Commits 16–17** — **no `CONSOLE_SECRET` field exists anywhere**, and six console routes refuse
+  without the header.
+- `rebuild/` holds only `MANIFEST.md` and is untracked. It is the incoming build's own record and
+  worth keeping somewhere; **not moved here, because this commit is the five page files.**
+
