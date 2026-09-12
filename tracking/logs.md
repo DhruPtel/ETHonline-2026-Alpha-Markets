@@ -11297,3 +11297,190 @@ scope           src/ contracts/ scripts/ unchanged
 ⚠️ **A press costs Graph quota only — 29 queries, one per deployment plus the flagship.** Nothing is
 spent on chain, nothing is written, no model tokens are used. Safe to press repeatedly.
 
+
+---
+
+## 2026-09-12 — The Source data panel refused with a correct secret. It was #3, and #6 hid it.
+
+Diagnosed before changing anything. **Two faults, one of them mine.**
+
+### What is actually happening
+
+⚠️ **The refusal is correct and the secret is fine.** Checks 1, 2, 4 and 5 all pass:
+
+```
+4 · the value in .env      line 27 · 64 chars · no quotes · no trailing whitespace · clean
+2 · the route, fresh start no header 401 · wrong header 401 · the .env value 200
+5 · the component tree     flight payload: $L5(SecretProvider) → div.workspace → $L6(ConsoleViewer)
+                           and $L10(AtlasPanel). Context propagates.
+1 · one Context, not two   the guard string appears ONCE across all client chunks, so
+                           SecretField and ConsoleViewer share a module and a context
+```
+
+⚠️ **It is #3. The running server's process does not have `CONSOLE_SECRET`.** It was added to `.env`
+*during* this session — the orientation log earlier today recorded it absent from both `.env` and
+`.env.local` — and **Next reads `.env` once, at startup**. Any server started before that write has
+`process.env.CONSOLE_SECRET === undefined`, and `lock.ts` runs `requiredEnv` *before* the comparison,
+so **every request 500s regardless of what is typed**. Reproduced exactly:
+
+```
+server with a blank CONSOLE_SECRET, correct value in the header  →  HTTP 500, 0-byte body
+same build, freshly started so it reads .env                     →  HTTP 200
+```
+
+**A restart is the whole answer for the refusal.** It is not the whole answer for the session,
+because of the second fault.
+
+### ⚠️ #6 — and this one is mine
+
+**The 500 branch was unreachable from the moment it was written.**
+
+```js
+const j = await res.json();                 // ← ran FIRST
+if (res.status === 401) throw …
+if (res.status === 500) throw 'CONSOLE_SECRET is not set on the server.'   // ← dead code
+```
+
+A 500 from `requiredEnv` is an **uncaught throw out of the route handler**, so Next answers with an
+**empty body and no content-type** — measured, 0 bytes. `res.json()` on that throws
+*"Unexpected end of JSON input"*, the catch swallows it, and the panel showed a JSON-parser message
+for a configuration problem. ⚠️ **The one sentence that would have named the real cause could never
+render.** The 401 path worked only by luck: `locked()` returns `NextResponse.json(…)`, so there is a
+body to parse.
+
+**Fixed: status first, body second, and the body parsed defensively.** `res.text()` then
+`JSON.parse` in a `try`, so a proxy page, a crash or an empty body reports the status and what came
+back instead of a parser error.
+
+### What the panel shows for each cause now
+
+| cause | before | now |
+|---|---|---|
+| **locked** — nothing typed | muted *"Paste `CONSOLE_SECRET` in the Atlas panel first"*, button disabled | unchanged — it was already distinct |
+| **server has no secret** (500) | ⚠️ *"Unexpected end of JSON input"* | *"The server has no CONSOLE_SECRET. Nothing you type here will work until it does — if you added it to .env after starting the server, the running process cannot see it. **Restart the server.**"* |
+| **wrong secret** (401) | *"Console secret rejected — check what you typed."* | *"Console secret rejected. The server has one; this is not it."* — ⚠️ the change is that it now says the server HAS one, which is what separates it from the case above |
+| **request failed** | a parser message | *"The route answered HTTP n with a body that is not JSON: …"* or *"(empty body)"* |
+
+⚠️ **The two secret failures used to be indistinguishable in the one way that matters** — whether the
+thing to fix is on your keyboard or on the server. They now say which.
+
+### How to check the value yourself
+
+The server that is running is the one that matters, not the file. With the deployment or dev server
+up:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'content-type: application/json' -H "x-console-secret: $(grep '^CONSOLE_SECRET=' .env | cut -d= -f2-)" \
+  -d '{}' http://localhost:3000/api/console/source
+```
+
+**500 → restart the server; the process never saw the value. 401 → the file and the process disagree.
+200 → the value is right and the problem is in the browser.** That ordering is `lock.ts`'s own design
+and it is why the two are worth keeping apart.
+
+### Proof
+
+```
+build            next build exit 0 (.next cleared)
+500 path         server with blank secret · correct value in header → 500, 0 bytes → the restart message
+401 path         configured server · wrong header → 401 (JSON body) → the rejected message
+200 path         configured server · .env value → 200 → roster, 22/28 answering
+scope            src/ contracts/ scripts/ app/api/ — 0 changes
+```
+
+
+---
+
+## 2026-09-12 — The roster still did not render. ⚠️ I could not reproduce it, and I did not change code.
+
+Server started, request made, bytes read. **It is #3 — the route answers 200 with a full roster —
+and every downstream link in the component checks out too.** So the failure is not in anything I can
+observe from here, and guessing again is how the last two attempts went.
+
+### 1 · The server, listening
+
+```
+npx next dev -p 3000     ✓ Ready in 255ms
+- Environments: .env.local, .env
+GET /console 200
+```
+
+### 2 · The request, exactly as the browser makes it
+
+`POST /api/console/source`, `content-type: application/json`, `x-console-secret: <the .env value,
+64 chars>`, body `{}`:
+
+```
+status: 200      time: 0.93s      bytes: 4544
+content-type: application/json
+```
+
+Body, verbatim (first 1500 of 4544 bytes):
+
+```json
+{"ok":true,"subgraph":"aave-v3-ethereum","subgraphId":"JCNWRypm7FYwV8fx5HhzZPSFaMxgkPuw4TnR3Gpi81zk",
+"network":"ethereum","revenueAvailability":"poisoned","evidence":{"deployment":"QmcXE5QVcBcvcaJddPxd
+8mFs6W9xt7STmwfgguoiM6ddAd","document":null,"documentHash":"1414cbcc7fdd754c","variables":{},"block":
+25962695,"requestedBlock":null,"fetchedAt":"2026-09-12T17:01:34.065Z","rowCount":1,"completeness":nul
+l,"responseHash":"da2abe58991a3588b4817540549c621d04f10611e20e0730dd7ec28ec3a8364a","raw":null},"hasI
+ndexingErrors":false,"roster":[{"slug":"aave-v3-ethereum","declared":"3.1.0","schemaVersion":"3.1.0",
+"answering":true,"block":25962695,"lagSeconds":10,"reason":null},{"slug":"aave-v2-ethereum",…
+{"slug":"aave-amm-ethereum","declared":"3.1.0","schemaVersion":null,"answering":false,"block":null,
+"lagSeconds":null,"reason":"no-indexers"},…
+```
+
+**28 rows, 22 answering, block 25,962,695, `requestedBlock` null.** The route is fine.
+
+### 3 · So the problem is in the component — except every link in it checks out
+
+Checked against the **served** bundle, not the source:
+
+| link | evidence |
+|---|---|
+| is the fix being served? | `app_0dd785w._.js` contains *"The server has no CONSOLE_SECRET"* ×1 and the pre-fix string ×0. ⚠️ **The running build is the fixed one.** |
+| is the button wired? | compiled: `"button", { className: "btn outline", type: "button", onClick: onReadRoster, disabled: busy \|\| !secret,` |
+| is the fetch shipped? | `api/console/source` ×1 in the chunk |
+| is the table shipped? | `Deployment`, `Schema`, `Answering`, `schema versions` all present |
+| does the handler's logic work? | replayed byte-for-byte in node against the live route: `→ setRoster would receive: {"rows":28,"answering":22,"total":28,"schemaVersions":["3.1.0","3.0.1","3.0.0","2.0.1","1.3.0"],"truncated":false,"budgetMs":10000,"block":"25,962,701","readAt":"17:02:39 UTC"}` |
+| is the panel scaled to nothing? | ⚠️ **no** — `.fit-panel` wraps `document-stage` (line 230) only; `source-panel` (line 251) is outside it, so `useFitPanel`'s scale never touches the roster |
+| hydration risk from `useFitPanel`? | no — initial state is `{scale: 1, width: width ?? 340}`, deterministic on both sides, and the measurement is in `useLayoutEffect` |
+
+### ⚠️ 4 · What I could not establish, and will not guess at
+
+**Whether pressing the button sends a request.** That is the one link I cannot observe without a
+browser, and it is the one the brief correctly puts first — *"a button with no handler attached looks
+identical to a request that failed."* The handler **is** attached in the shipped bytes; whether the
+click reaches it at runtime is a different question and I have no way to press.
+
+⚠️ **The screenshot's contents are consistent with no press having fired at all.** *"Nothing read
+yet."* plus a button reading *"Read the roster"* plus **no error notice** is exactly the pre-press
+state. After a failed press the label is unchanged but an error notice appears; after a successful
+one the table replaces the text. **There is no state in this component that shows the empty text
+after a press.**
+
+⚠️ **And the server history muddies it.** A `curl` returning `000` means nothing was listening, and
+during the previous task I left servers in several states — including one deliberately started with a
+**blank** `CONSOLE_SECRET` to reproduce the 500. A press against that one, or against none, explains
+the symptom without any component fault.
+
+### The one-press test, which settles it
+
+The dev server is **running now** and records every request. Both of my curls appear as:
+
+```
+POST /api/console/source 200 in 846ms
+POST /api/console/source 200 in 658ms
+```
+
+**Open `http://localhost:3000/console`, paste the secret, click Source data, press *Read the
+roster* once.** Then the log says which it is:
+
+- **a new `POST /api/console/source` line appears** → the click fires and the request works; the
+  fault is in rendering the result, and I will have a real symptom to chase.
+- **no new line appears** → the click never reaches the handler. That is a hydration or event
+  problem, and it is a completely different investigation from the last two.
+
+⚠️ **No code changed in this task.** A fix for a problem I did not observe is how the last two
+attempts went, and the brief is right to forbid it.
+

@@ -84,14 +84,42 @@ export function ConsoleViewer({
         headers: {'content-type': 'application/json', 'x-console-secret': secret},
         body: JSON.stringify({}),
       });
-      const j = await res.json();
-      // ⚠️ 401 and 500 are different facts and the panel must not flatten them. `lock.ts` runs
-      // `requiredEnv` BEFORE it compares, so 500 means the secret is absent or blank in the
-      // environment and 401 means it is set and this one is wrong.
-      if (res.status === 401) throw new Error('Console secret rejected — check what you typed.');
-      if (res.status === 500) throw new Error('CONSOLE_SECRET is not set on the server.');
+      // ⚠️ **STATUS FIRST, BODY SECOND, AND THE ORDER IS THE WHOLE BUG THIS FIXES.** The previous
+      // version called `res.json()` here, before any status check. A 500 from `requiredEnv` has an
+      // **empty body and no content-type** — measured — so `res.json()` threw
+      // *"Unexpected end of JSON input"* and the 500 branch below it could never run. The one
+      // message that would have named the real cause was unreachable from the moment it was written.
+      //
+      // ⚠️ 401 and 500 are different facts. `lock.ts` runs `requiredEnv` BEFORE it compares, so:
+      //   500 = the server's own CONSOLE_SECRET is absent or blank — nothing you type can help
+      //   401 = the server has one and this is not it
+      if (res.status === 500) {
+        throw new Error(
+          'The server has no CONSOLE_SECRET. Nothing you type here will work until it does — ' +
+          'if you added it to .env after starting the server, the running process cannot see it. ' +
+          'Restart the server.',
+        );
+      }
+      if (res.status === 401) {
+        throw new Error('Console secret rejected. The server has one; this is not it.');
+      }
+
+      // ⚠️ Read as text and parse defensively. Every remaining failure — a proxy, a crash, an HTML
+      // error page — arrives as a body that is not JSON, and `res.json()` would replace the status
+      // with a parser message that names none of it.
+      const raw = await res.text();
+      let j: Record<string, unknown>;
+      try {
+        j = JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        throw new Error(
+          `The route answered HTTP ${res.status} with a body that is not JSON` +
+          `${raw.trim() ? `: ${raw.trim().slice(0, 120)}` : ' (empty body).'}`,
+        );
+      }
+
       if (j.stop || j.fail) throw new Error(String(j.stop ?? j.fail));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`The route answered HTTP ${res.status}.`);
       const rows = j.roster as RosterRow[];
       // ⚠️ Block and time come off the responses' own `_meta`, never off our clock — which is what
       // makes them move between presses and what makes them evidence rather than decoration.
@@ -104,7 +132,7 @@ export function ConsoleViewer({
         truncated: j.truncated as boolean,
         budgetMs: j.budgetMs as number,
         block: blocks.length ? Math.max(...blocks).toLocaleString('en-US') : '—',
-        readAt: String(j.evidence?.fetchedAt ?? '').slice(11, 19) + ' UTC',
+        readAt: String((j.evidence as {fetchedAt?: string} | undefined)?.fetchedAt ?? '').slice(11, 19) + ' UTC',
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
