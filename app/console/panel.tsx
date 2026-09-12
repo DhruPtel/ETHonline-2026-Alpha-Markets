@@ -147,7 +147,10 @@ export function Panel() {
             }
             log={log} busy={busy} setBusy={setBusy} onDone={refresh} />
 
-          <Spend id="buy" title="Buy" cost="0.001 HBAR + fee" path="/api/console/buy"
+          {/* ⚠️ `/api/buy`, not `/api/console/buy` — the route moved out of this directory on
+              2026-09-11 because the product's paywall button calls it too, and one buyer path is
+              the point. The console keeps calling it; it just is not the console's any more. */}
+          <Spend id="buy" title="Buy" cost="0.001 HBAR + fee" path="/api/buy"
             note={<>Runs the server-side buyer agent against a gate: 402 → sign → pay → receive the
               body the preview withholds. <strong>Not a browser payment</strong> — x402 ships no Hedera
               paywall, and the product&rsquo;s buyer is an agent.</>}

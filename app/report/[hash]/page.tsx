@@ -28,7 +28,7 @@ import { REPORT_PRICE_HBAR } from '../../../src/config/pricing.js';
 // public facts, none of which contain any part of the report body, so it cannot leak past the gate.
 import { Ledgers } from './ledgers.js';
 // ⚠️ A CLIENT component. The buyer agent, `@x402` and `@hiero-ledger/sdk` stay behind
-// `/api/console/buy`; this page ships the button and nothing that pays. See its header.
+// `/api/buy`; this page ships the button and nothing that pays. See its header.
 import { BuyAndRead } from './buy.js';
 
 export const runtime = 'nodejs';

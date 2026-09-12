@@ -30,18 +30,29 @@ paid body and finding nothing, because a CSS-hidden table is not a paywall.
 
 ## Which routes are product and which are scaffolding
 
-⚠️ **Seven of the eleven routes here are scaffolding**, and a reviewer should not have to open
+⚠️ **Seven of the fourteen API routes here are scaffolding**, and a reviewer should not have to open
 files to find out which.
 
-**Product** — `/` (marketplace), `/report/[hash]` (preview), `/api/reports/[hash]` (the paid read),
-`/api/health` (does the facilitator still advertise our network and fee payer, and is the
-third-party ATS resolver still alive).
+**Product** — the pages `/` (marketplace), `/report/[hash]` (preview), `/markets`, `/markets/[id]`
+and `/holdings`; and the routes `/api/reports/[hash]` (the paid read), **`/api/buy`** (the buyer
+agent that pays for one — see below), `/api/holdings`, `/api/markets/[id]/refresh`,
+`/api/cron/commit`, `/api/cron/resolve`, and `/api/health` (does the facilitator still advertise our
+network and fee payer, and is the third-party ATS resolver still alive).
 
 **Throwaway, deleted before submission** — `/api/probe` was the deployment probe that measured
 whether the dependencies fit a serverless function; it has answered and is still deployed.
 `/console` and `/api/console/*` are an internal test surface with a button for every operation the
 build can perform. ⚠️ **The console spends real testnet funds and has no authentication.** It says so
 on itself. It exists because testing otherwise meant a CLI and a block explorer.
+
+⚠️ **That removal instruction is safe to follow again as of 2026-09-11, and it was not before.**
+`/api/console/buy` was the one route in that directory that was never scaffolding: the product's
+paywall button calls the buyer agent, and there is **one buyer path in this project** rather than a
+second written for the product. So `rm -r app/console app/api/console` would have deleted the
+product's ability to sell anything, silently, at the point where a reviewer follows a sentence in a
+README. **The route moved to `/api/buy`.** Nothing else about it changed — same request shape, same
+response, same caps — and the console's own buy control now calls the new path, so there is still
+only one. ⚠️ **It is still unauthenticated and it still spends real testnet HBAR.**
 
 ## Two things worth knowing
 

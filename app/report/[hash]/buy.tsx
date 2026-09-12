@@ -49,12 +49,13 @@ export function BuyAndRead({ reportHash, priceHbar }: { reportHash: string; pric
     setMessage(null);
     setStage('asking the gate for a price…');
     try {
-      // ⚠️ **The console's buyer route, deliberately — there is ONE buyer path in this project.**
-      // A second one would mean the product and the console could disagree about what a purchase is:
-      // different caps, a different record in `purchases`, a different answer to "did it settle".
-      // ⚠️ See logs.md 2026-09-09 — this makes that route load-bearing for the product, so the
-      // console's "delete both directories" removal note is no longer accurate for it.
-      const res = await fetch('/api/console/buy', {
+      // ⚠️ **ONE buyer path in this project, and this is it.** A second one would mean the product
+      // and the console could disagree about what a purchase is: different caps, a different record
+      // in `purchases`, a different answer to "did it settle".
+      // ⚠️ It used to live at `/api/console/buy`, which made a throwaway directory load-bearing for
+      // the product. It moved to `/api/buy` on 2026-09-11 for exactly that reason; the console's
+      // buy control calls the same new path, so there is still only one.
+      const res = await fetch('/api/buy', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // Its own origin: a page must buy from the deployment serving it, not from a default.

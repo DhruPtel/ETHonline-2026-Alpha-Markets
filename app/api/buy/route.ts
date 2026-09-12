@@ -1,6 +1,16 @@
-// POST /api/console/buy — the buyer agent pays for one report. **Spends real testnet HBAR.**
+// POST /api/buy — the buyer agent pays for one report. **Spends real testnet HBAR.**
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// ⚠️ **MOVED out of `app/api/console/` on 2026-09-11, and it is the one thing in there that was never
+// scaffolding.** `app/report/[hash]/buy.tsx` calls it — there is ONE buyer path in this project and
+// the product page reuses it rather than writing a second — so the console's *"delete both
+// directories"* note would have taken the paywall button with it. **That note is true again now.**
+//
+// ⚠️ **A MOVE, NOT A REWRITE. Nothing here changed but the path and the depth of three imports.**
+// Same request shape, same response shape, same caps, same `maxDuration`. Two things this route
+// carries were deliberately left alone and are recorded rather than fixed in passing:
+// `maxDuration = 300` is still fiction on Vercel Hobby (it gets 60), and the `site` parameter still
+// lets a caller name the gate this buyer signs against. Both are real and both belong to a unit that
+// is allowed to change behaviour. ⚠️ **It is also still reachable without authentication.**
 //
 // ⚠️ **Server-side, and there is no browser alternative.** `@x402` ships EVM, Solana and Aptos
 // paywall flavours and no Hedera export, so a browser-side payment is not a thing that can be built
@@ -25,10 +35,10 @@
 // ledger in `src/payments/buyer.ts`, which this unit may not touch.
 
 import { NextResponse } from 'next/server.js';
-import { buy, spent, vet, DEFAULT_LIMITS, SpendRefused, type BuyOptions } from '../../../../src/payments/buyer.js';
-import { fetchJson, MIRROR } from '../../../../src/tokenize/hedera.js';
+import { buy, spent, vet, DEFAULT_LIMITS, SpendRefused, type BuyOptions } from '../../../src/payments/buyer.js';
+import { fetchJson, MIRROR } from '../../../src/tokenize/hedera.js';
 // ⚠️ Empty is missing. One guard, shared; was a local copy until 2026-09-09.
-import { requiredEnv as env } from '../../../../src/config/env.js';
+import { requiredEnv as env } from '../../../src/config/env.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
