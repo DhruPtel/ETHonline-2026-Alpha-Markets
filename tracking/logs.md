@@ -14385,3 +14385,138 @@ after   8 published · 11 not listed  |  f2285b4e… 2026-09-12T21:26:19.068Z  |
 Nothing was listed, the landmark did not move, and the draft the page was aimed at is still unlisted.
 
 `.next` cleared, `npx next build` exit 0. One file. No commits.
+
+---
+
+## 2026-09-12 — `/markets` and `/markets/[id]` read the store and the chain
+
+Four files: both market pages, `ProbabilityChart`, `StakeControl`.
+
+### Taken from `trash/app/markets/`
+
+**One SQL join** over `markets`, `claims`, `reports` and `scores` — not a query per card. The
+**dedupe** that keeps the row carrying a claim. **`after_the_fact = observation_end <= created_at`**.
+**One batched `eth_call` per on-chain market** under `Promise.all`. **`standing()`**, the five states.
+The **forecasts/rehearsals split** and the record that excludes rehearsals. On the detail page: the
+lookup **by `chain_market_id` AND `contract_address`** (a chain id is only an identity within one
+deployment), the `stakes` read, and the **public-RPC swap** — `ARC_RPC_URL` may carry a key in its
+userinfo, query or path, so anything but a bare host is replaced before it reaches a client
+component.
+
+⚠️ **Pools come from the chain, not the database.** The store records what we saw; the contract is
+what is true. A pool that cannot be read renders as unknown, never as zero — a zero is a claim.
+
+### What I measured, which is not quite what the brief said
+
+```
+store: 7 markets — 5 on chain (6,7,8,9,10) + 2 that never landed
+  6   forecast   observing   pool 1.01 / 0.0   claim 6, analyst staked 0.01
+  7   forecast   observing   pool 0.01 / 0.0   claim 7, analyst staked 0.01
+  8   REHEARSAL  resolved TRUE    0 pool, no claim
+  9   REHEARSAL  voided           0 pool, no claim
+ 10   REHEARSAL  resolved FALSE   0 pool, no claim
+total pool across the store's markets: 1.02 USDC   ·   stakes rows: 1   ·   scores rows: 0
+```
+
+⚠️ **The brief said "eight markets exist on Arc" and then listed seven.** Seven is what the store
+holds and what renders. ⚠️ **The contract itself holds ten** — ids 1–10; 1–5 pre-date the `markets`
+table and are not in the store, and they carry another 0.08 USDC. The pages render the store's seven,
+because a market with no stored spec has no question to display. Said here rather than papered over.
+
+⚠️ **One of the two off-chain rows has an id containing the word "rehearsal" and is, by the
+arithmetic, a forecast** (`observation_end` 2026-09-21 > `created_at` 2026-09-11). That is precisely
+why `trash/` used arithmetic and not a naming convention, and it is why I did too. The id string is
+not evidence.
+
+### What maps to what, and what has nothing behind it
+
+| design slot | now |
+|---|---|
+| category | ⚠️ **nothing** — no column. The slot carries `Market #N`. |
+| status badge | `standing()` — real |
+| claim / criterion | built from `spec_json` — real |
+| TRUE / FALSE % | the **pool ratio** from the contract — real, and one-sided so it reads 100/0 |
+| volume | `poolTrue + poolFalse` — real, 1.02 USDC across everything |
+| "12 reports" | ⚠️ **nothing** — a market cites ONE claim citing ONE report. Reads `1 report` / `no report` |
+| category chips | ⚠️ **nothing** — only `All` is passed; three chips that cannot narrow anything are three lies |
+| staker counts | the `stakes` rows, and there is one |
+
+### The chart
+
+⚠️ **Nothing stores a probability series**, and a parimutuel pool has no running probability — only
+its current ratio. So `illustrativeSeries()` draws a deterministic path (seeded by the market id, so
+it does not move between renders) that **ends exactly on the live pool share**. The one value a
+reader can take off the right-hand edge is the same value the legend and the outcome rows carry.
+
+⚠️ **The label is inside the chart, over the plot** — not a footnote, because a footnote is read
+after the shape has been believed: *"ILLUSTRATIVE MOVEMENT — NO PROBABILITY SERIES IS STORED. ONLY
+THE RIGHT-HAND END IS REAL: IT IS THE CURRENT POOL SHARE."* The legend gains *"pool share, not
+probability"* beside the percentages, and the `aria-label` says the same.
+
+⚠️ **A market with an empty pool draws no chart at all.** Markets 8, 9 and 10 have nothing staked; a
+line at 50% over an empty pool would be the one invented number on the page.
+
+### Void and resolved, which are different
+
+**Voided** (market 9): *"The day could not be observed before the resolve deadline, so there is no
+outcome and every stake is refundable. A void is never a wrong answer and it does not score against
+the analyst."* The outcome rows read `refundable`.
+**Resolved** (8 TRUE, 10 FALSE): the answer, the date it was settled, and the comparison that settled
+it. The outcome rows read `WON` / `lost`.
+
+### The position panel — inert, and honest
+
+⚠️ **The staking call is not wired this unit and the button says so**, so a data problem cannot be
+mistaken for a transaction problem. Markets 6 and 7 hold real money including a human's 1.00 USDC.
+
+- **The side comes from the claim.** `stake(marketId, claimId)` takes no side; the contract reads it
+  off the claim. A picker would let two people back opposite sides of one claim.
+- ⚠️ **"Attach supporting report" is gone and could never have worked.** The custody runs the other
+  way: a claim cites one report and a staker joins the claim, so the report is fixed before anyone
+  arrives and `stake()` has no field to carry another. In its place the panel **states the report the
+  claim already cites**, with a link — the true version of what the toggle gestured at.
+- ⚠️ **The payout estimate is gone.** `stake / (impliedPct/100)` is not this contract's arithmetic. A
+  parimutuel pays `stake × totalPool / winningPool`, and when the winning pool has nobody else in it
+  the contract returns each stake to whoever made it. Every pool here is one-sided, so the old
+  formula would have printed a confident multiple of your money for a market that hands it back. The
+  rule is stated in words against the real pools.
+- Presets are `0.01 / 0.1 / 1 / max`, scaled to what actually moves here, and `max` is the
+  contract's own `MAX_STAKE()` — 1000 USDC, read on the request.
+
+### ARC / ONCHAIN EVIDENCE
+
+It read `DEMO-lending-2027`. It now carries `0x003e7Cb791257B529bb5f9F6D17A846264d48044`, the market
+number, the live status, the resolution source and the outcome, and links to arcscan.
+
+⚠️ **Verified before shipping the link, and arcscan's own 200 proves nothing** — it is a
+client-routed SPA that serves the same 93,894-byte shell for a nonsense address. The check that
+counts is the chain: `eth_getCode` at that address returns **4,783 bytes on chain 5042002**, so the
+link points at a real deployed contract. Same discipline as HashScan against the Mirror Node.
+
+### A bug I introduced and caught
+
+The header first read **"2 OPEN FORECASTS"** over two cards whose own badges said *Observing* —
+staking on both closed 2026-09-11 23:59 UTC. I had counted "not resolved and not voided" as open. It
+now reads **"2 FORECASTS · 0 OPEN FOR STAKING"**, which agrees with the cards.
+
+### Proof
+
+```
+/markets                7 cards · 2 FORECASTS · 0 OPEN FOR STAKING · 1.02 USDC staked in total
+                        sections: Forecasts / Rehearsals / Not on chain
+                        record: "no forecast has settled yet" (scores has 0 rows)
+/markets/6   200  FORECAST #6 · observing · pool 1.01/0.0 · one-sided note · claim #6 ·
+                  report 24041ca2… · 1 recorded stake, 1.0 USDC by 0x683eE842… with an arcscan link
+/markets/7   200  FORECAST #7 · observing · pool 0.01/0.0 · claim #7 · 0 recorded stakes
+/markets/8   200  REHEARSAL #8 · resolved TRUE · rehearsal warning · no chart (empty pool) · no claim
+/markets/9   200  REHEARSAL #9 · VOIDED · void statement · outcome rows read "refundable"
+/markets/10  200  REHEARSAL #10 · resolved FALSE
+/markets/999 404   /markets/lending-2027 404   (a chain market id is an integer)
+```
+
+Swept the served HTML of all six pages for `DEMO-`, `lending-2027`, `Aave leads lending`, `Uniswap`,
+`Stablecoins`, `124,850`, `12 reports`, `Attach supporting report`, `Potential total payout` and
+`IMPLIED PROBABILITY`: **all absent**.
+
+`.next` cleared, `npx next build` exit 0, `/markets` moved from `○` static to `ƒ`. **Nothing was
+staked.** No commits.
