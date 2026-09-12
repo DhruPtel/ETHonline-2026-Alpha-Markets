@@ -40,6 +40,13 @@ const MARKET_ABI = [
   'function MAX_STAKE() view returns (uint256)',
 ];
 
+/**
+ * ⚠️ **The one function the panel calls, and the whole reason it is spelled out here.**
+ * `stake(uint256 marketId, uint256 claimId) payable` — `AlphaMarket.sol:241`. It takes **no side**:
+ * the contract reads the side off the claim, which is why the panel has no picker.
+ */
+const STAKE_IFACE = new ethers.Interface(['function stake(uint256 marketId, uint256 claimId) payable']);
+
 interface Spec {
   slug: string; metric: string; comparison: 'above' | 'below'; threshold: string; observedDay: string;
 }
@@ -122,6 +129,17 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
         : Date.now() < market.observation_end.getTime()
           ? 'Staking closed — observing'
           : 'Awaiting settlement';
+
+  // ⚠️ **FOUR STATES, AND THEY ARE CHECKED IN THIS ORDER ON PURPOSE.** A voided market may also
+  // carry a close time in the past; the void is the more important fact and is tested first. A
+  // resolved market is likewise never merely "closed".
+  const panelState: 'open' | 'closed' | 'resolved' | 'voided' = market.voided_at
+    ? 'voided'
+    : market.resolved_at
+      ? 'resolved'
+      : open
+        ? 'open'
+        : 'closed';
 
   const heading = claim?.title ?? claim?.directive ?? 'The report behind this claim';
 
@@ -388,18 +406,27 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
           </p>
 
           {claim && (
+            /* ⚠️ **THE CALLDATA IS ENCODED HERE, ON THE SERVER, AND ARRIVES AS A STRING.**
+               `src/arc/abi.ts` carries the contract's full bytecode and must never reach a client
+               component — the established pattern, and `trash/` did the same. The minimal inline
+               fragment above is the only ABI this page needs, and the browser gets 68 bytes of hex
+               rather than a compiler artefact. */
             <StakeControl
-              side={claim.side ? 'TRUE' : 'FALSE'}
-              sidePct={staked ? (claim.side ? truePct! : Number((100 - truePct!).toFixed(1))) : null}
-              currency="USDC"
-              poolTrue={usdc(poolTrue)}
-              poolFalse={usdc(poolFalse)}
-              maxStake={usdc(maxStake)}
+              marketId={id}
               claimId={claim.chain_claim_id}
+              side={claim.side}
+              sidePct={staked ? (claim.side ? truePct! : Number((100 - truePct!).toFixed(1))) : null}
+              poolTrue={poolTrue.toString()}
+              poolFalse={poolFalse.toString()}
+              maxStakeWei={maxStake.toString()}
+              contractAddress={market.contract_address}
+              rpcUrl={publicRpc}
+              callData={STAKE_IFACE.encodeFunctionData('stake', [BigInt(id), BigInt(claim.chain_claim_id)])}
               reportHash={claim.report_hash}
               reportTitle={heading}
-              open={open}
+              state={panelState}
               standing={standing}
+              outcome={market.outcome}
             />
           )}
 

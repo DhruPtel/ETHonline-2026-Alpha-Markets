@@ -14520,3 +14520,117 @@ Swept the served HTML of all six pages for `DEMO-`, `lending-2027`, `Aave leads 
 
 `.next` cleared, `npx next build` exit 0, `/markets` moved from `○` static to `ƒ`. **Nothing was
 staked.** No commits.
+
+---
+
+## 2026-09-12 — the staking control is wired
+
+Two files: `app/components/StakeControl.tsx` and `app/markets/[id]/page.tsx`. **Nothing was staked.**
+
+### Taken from `trash/app/markets/[id]/stake.tsx`
+
+Its wallet plumbing, unchanged in substance because it worked:
+
+- `toWei` / `fromWei` — **string ↔ BigInt by hand, never `parseFloat`**. A double holds ~15
+  significant digits; 1 USDC is 1,000,000,000,000,000,000 wei.
+- `ensureArc()` — `eth_chainId`, then `wallet_switchEthereumChain`, and **only on error code 4902**
+  `wallet_addEthereumChain`, then a re-check. 4902 is "chain not added"; treating every failure as
+  "add it" would spam the wallet.
+- `connect()` — `eth_requestAccounts`, refusing an empty list.
+- The four pre-flight refusals, computed **before the wallet opens**.
+- `eth_sendTransaction` with `value` as hex wei and server-encoded `data`.
+- `post()` → `/api/markets/[id]/refresh`, and a **"Record it"** retry that re-posts the same hash.
+- The four response shapes: `reverted`, `recorded`, `pending`, not-recorded-with-a-reason.
+
+One thing changed: `res.json()` became `res.text()` + a guarded `JSON.parse`, the same fix the buy
+control needed — a 500 with an empty body otherwise surfaces as "Unexpected end of JSON input".
+
+### ⚠️ The decimal trap, shown both ways with the real figure
+
+`AlphaMarket.sol:93` declares `UNIT_SCALE = 1e12`; `_checkAmount` reverts `NotAUsdcUnit(amount)` on
+`amount % UNIT_SCALE != 0`. Arc's native gas is USDC at 18 decimals while the ERC-20 at the same
+address reports 6. Using the human's actual 1.00 USDC stake on market 6:
+
+```
+typed                     1.00 USDC
+→ 18-dp native msg.value  1000000000000000000 wei     what the contract stores
+→ 6-dp ERC-20 units       1000000                     what decimals() at that address implies
+← back to 18-dp           1000000000000000000 wei     exact round trip: true
+the factor                10^12 = 1000000000000
+⚠️ getting it wrong sends 0.000000000001 USDC instead of 1.00 — a trillionth, and it still
+   looks like a number.
+```
+
+The browser check, against the contract's own constants read on the request (`MAX_STAKE()`), before
+any wallet is opened:
+
+```
+1           1000000000000000000 wei   allowed
+0.000001          1000000000000 wei   allowed                 the smallest legal unit, exactly 1e12
+1.0000005   1000000500000000000 wei   NotAUsdcUnit            remainder 500000000000 wei
+0                             0 wei   ZeroStake
+1001     1001000000000000000000 wei   OverStakeCap
+```
+
+⚠️ Each refusal **names the contract error it prevents**, because a revert costs the staker gas and
+returns nothing.
+
+### No side picker
+
+`stake(uint256 marketId, uint256 claimId) payable` — `AlphaMarket.sol:241` — takes **no side**; the
+contract reads it off the claim. A toggle would let two people back opposite sides of one claim.
+
+### No contract bytecode in the browser
+
+⚠️ `src/arc/abi.ts` is not imported by the control — its only appearance in that file is the comment
+saying so. The calldata is encoded on the server by a one-line `ethers.Interface` and arrives as a
+68-byte hex string. Measured: **0 occurrences** of `AlphaMarket`, `"bytecode"` or `608060405` across
+every client chunk.
+
+### The four states — and three of them cannot be reached today
+
+| market | state | claim | what renders |
+|---|---|---|---|
+| 6, 7 | **closed** | yes | the panel, with "the close time has passed, so the contract reverts `StakingClosed`; stakes already placed are unaffected", the side, the cited report, an inert button |
+| 8, 10 | resolved | **none** | ⚠️ the control is not rendered at all — the page says the market carries no single claim |
+| 9 | voided | **none** | ⚠️ same |
+| — | **open** | — | ⚠️ **no market is open.** Both forecasts closed 2026-09-11 23:59Z |
+
+⚠️ **So only the `closed` branch is exercised by today's data, and I am not going to claim otherwise.**
+The resolved and voided branches exist and are correct by inspection, but the three markets in those
+states carry no claim, so the control never renders for them; and the open branch — the live wallet
+path — cannot be exercised until a new market exists. Said plainly rather than dressed up.
+
+### Proof, without spending
+
+1. **The calldata the server encodes, decoded back:**
+   `market 6 → stake(marketId=6, claimId=6)`, `market 7 → stake(marketId=7, claimId=7)`,
+   68 bytes each, selector `0x7b0472f0`.
+2. **The client chunk** carrying `eth_sendTransaction` also carries `eth_chainId`,
+   `eth_requestAccounts`, `wallet_switchEthereumChain`, `wallet_addEthereumChain`, `0x4cef52` and
+   `decimals:18`, and posts
+   `fetch(...refresh, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({txHash:t})})`.
+   It is referenced by `/markets/6`.
+3. ⚠️ **The record path, end to end, changing nothing.** I re-posted the **existing** stake's hash —
+   the human's `0x2a54afc0…` on market 6 — which is exactly what the "Record it" retry sends:
+
+```
+POST /api/markets/6/refresh {"txHash":"0x2a54afc0…"}          HTTP 200 in 0.65s
+{"recorded":true,"staker":"0x683eE842…","side":true,
+ "amount":"1000000000000000000","block":61531149,
+ "poolTrue":"1010000000000000000","poolFalse":"0"}
+stakes rows before: 1     stakes rows after: 1
+```
+
+   That exercised the whole route — receipt fetch, `Staked` log parse, the claim-side check, the
+   insert — and **the table still holds exactly one row**, because `tx_hash` is UNIQUE and the insert
+   is `ON CONFLICT DO NOTHING`. The retry being a no-op is the property the design depends on, and it
+   is now measured rather than asserted. Also checked: a malformed hash → 400.
+
+⚠️ **The route was not touched.** It still records from the `Staked` event and never from the request
+body; the browser sends one field, the transaction hash.
+
+⚠️ **The hash is put on the page before anything is confirmed**, so a timed-out wait leaves the
+staker holding the only handle on money that has already moved, and "Record it" finishes the job.
+
+`.next` cleared, `npx next build` exit 0. No commits.
