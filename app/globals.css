@@ -338,6 +338,12 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
   padding: 9px; border: 1px solid #d3d6d9; font-size: 13px; white-space: normal; height: auto;
 }
 .financial-table td { padding: 8px 9px; border: 1px solid #d3d6d9; font-size: 14px; }
+/* ⚠️ THE ONE RULE THIS ADDS. `.financial-table` sets a border, a font and a margin but NO width, so
+   it shrink-wraps to its content — which is why the report's table read as a tight block floating in
+   a wide sheet while the reference's fills the measure. `/holdings` already needed this and got it
+   as `.holdings-panel .financial-table { width: 100% }`; the paper is the second consumer, so the
+   rule goes where both can reach it rather than being copied. */
+.report-paper .financial-table { width: 100%; }
 
 .paper-footer {
   display: flex; justify-content: space-between; gap: 12px;

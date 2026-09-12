@@ -11839,3 +11839,433 @@ throughout. Watch the orbit speed up. Switch to **Terminal** at around 25s — y
 already written, and new ones continuing to arrive. Switch back to **Agent view** and the status rows
 carry the same run. At the end, the last line is the full report hash.
 
+
+---
+
+## 2026-09-12 — The generated report lands in the document panel, paginated
+
+`app/console/page.tsx` and `app/components/ConsoleViewer.tsx`. `next build` exit 0 with `.next`
+cleared, root `tsc` exit 0. **No new class.** `src/`, `contracts/`, `scripts/`, `app/api/` untouched.
+
+### What was genuinely new, and what I took
+
+⚠️ **`trash/app/console/` never did this.** `document.tsx` there rendered the *bought* body through
+`app/markdown.tsx`, and `logs.md` records that the report never appeared in the console's document
+stage at all. **The pagination, the block builder and the measuring pass are all new.** What I took
+is the principle from `document.tsx`'s header — *"it renders with the product's own renderer rather
+than a second one"* — which is the same argument PHASE-6 D4 makes and the reason this panel does
+**not** go through `/api/console/report`.
+
+### ⚠️ Two body shapes, and this one does not touch markdown
+
+`/api/console/report` returns `render(report)` **markdown**. Using it would have meant a
+markdown→`PaperBlock[]` parser — a second renderer for one object. So the console page calls
+`load()` directly and builds blocks from the structured report: the fact table **is** a
+`{kind:'table'}` block. `app/markdown.tsx` stays the renderer for the bought body on
+`/report/[hash]`, which really does arrive as markdown.
+
+### What lands, from the real 140-fact report
+
+`list(1)` returns `ebb86d5af061…`, *"Balance overview of Aave v3 markets"*, 140 facts, 5 checks — so
+the panel shows it with no setup. Served HTML, checked:
+
+```
+PREPARED BY ATLAS RESEARCH   0        ← the mockup byline is gone
+DEMO DATA                    0
+byline   0X1B7035BBE0DA8F3BCB721863D42E1079E4A116A7 · BLOCK 25962763 · ebb86d5af061…8193cc8
+eyebrow  aave-v3-ethereum · block 25,962,763
+standfirst  140 measured figures · 4 of 5 checks ran
+sections    Assessment · Figures · Checks
+rows        145 in the probe (140 facts + 5 checks)
+```
+
+### ⚠️ Pagination is measured, and here is exactly how
+
+A hidden probe sheet renders the whole document once at the real sheet width. `useLayoutEffect` then
+asks the browser two things — **one real table row's height**, and **what the sheet's chrome leaves
+of the 840px page** (`sheet.height − table.height`). `rowsPerPage` falls out of those. Because the
+fact rows are uniform, one measured row is exact for all of them.
+
+⚠️ **It is deliberately conservative.** The chrome it measures is *page one's* — assessment,
+headings, footer — and pages two onward carry less, so they get fewer rows than they could hold.
+**That errs toward a slightly emptier sheet, never an over-full one.**
+
+⚠️ **The failure mode is scaling, not a scrollbar, and that is structural.** `.report-paper` is
+`min-height: 840px` and `useFitPanel` scales the sheet to the frame — so an over-full page *shrinks*.
+**The sheet cannot scroll.** Pagination's job is keeping the scale near 1 so the text stays readable.
+
+**The packer, verified in node against the real block shape — 140 facts + 5 checks:**
+
+```
+rowsPerPage=10  pages=18   145/145 rows   over-full pages: none
+rowsPerPage=14  pages=12   145/145 rows   over-full pages: none
+rowsPerPage=18  pages=10   145/145 rows   over-full pages: none
+rowsPerPage=24  pages= 7   145/145 rows   over-full pages: none
+a 6-fact report at rpp=18 → 1 page
+```
+
+**No row is ever lost or duplicated, and no page is ever over-full at any row budget.**
+
+### ⚠️ What I could NOT verify, said plainly
+
+**The measured `rowsPerPage`, and therefore the actual page count.** It is computed in the browser
+and I have none. From the CSS the chrome is roughly 570px of the 840, leaving ~10 rows a page, so
+**the 140-fact report should be 15–18 pages** — but that is arithmetic from a stylesheet, not a
+measurement, and the code's number is the one that counts. ⚠️ **The 1/1 case is proven in the packer
+and not observed in a browser**: with one page both arrows are `disabled`, which is the
+brief's *"visibly does nothing"*.
+
+### The toolbar's three mockup values
+
+| slot | was | now |
+|---|---|---|
+| file name | `lending-protocols-q2-2026.pdf` | ⚠️ **the directive** — *"Balance overview of Aave v3 markets"*. There is no file; a report is a row in Neon, so the slot carries the document's name. *"No report yet"* when the store is empty |
+| pages | `2 / 4` | `NN / MM`, both real. `— / —` for the one frame the probe is up |
+| zoom | `90%` | ⚠️ **already live and left alone** — `onZoomIn`/`onZoomOut` clamp 60–130 and feed `useFitPanel`'s width, so the sheet really does resize. Not a mockup leftover and not marked |
+
+### ⚠️ The digit guard is NOT shown, and the reason is a gap, not a choice
+
+The last run reported `validate · 1 violation(s) — saved anyway`. **That result is not stored.**
+`Report` has `facts`, `checks`, `exclusions`, `verdict`, `assessment` — checked, and there is no
+violations field. `validate.ts` warns during the run and `save()` does not persist what it found.
+
+**So the terminal shows it while a run happens and the document panel cannot show it afterwards.** A
+report displayed as clean when the guard flagged it is the wrong default, and that is the state
+today — ⚠️ **not because this panel chose to hide it, but because nothing kept it.** Fixing it is a
+store change and out of scope here; recorded as an open item.
+
+### Before a report exists
+
+A `.report-paper` sheet reading **NOTHING GENERATED YET / No report to show.** ⚠️ **Not the mockup** —
+a panel showing an invented document is the console lying about its own state, which is exactly what
+`PREPARED BY ATLAS RESEARCH · DEMO DATA` was.
+
+### ⚠️ A run does not push itself into the panel
+
+The stream is client-side; this read is server-side. **A new report appears on the next request —
+reload.** Closing that gap is one `router.refresh()` in the Atlas panel, which this task is
+constrained out of. Stated rather than implied.
+
+### Structure
+
+```
+served /console   112 tokens, 80 distinct   (was 111 / 80)
+```
+
+⚠️ **The one extra token is `financial-table`** — the real report has two tables (Figures and
+Checks) where the mockup had one. **Distinct classes unchanged at 80, no new class**, and the nine
+classes we carry beyond the reference are the same nine as before.
+
+### Where to look
+
+**`http://localhost:3000/console`** — server running. The **Report** tab is already showing
+*Balance overview of Aave v3 markets*, 140 figures.
+
+Use the **‹ ›** arrows in the toolbar to flip through. The footer of each sheet shows `NN / MM`.
+Check that each page's rows fill the sheet without the sheet shrinking, and that the last page is
+partly empty rather than clipped.
+
+To see a fresh one land: type **`Balance overview for Aave v3 on Ethereum`** in the composer, press
+**Generate report** (~58s, spends model tokens), then **reload** — it becomes the newest report and
+takes over the panel.
+
+
+---
+
+## 2026-09-12 — The document panel renders the report properly. ⚠️ PHASE-6 D4 was wrong and is replaced.
+
+`app/console/page.tsx` and `app/components/ConsoleViewer.tsx`. `next build` exit 0 with `.next`
+cleared. **No new class.** `src/`, `contracts/`, `scripts/`, `app/api/` untouched — `render()` and
+`show()` used exactly as they are.
+
+### My read on the three options, and it was not close
+
+⚠️ **Option one: the panel calls `render()` and `app/markdown.tsx` renders it. D4 is wrong as
+written.** The evidence is in `markdown.tsx`'s own header:
+
+> *"Not a markdown parser, and should not become one. It reads the output of ONE known generator —
+> `narrate.ts`'s `render()` — which emits exactly four things: one `#` heading, one GFM pipe table,
+> plain paragraphs, and `**bold**` inside cells."*
+
+**It was purpose-built for this exact output.** So `render()` → `Markdown` is **one** renderer for
+one producer, shared with the bought body — not two.
+
+⚠️ **And the sharper point: building blocks WAS the second renderer, and it was the wrong one.** D4
+feared a second answer to what a report looks like and I wrote one. It printed `{fact:…}` raw because
+substitution is `render()`'s job, and it dumped all 140 facts because row selection is the
+*narrator's* job. **52 pages was both faults compounding.**
+
+Option two — keep blocks, reuse `render()`'s substitution and selection — needs the markdown table
+parsed back into blocks. That is the markdown-to-blocks converter D4 correctly forbids.
+
+### What `render()` actually produces, measured
+
+```
+the 140-fact report ebb86d5af061…   1,879 chars · 25 lines · 13 table rows · {fact: 0
+the current latest  c8edb97020b9…   2,523 chars · 25 lines · 13 table rows · {fact: 0
+```
+
+⚠️ **The narrator picks ten of sixty-three markets and says so in the table itself** — the last row
+is `**Protocol total (63 markets)**  **$5.03B**  **$365.2M**`. That is the "says how many it left
+out" the brief describes, and my block builder threw it away.
+
+### The proof
+
+```
+"{fact:"        in the served HTML   0
+"⟨unknown fact" in the served HTML   0
+
+heading      <h1>Show me the balance overview of markerdao markets</h1>
+table        3 header cells · 12 rows · Market (vault type) | Deposits (USD) | Borrows (USD)
+             ETH-C  $776.9M  $144.3M          ← show()'s formatting, not a second one
+provenance   Live data from The Graph · 1 deployment · block 25962843
+assessment   MakerDAO on Ethereum is a CDP protocol, so each of its 63 markets is a collateral…
+identity     Report hash c8edb97020b99879fedd175f5692ecc2f8a95fa3611208ea1203a49b46bd5e1d
+footer       132 figures measured · N of M checks ran      ·      NN / MM
+```
+
+⚠️ **The substitution is not written twice.** `render()`'s own `fill()` calls `show()`; nothing in
+`app/` formats a `Fact`. The `$776.9M` above came from `narrate.ts`.
+
+### Pages
+
+⚠️ **The 140-fact report is five chunks totalling 1,879 characters — one sheet.** Its assessment is
+78 characters. The current latest has a ~2,000-character assessment and should be **two**.
+
+⚠️ **I cannot observe the measured number** — packing happens in the browser from real element
+heights and I have none. What I can say is the arithmetic: chrome takes ~145px of the 840, leaving
+~695, and the 140-fact report's chunks come to roughly 500. **One or two sheets, and not 52.** If it
+is still long when you look, that is a real finding and not something to tune the pager around.
+
+### How pagination works now
+
+A hidden probe renders every chunk at sheet width; `useLayoutEffect` reads each height and the
+sheet's chrome, then packs them into 840px sheets. ⚠️ **Chunking is string work, not parsing** — a
+chunk is a run of lines between blank lines, and the only special case repeats a table's header when
+its rows must span sheets (pre-split at 26 rows, which real reports never reach). **`markdown.tsx`
+remains the only thing that turns markdown into elements.**
+
+⚠️ **If the measurement is wrong the sheet scales, never scrolls** — `.report-paper` is
+`min-height: 840px` and `useFitPanel` fits it to the frame.
+
+### Structure
+
+```
+served /console   108 tokens, 78 distinct   (was 112 / 80)
+```
+
+⚠️ **Two distinct classes left because the body renderer changed**: `financial-table` and the
+mockup's `paper-notes` are gone, and `table-wrap` — `markdown.tsx`'s own table wrapper — arrived.
+**All defined, no new class.**
+
+### Where to look
+
+**`http://localhost:3000/console`**, Report tab. You should see the directive as an `h1`, a
+three-column table of ten vault types with dollar figures and a bold protocol-total row, the
+provenance line, one long paragraph, and the full report hash. The footer carries the figure count
+and `NN / MM`. **Nothing anywhere should read `{fact:`.**
+
+
+---
+
+## 2026-09-12 — The report sheet formatted to the reference's document shape
+
+`app/console/page.tsx`, `app/components/ConsoleViewer.tsx`, and **one rule** in `globals.css`.
+`next build` exit 0 with `.next` cleared. `src/`, routes and schema untouched — `render()` and
+`show()` used as they are. ⚠️ **Not one word of the report changed.**
+
+### What the reference has that the real sheet did not
+
+The reference's `.report-paper` is: masthead → **`.paper-title`** (eyebrow, 42px `h1`, a 25px
+subtitle, byline) → numbered `h2` sections → `.financial-table` → footer. The real one was a bare
+`h1` from the markdown, then a table, then two paragraphs — **no title block and no section
+hierarchy at all.**
+
+**Now:**
+
+```
+eyebrow    makerdao-ethereum · block 25,962,843
+h1         Show me the balance overview of markerdao markets        ← 42px, display size
+subtitle   132 measured figures · N of M checks ran                 ← 25px, the reference's slot
+byline     0X1B7035…A116A7 · BLOCK 25962843 · <all 64 hash chars>
+h2         Figures        → the table
+h2         Provenance     → Live data from The Graph · 1 deployment · block 25962843
+h2         Assessment     → the analyst's paragraph
+```
+
+⚠️ **The `# directive` and `Report hash …` lines moved into `.paper-title`, whole and unchanged.**
+They are not dropped — the design puts a document's identity in the title block, and that is where
+they now are. The heading is still the directive; the hash is still all 64 characters, because a
+prefix is enough to recognise a hash and not enough to verify one.
+
+### ⚠️ Titled, not numbered — and that is a judgement I am making
+
+The reference numbers *"1. Executive summary / 2. Revenue quality / 3. Outlook"* because those are an
+**essay's three arguments**, and the numbers say read them in order. This document has three
+**structural parts** — the figures, where they came from, the analyst's opinion — and it has exactly
+those three, in that order, in every report the pipeline makes. **Numbering fixed furniture is
+ceremony; titling it is navigation.** So: `Figures`, `Provenance`, `Assessment`, unnumbered.
+
+### The one rule added, and why it was genuinely missing
+
+```css
+.report-paper .financial-table { width: 100%; }
+```
+
+⚠️ **`.financial-table` sets a border, a font and a margin but no width**, so it shrink-wraps to its
+content — which is exactly the "tighter than the reference, and the Market column doing more work
+than the others" symptom. `/holdings` had already hit this and got
+`.holdings-panel .financial-table { width: 100% }`; **the paper is the second consumer**, so the rule
+goes where both reach it rather than being copied a third time.
+
+**Nothing else was added.** `.paper-title`, `.paper-byline`, `.report-paper h2`, `.financial-table`
+and the type scale all existed and are the reference's own.
+
+### ⚠️ A guard I added, and it is not the pagination
+
+A 2,000-character assessment is **one paragraph**, and a paragraph is the smallest thing the packer
+can place — so it would have sat alone on a sheet it overflowed, and `useFitPanel` would have scaled
+that sheet down rather than paginating. `splitProse()` breaks an over-long paragraph **at sentence
+ends**, which is where a printed document breaks one across pages. ⚠️ **The packing is still
+measured; this only ensures no chunk is bigger than a sheet.** Not one word changes.
+
+```
+makerdao   5 parts · tallest chunk 459px · sheet allows ~506px
+140-fact   3 parts · tallest chunk 485px · sheet allows ~506px
+```
+
+**No chunk exceeds a sheet, so nothing scales.**
+
+### Pages
+
+⚠️ **Estimated, not measured — say so plainly.** The packer measures real element heights in the
+browser and I have none. From the type scale: chrome is now ~334px of the 840 (the title block is
+~190 of it), leaving ~506.
+
+```
+makerdao report    ~4 pages
+140-fact report    ~3 pages
+```
+
+Both were one dense page before. **That is the trade the brief asked for**, and if the real numbers
+differ when you look, the estimate was wrong, not the pager.
+
+### Proof
+
+```
+"{fact:" in the served HTML   0
+chunks rendered               5
+section headings              Figures · Provenance · Assessment
+table                         3 th · 11 data rows · $776.9M formatting from show()
+served /console               111 tokens, 80 distinct · no new class
+backend                       0 changes
+```
+
+### Where to look
+
+**`http://localhost:3000/console`**, Report tab — beside
+`single-frontend/alpha-markets.html`'s console route.
+
+What changed: the directive is now a 42px headline under an eyebrow naming the deployment and block,
+with a subtitle under it and the analyst/block/hash byline beneath — the reference's four-part title
+block. Below it three titled sections instead of a flat run. The table fills the sheet's measure
+rather than shrink-wrapping. Use **‹ ›** to flip; the footer shows `NN / MM`.
+
+
+---
+
+## 2026-09-12 — The sheet was never paginating at all. One line, and it was mine.
+
+`app/components/ConsoleViewer.tsx`. `next build` exit 0 with `.next` cleared. `globals.css`
+untouched by this task (its 6 inserted lines are the previous task's table-width rule, uncommitted).
+No backend changes.
+
+### ⚠️ What the measurement returned, and why it thought this fitted
+
+**It returned nothing. The effect exited before it measured.**
+
+```js
+const el = probeRef.current;                                  // ← the <article class="report-paper">
+const sheet = el.querySelector('.report-paper');              // ← searches DESCENDANTS only → null
+if (!sheet) return;                                           // ← every single time
+```
+
+⚠️ **`probeRef` is on the `.report-paper` article itself**, and `querySelector` does not match the
+element it is called on. So `sheet` was always `null` and the effect returned at line two. **`pages`
+stayed `null` for the life of the component**, which meant:
+
+- the sheet rendered **every chunk** (the probe branch is `pages === null`),
+- `pageCount = pages ? pages.length : 1` → the toolbar said **1 / 1**,
+- the article grew to ~1,744px,
+- `useFitPanel` did its job and scaled the whole document to fit the pane.
+
+**So the pagination never ran. The shrinking was the symptom, not the cause** — and "measuring page
+one's chrome conservatively" had nothing to do with it. ⚠️ **I introduced this in the formatting task
+by moving the ref from a wrapping `<div>` onto the article**, and the class-token and `{fact:` checks
+I ran both passed either way, so nothing caught it.
+
+**The fix is `const sheet = probeRef.current;` — the ref *is* the sheet.**
+
+### The scale factor, before and after
+
+⚠️ **Arithmetic, not a browser measurement — I have no browser.** `useFitPanel` computes
+`scale = min(1, frameW/690, frameH/contentHeight)`.
+
+```
+                     one un-paginated sheet      after the fix
+makerdao             1,744px → scale ≈ 0.52      840px → min(1, paneH/840)
+140-fact             1,372px → scale ≈ 0.66      840px → min(1, paneH/840)
+```
+
+**0.52 is exactly the reported "correct-looking page at unreadable size".** After the fix each sheet
+is the design's 840px, so ⚠️ **the scale is bounded by the pane, not by overflow** — it is 1.00
+whenever the viewer pane is at least 840px tall, and the pane's height comes from the grid stretch
+against the Atlas panel beside it. **If it is still below 1 when you look, that is the pane being
+short, which is a different problem from this one and I would want to know.**
+
+### Pages
+
+```
+makerdao report   5 parts → 4 pages
+140-fact report   3 parts → 3 pages
+```
+
+### ⚠️ Can a paragraph break across pages? Yes — and here is the case that decides it
+
+**A paragraph can break.** `splitProse()` cuts an over-long one at **sentence ends**, which is where
+a printed document breaks a paragraph across pages, and not one word changes.
+
+⚠️ **What happens if a single chunk still exceeds a sheet:** `pack()` places it alone on a page it
+overflows, that sheet grows past 840, and `useFitPanel` scales **that page**. That is the failure
+mode, and it is the one this task existed to remove — so both guards are now sized to make it
+impossible rather than unlikely:
+
+```
+budget            840 − ~334 chrome  ≈ 506px
+a table chunk     12 rows max        ≈ 428px   (was 26 rows ≈ 862px — over budget)
+a prose chunk     900 chars max      ≈ 370px
+measured tallest  makerdao 459px · 140-fact 485px   → both inside 506, nothing overflows
+```
+
+⚠️ **The 26-row table limit was the second bug waiting**: a report whose narrator chose twenty rows
+would have produced an 862px chunk and scaled its page even with the measuring fixed. ⚠️ **These two
+numbers are arithmetic; the packing that uses them is measured.** The remaining unsplittable case is
+a single sentence longer than a sheet — about 1,400 characters — which no narrator has produced.
+
+### Proof
+
+```
+"{fact:" in the served HTML        0
+querySelector(".report-paper")     0 in the shipped bundle   ← the bug is gone
+querySelectorAll("[data-chunk]")   1                          ← the measurement runs
+backend changes                    0
+```
+
+### Where to look
+
+**`http://localhost:3000/console`**, Report tab. The sheet should now be **full size and readable**,
+with the toolbar showing **1 / 4** on the makerdao report, and **‹ ›** stepping through four sheets
+that each stay the same size. ⚠️ **If the type is still small, the pane is shorter than 840px and the
+scale is being clamped by the column rather than by the content** — tell me and that is the next
+thing to fix, in `.viewer`/`.workspace`, not here.
+

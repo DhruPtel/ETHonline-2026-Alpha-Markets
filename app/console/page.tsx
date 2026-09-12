@@ -2,9 +2,10 @@ import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
 import {ConsoleViewer} from '../components/ConsoleViewer.js';
 import {TokenizeForm, type Listing} from '../components/TokenizeForm.js';
 import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
-import {type Paper} from '../components/ReportPaper.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
 import {SecretProvider} from '../components/ConsoleSecret.js';
+import {list, load} from '../../src/store/reports.js';
+import {render} from '../../src/agent/narrate.js';
 
 /**
  * The operator console: the workspace (report viewer and Atlas panel) with the
@@ -19,9 +20,6 @@ import {SecretProvider} from '../components/ConsoleSecret.js';
 // from it and from nothing else.
 // ---------------------------------------------------------------------------
 type Workspace = {
-  fileName: string;
-  pages: number;
-  paper: Paper;
   atlas: AtlasData;
   listing: Listing;
   listingPreview: {title: string; subtitle: string; preview: PreviewChart; marketId: string};
@@ -29,43 +27,6 @@ type Workspace = {
 };
 
 const WORKSPACE: Workspace = {
-  fileName: 'lending-protocols-q2-2026.pdf',
-  pages: 4,
-  paper: {
-    eyebrow: 'Lending / Q2 2026',
-    title: 'Lending protocols',
-    standfirst: 'Comparative financial review',
-    byline: 'PREPARED BY ATLAS RESEARCH · DEMO DATA',
-    footerNote: 'Atlas Research · Illustrative financials',
-    pageLabel: '01 / 04',
-    blocks: [
-      {kind: 'heading', text: '1. Executive summary'},
-      {
-        kind: 'paragraph',
-        text: 'Lending remains a core pillar of onchain finance, with sustained activity in total loans and improving capital efficiency across leading protocols. This report compares Aave, Morpho, Compound and Spark using a common financial snapshot, and assesses their position ahead of 2027.',
-      },
-      {
-        kind: 'table',
-        headers: ['Protocol', 'Total loans (USDC)', 'Revenue (USDC)', 'Borrowers'],
-        rows: [
-          ['Aave', '12.4B', '18.2M', '318,000'],
-          ['Morpho', '5.8B', '7.6M', '142,000'],
-          ['Compound', '4.1B', '4.9M', '111,000'],
-          ['Spark', '3.6B', '4.2M', '96,000'],
-        ],
-      },
-      {kind: 'heading', text: '2. Revenue quality'},
-      {
-        kind: 'paragraph',
-        text: 'Revenue quality remains a key differentiator across protocols. Aave’s revenue is more diversified, while Morpho shows growth momentum despite a smaller base. Compound is more sensitive to incentive emissions, and Spark benefits from integration with the Sky ecosystem.',
-      },
-      {kind: 'heading', text: '3. Outlook'},
-      {
-        kind: 'paragraph',
-        text: 'Competition in lending is likely to depend on risk management, capital efficiency and the ability to attract sustainable activity. Outstanding loans and recurring revenue should be evaluated together.',
-      },
-    ],
-  },
   atlas: {
     run: 'RUN 042',
     idleMessage: 'Ready for your next question.',
@@ -114,8 +75,67 @@ const WORKSPACE: Workspace = {
   ],
 };
 
-export default function Console() {
-  const {fileName, pages, paper, atlas, listing, listingPreview, steps} = WORKSPACE;
+// ── ⚠️ THE REPORT THE PANEL SHOWS ────────────────────────────────────────────────────────────────
+//
+// **The most recently saved report in the store, rendered by `narrate.ts`'s `render()`.**
+//
+// ⚠️ **PHASE-6 D4 IS WRONG AS WRITTEN AND THIS REPLACES IT.** D4 said this panel should build
+// `PaperBlock[]` from the fact table "with no parser", to avoid a second renderer. **Building blocks
+// WAS the second renderer, and it was the wrong one.** It printed `{fact:…}` placeholders raw —
+// substitution is `render()`'s entire job, because the model may never type a digit — and it dumped
+// all 140 facts instead of the ten the narrator chose, which is how a two-page report became 52.
+//
+// ⚠️ **`app/markdown.tsx` was purpose-built for exactly this output.** Its own header: *"Not a
+// markdown parser, and should not become one. It reads the output of ONE known generator —
+// `narrate.ts`'s `render()` — which emits exactly four things: one `#` heading, one GFM pipe table,
+// plain paragraphs, and `**bold**` inside cells."* So `render()` → `Markdown` is **one** renderer for
+// one producer, shared with the bought body on `/report/[hash]`. There is no parser and no second
+// answer to what a figure looks like: `show()` inside `render()` is the only one.
+//
+// ⚠️ **A run does not push its report here by itself.** The stream is client-side and this read is
+// server-side, so a new report appears on the next request — reload.
+
+export type DocMeta = {
+  hash: string;
+  directive: string;
+  factCount: number;
+  checksRun: number;
+  checksTotal: number;
+  /** For the sheet's eyebrow — what was read and at which block. */
+  deployments: string;
+  block: number;
+  analyst: string;
+};
+
+async function latestDoc(): Promise<{markdown: string; meta: DocMeta} | null> {
+  const listed = await list(1);
+  if (listed.length === 0) return null;
+  const hash = listed[0].hash;
+  const report = await load(hash);
+  if (!report) return null;
+
+  return {
+    // ⚠️ The hash is passed, so the rendered document carries its own identity — the 32 bytes an ATS
+    // token commits and an Arc market settles against.
+    markdown: render(report, hash),
+    meta: {
+      hash,
+      directive: report.subject.directive,
+      factCount: Object.keys(report.facts).length,
+      checksRun: report.checks.filter((c) => c.outcome !== 'not_checked').length,
+      checksTotal: report.checks.length,
+      deployments: report.subject.deployments.join(' · ') || 'no deployments',
+      block: report.block,
+      analyst: report.analyst,
+    },
+  };
+}
+
+export default async function Console() {
+  const {atlas, listing, listingPreview, steps} = WORKSPACE;
+  // ⚠️ The mockup's paper, fileName and pages are gone from the render — the panel shows the real
+  // latest report, or an empty state when the store has none.
+  const doc = await latestDoc();
 
   return (
     <main className="console-page">
@@ -124,7 +144,7 @@ export default function Console() {
           **renders no DOM element at all** — see `ConsoleSecret.tsx`. */}
       <SecretProvider>
         <div className="workspace">
-          <ConsoleViewer fileName={fileName} paper={paper} pages={pages} />
+          <ConsoleViewer doc={doc} />
           <AtlasPanel atlas={atlas} />
         </div>
       </SecretProvider>

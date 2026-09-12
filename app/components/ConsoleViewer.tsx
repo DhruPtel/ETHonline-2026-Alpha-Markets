@@ -1,9 +1,11 @@
 'use client';
 
-import {useState} from 'react';
+import {useLayoutEffect, useRef, useState} from 'react';
 import {useFitPanel} from '../hooks/useFitPanel.js';
 import {useSecret} from './ConsoleSecret.js';
-import {ReportPaper, type Paper} from './ReportPaper.js';
+import {Markdown} from '../markdown.js';
+import {BrandMark} from './Icons.js';
+import type {DocMeta} from '../console/page.js';
 import {
   ChevronLeft,
   ChevronRight,
@@ -52,18 +54,86 @@ export type Roster = {
   readAt: string;
 };
 
+/**
+ * Split `render()`'s markdown into the chunks a page can be built from — ⚠️ **string work, not
+ * parsing.** A chunk is a run of lines between blank lines; the only special case is a GFM table,
+ * whose header and delimiter are repeated when its rows have to span sheets. Nothing here
+ * interprets markdown: `app/markdown.tsx` is still the only thing that turns it into elements.
+ */
+function chunk(markdown: string): string[] {
+  return markdown
+    .split(/\n{2,}/)
+    .map((c) => c.trim())
+    .filter(Boolean);
+}
+
+/** Split one table chunk so no piece carries more than `rows` data rows, repeating its header. */
+function splitTable(block: string, rows: number): string[] {
+  const lines = block.split('\n');
+  if (lines.length < 3 || !lines[0]!.startsWith('|')) return [block];
+  const [head, delim, ...body] = lines;
+  if (body.length <= rows) return [block];
+  const out: string[] = [];
+  for (let i = 0; i < body.length; i += rows) {
+    out.push([head, delim, ...body.slice(i, i + rows)].join('\n'));
+  }
+  return out;
+}
+
+/**
+ * ⚠️ **A guard, not the pagination.** The packing below is measured; this only makes sure no single
+ * chunk can be taller than a sheet, because a chunk is the smallest thing `pack()` can place. A
+ * 2,000-character assessment is one paragraph and would otherwise sit alone on a sheet it overflows,
+ * and the sheet would scale down rather than paginate. Split at sentence ends, which is where a
+ * printed document breaks a paragraph across pages. ⚠️ **Not one word changes.**
+ */
+function splitProse(block: string, maxChars: number): string[] {
+  if (block.length <= maxChars) return [block];
+  const sentences = block.split(/(?<=\.)\s+/);
+  const out: string[] = [];
+  let current = '';
+  for (const sentence of sentences) {
+    if (current && (current + ' ' + sentence).length > maxChars) {
+      out.push(current);
+      current = sentence;
+    } else {
+      current = current ? `${current} ${sentence}` : sentence;
+    }
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+/** Greedy pack of measured chunk heights into sheets of `available` pixels. */
+function pack(heights: number[], available: number): number[][] {
+  const pages: number[][] = [];
+  let current: number[] = [];
+  let used = 0;
+  for (let i = 0; i < heights.length; i++) {
+    const h = heights[i]!;
+    if (current.length && used + h > available) {
+      pages.push(current);
+      current = [];
+      used = 0;
+    }
+    current.push(i);
+    used += h;
+  }
+  if (current.length) pages.push(current);
+  return pages.length ? pages : [[]];
+}
+
+/** ⚠️ `.report-paper`'s own `min-height`. The sheet is a fixed page; content splits to fit it, and
+ *  the sheet never shrinks to fit content — that is what the pager is for. */
+const PAGE_HEIGHT = 840;
+/** See the guards below — sized so neither kind of chunk can exceed one sheet's budget. */
+const MAX_TABLE_ROWS = 12;
+const MAX_PROSE_CHARS = 900;
+
 const BASE_WIDTH = 690;
 const BASE_ZOOM = 90;
 
-export function ConsoleViewer({
-  fileName,
-  paper,
-  pages,
-}: {
-  fileName: string;
-  paper: Paper;
-  pages: number;
-}) {
+export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | null}) {
   const [tab, setTab] = useState<'report' | 'data'>('report');
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(BASE_ZOOM);
@@ -144,6 +214,72 @@ export function ConsoleViewer({
     }
   }
 
+  // ── Pagination, measured ──────────────────────────────────────────────────────────────────────
+  // ⚠️ A hidden probe renders every chunk at the real sheet width; `useLayoutEffect` reads each
+  // one's height and the sheet's own chrome, then packs them into 840px sheets. Measured, not
+  // estimated — an estimate leaves a scrollbar or a half-empty sheet.
+  // ⚠️ **If the measurement is off the sheet SCALES, it never scrolls**: `.report-paper` is
+  // `min-height: 840px` and `useFitPanel` fits it to the frame. That is the safe direction.
+  const probeRef = useRef<HTMLDivElement>(null);
+  const [pages, setPages] = useState<number[][] | null>(null);
+
+  // ⚠️ **Guards, so that no single chunk can be taller than a sheet.** A chunk is the smallest thing
+  // `pack()` can place, so one that exceeds the page budget sits alone on a sheet it overflows and
+  // `useFitPanel` shrinks that sheet — which is the whole fault this fixes. The budget is ~506px
+  // (840 less ~334 of chrome); a table row measures ~31px and a heading ~56, so **12 rows is ~428px**
+  // and **900 characters of prose is ~370px**, both comfortably inside it.
+  // ⚠️ These two numbers are arithmetic; the packing that uses them is measured.
+  // ⚠️ **Three parts, titled but NOT numbered.** The reference numbers "1. Executive summary /
+  // 2. Revenue quality / 3. Outlook" because those are an essay's three arguments, and numbering
+  // says read them in order. This document has three structural parts — the figures, where they came
+  // from, and the analyst's opinion — and they are always these three, in this order, in every
+  // report the pipeline makes. **Numbering fixed furniture is ceremony**; titling it is navigation.
+  //
+  // ⚠️ Classified by what each chunk STARTS with, which is string inspection of a known generator's
+  // output — the same basis `markdown.tsx` works on. Nothing parses markdown here.
+  const parts = doc
+    ? chunk(doc.markdown)
+        // The `# directive` and `Report hash …` lines move into `.paper-title` above, whole and
+        // unchanged. They are not dropped — they are where the design puts a document's identity.
+        .filter((c) => !c.startsWith('# ') && !c.startsWith('Report hash '))
+        .flatMap((c) => (c.startsWith('|') ? splitTable(c, MAX_TABLE_ROWS) : splitProse(c, MAX_PROSE_CHARS)))
+        .map((source, i, all) => {
+          if (source.startsWith('|')) {
+            // Only the first slice of a split table carries the heading.
+            const firstTable = all.findIndex((x) => x.startsWith('|'));
+            return {title: i === firstTable ? 'Figures' : null, source};
+          }
+          if (source.startsWith('Live data from The Graph')) return {title: 'Provenance', source};
+          // Only the first piece of a split assessment carries the heading; the rest continue it.
+          const firstProse = all.findIndex((x) => !x.startsWith('|') && !x.startsWith('Live data from The Graph'));
+          return {title: i === firstProse ? 'Assessment' : null, source};
+        })
+    : [];
+
+  useLayoutEffect(() => {
+    if (!doc || pages !== null) return;
+    // ⚠️ **`el` IS the `.report-paper` article — the ref sits on it.** This previously read
+    // `el.querySelector('.report-paper')`, which searches DESCENDANTS only, found nothing, and
+    // returned here. `pages` then stayed null forever: the sheet rendered every chunk, the toolbar
+    // said 1 / 1, the article grew far past 840px, and `useFitPanel` scaled the whole document down
+    // to fit. **The document was never paginated at all** — the shrinking was the symptom.
+    const sheet = probeRef.current;
+    if (!sheet) return;
+    const nodes = Array.from(sheet.querySelectorAll('[data-chunk]')) as HTMLElement[];
+    if (nodes.length === 0) return;
+
+    const heights = nodes.map((x) => x.getBoundingClientRect().height);
+    const body = heights.reduce((n, h) => n + h, 0);
+    // The sheet is grown to fit everything at this moment, so subtracting the chunks leaves exactly
+    // the chrome: padding, masthead, the title block and the footer.
+    const chromeHeight = sheet.getBoundingClientRect().height - body;
+    const available = Math.max(120, PAGE_HEIGHT - chromeHeight);
+    setPages(pack(heights, available));
+  }, [doc, pages]);
+
+  const pageCount = pages ? pages.length : 1;
+  const current = Math.min(page, pageCount);
+
   const {frameRef, contentRef, contentStyle} = useFitPanel((zoom / BASE_ZOOM) * BASE_WIDTH);
 
   function onZoomOut() {
@@ -197,7 +333,10 @@ export function ConsoleViewer({
             </button>
           </div>
 
-          <span className="file-name">{fileName}</span>
+          {/* ⚠️ The slot the mockup filled with `lending-protocols-q2-2026.pdf`. There is no file —
+              a report is a row in Neon — so it carries the document's NAME, which is the directive
+              the analyst was given. Before a report exists it says so. */}
+          <span className="file-name">{doc ? doc.meta.directive : 'No report yet'}</span>
 
           <div className="viewer-tools">
             <button type="button" aria-label="Zoom out" onClick={onZoomOut}>
@@ -209,16 +348,16 @@ export function ConsoleViewer({
             </button>
             <i />
             <span>
-              {page} / {pages}
+              {current} / {pageCount}
             </span>
-            <button type="button" aria-label="Previous report page" disabled={page === 1} onClick={() => setPage(page - 1)}>
+            <button type="button" aria-label="Previous report page" disabled={current <= 1} onClick={() => setPage(current - 1)}>
               <ChevronLeft size={17} />
             </button>
             <button
               type="button"
               aria-label="Next report page"
-              disabled={page === pages}
-              onClick={() => setPage(page + 1)}
+              disabled={current >= pageCount}
+              onClick={() => setPage(current + 1)}
             >
               <ChevronRight size={17} />
             </button>
@@ -233,7 +372,69 @@ export function ConsoleViewer({
             <div className="fit-panel" ref={frameRef}>
               <div className="fit-panel-content" ref={contentRef} style={contentStyle}>
                 <div className="paper-scale">
-                  <ReportPaper paper={{...paper, pageLabel: `${String(page).padStart(2, '0')} / ${String(pages).padStart(2, '0')}`}} />
+                  {!doc ? (
+                    /* ⚠️ No report in the store. It says so rather than showing the mockup — a panel
+                       displaying an invented document is the console lying about its own state, and
+                       `PREPARED BY ATLAS RESEARCH · DEMO DATA` was exactly that. */
+                    <article className="report-paper">
+                      <header className="paper-masthead">
+                        <span className="brand"><BrandMark /><span>ALPHA MARKETS</span></span>
+                        <span>RESEARCH REPORT</span>
+                      </header>
+                      <div className="paper-title">
+                        <span className="eyebrow">NOTHING GENERATED YET</span>
+                        <h1>No report to show.</h1>
+                        <p>Ask Atlas for one in the panel beside this. It lands here on the next load.</p>
+                      </div>
+                    </article>
+                  ) : (
+                    /* ⚠️ **The reference's document shape, filled with the real report.**
+                       `.paper-title` carries the eyebrow, the directive at display size, a subtitle
+                       and the byline; `h2`s title the three parts; `markdown.tsx` renders each
+                       part's own content. ⚠️ **Nothing the report says changes** — the heading is
+                       still the directive and the hash is still whole, both moved into the title
+                       block the design put them in. */
+                    <article className="report-paper" ref={pages === null ? probeRef : undefined}>
+                      <header className="paper-masthead">
+                        <span className="brand"><BrandMark /><span>ALPHA MARKETS</span></span>
+                        <span>RESEARCH REPORT</span>
+                      </header>
+
+                      <div className="paper-title">
+                        <span className="eyebrow">{doc.meta.deployments} · block {doc.meta.block.toLocaleString('en-US')}</span>
+                        <h1>{doc.meta.directive}</h1>
+                        <p>
+                          {doc.meta.factCount} measured figures · {doc.meta.checksRun} of{' '}
+                          {doc.meta.checksTotal} checks ran
+                        </p>
+                        {/* ⚠️ The honest version of the reference's mockup byline. The hash is all
+                            64 characters — a prefix is enough to recognise one and not enough to
+                            verify it, and verifying is why it is here. */}
+                        <span className="paper-byline">
+                          {doc.meta.analyst.toUpperCase()} · BLOCK {doc.meta.block} · {doc.meta.hash}
+                        </span>
+                      </div>
+
+                      {(pages === null ? parts.map((_, i) => i) : pages[current - 1] ?? []).map((i) => {
+                        const part = parts[i]!;
+                        return (
+                          <div data-chunk={i} key={i}>
+                            {part.title ? <h2>{part.title}</h2> : null}
+                            <Markdown source={part.source} />
+                          </div>
+                        );
+                      })}
+
+                      <footer className="paper-footer">
+                        <span>Alpha Markets · {doc.meta.analyst.slice(0, 10)}…</span>
+                        <span>
+                          {pages === null
+                            ? '— / —'
+                            : `${String(current).padStart(2, '0')} / ${String(pageCount).padStart(2, '0')}`}
+                        </span>
+                      </footer>
+                    </article>
+                  )}
                 </div>
               </div>
             </div>
