@@ -33,13 +33,27 @@
 
 import {createContext, useContext, useState, type ReactNode} from 'react';
 
-type Secret = {secret: string; setSecret: (s: string) => void};
+/**
+ * ⚠️ **What the run is doing, shared with the document panel.** Generation happens in the Atlas
+ * panel and the document panel is its sibling, so the state cannot be lifted into either — the same
+ * reason the secret lives here. Without it the panel shows the previous report looking current
+ * while a run is in flight, which is the console's most misleading possible state.
+ */
+export type RunState = 'idle' | 'running' | 'saved' | 'failed';
+
+type Secret = {
+  secret: string;
+  setSecret: (s: string) => void;
+  run: RunState;
+  setRun: (r: RunState) => void;
+};
 
 const Ctx = createContext<Secret | null>(null);
 
 export function SecretProvider({children}: {children: ReactNode}) {
   const [secret, setSecret] = useState('');
-  return <Ctx.Provider value={{secret, setSecret}}>{children}</Ctx.Provider>;
+  const [run, setRun] = useState<RunState>('idle');
+  return <Ctx.Provider value={{secret, setSecret, run, setRun}}>{children}</Ctx.Provider>;
 }
 
 export function useSecret(): Secret {

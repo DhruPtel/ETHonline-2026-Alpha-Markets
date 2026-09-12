@@ -1,6 +1,8 @@
 'use client';
 
 import {Fragment, useRef, useState} from 'react';
+import {useRouter} from 'next/navigation.js';
+import {useSecret} from './ConsoleSecret.js';
 import {useFitPanel} from '../hooks/useFitPanel.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, CheckCircle, Database, FileText, Terminal} from './Icons.js';
 
@@ -90,6 +92,14 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
   const [lines, setLines] = useState<RunLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<{hash: string} | null>(null);
+  // ⚠️ **FIX 4 — the report appears without a manual reload.** Generation streams client-side and
+  // the document panel reads the store server-side, so nothing connected them and the console read
+  // as broken. `router.refresh()` re-runs the server component and pushes a new RSC payload into
+  // the existing tree — **it does not reload the page**, so this panel's log, its scroll position
+  // and the run that just finished all survive it. Named imports from `next/navigation.js` are the
+  // ones that work here; see `ConsoleSecret.tsx`'s sibling note about `next/link`.
+  const router = useRouter();
+  const {setRun} = useSecret();
   const started = useRef(0);
 
   // ⚠️ **The stamp is computed HERE, not inside the updater.** React runs the updater when it
@@ -109,6 +119,7 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
 
     setBusy(true);
     setSaved(null);
+    setRun('running');
     started.current = Date.now();
     setLines([{id: nextLineId++, stamp: '0.0s', text: `generate · "${asked}"`}]);
 
@@ -123,6 +134,7 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
 
       if (!res.ok || !res.body) {
         const detail = await res.text();
+        setRun('failed');
         write(`generate · HTTP ${res.status} — ${detail.slice(0, 160)}`);
         return;
       }
@@ -150,7 +162,13 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
             continue;
           }
           if (e.stage === 'done') sawDone = true;
-          if (e.stage === 'save' && typeof e.hash === 'string') setSaved({hash: e.hash});
+          if (e.stage === 'save' && typeof e.hash === 'string') {
+            setSaved({hash: e.hash});
+            setRun('saved');
+            // ⚠️ Fired on `save`, not on `done`: the row exists the moment save reports, and the
+            // refresh runs in parallel with the last stage rather than after it.
+            router.refresh();
+          }
           write(describe(e));
           // ⚠️ The hash on its own line, whole and selectable. It is the report's identity — what
           // an ATS token commits and an Arc market settles against — and truncating it in the only
@@ -165,6 +183,7 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
       // ⚠️ **No retry control anywhere.** The ceiling forbids a resume, not a rerun; a control
       // implying the run could be picked up would be a lie. Ask again and it starts over.
       if (!sawDone) {
+        setRun('failed');
         write(
           'truncated · the stream ended without a done event — the function was killed or the ' +
           'connection dropped. Nothing was saved: save is the last step, so the model tokens are ' +
@@ -172,6 +191,7 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
         );
       }
     } catch (error) {
+      setRun('failed');
       write(`generate · ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       started.current = 0;

@@ -95,6 +95,14 @@ const WORKSPACE: Workspace = {
 // ⚠️ **A run does not push its report here by itself.** The stream is client-side and this read is
 // server-side, so a new report appears on the next request — reload.
 
+// ⚠️ **Per request, never prerendered.** Without this Next renders `/console` once at build time
+// and the document panel freezes on whatever report was newest when the deploy ran — so a report
+// generated a minute ago never appears, and `router.refresh()` has nothing new to fetch. `/` carries
+// the same directive for the same reason. **This page had lost it, and that is why a fresh report
+// did not show up even after the refresh was wired.**
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 export type DocMeta = {
   hash: string;
   /** ⚠️ The narrator's own name, or a heading derived from the directive when there is none. */

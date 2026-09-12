@@ -3,6 +3,7 @@
 import {useLayoutEffect, useRef, useState} from 'react';
 import {useFitPanel} from '../hooks/useFitPanel.js';
 import {useSecret} from './ConsoleSecret.js';
+import {useRouter} from 'next/navigation.js';
 import {Markdown} from '../markdown.js';
 import {BrandMark} from './Icons.js';
 import type {DocMeta} from '../console/page.js';
@@ -105,13 +106,14 @@ function splitProse(block: string, maxChars: number): string[] {
 }
 
 /** Greedy pack of measured chunk heights into sheets of `available` pixels. */
-function pack(heights: number[], available: number): number[][] {
+function pack(heights: number[], firstPage: number, laterPages: number): number[][] {
   const pages: number[][] = [];
   let current: number[] = [];
   let used = 0;
   for (let i = 0; i < heights.length; i++) {
     const h = heights[i]!;
-    if (current.length && used + h > available) {
+    const budget = pages.length === 0 ? firstPage : laterPages;
+    if (current.length && used + h > budget) {
       pages.push(current);
       current = [];
       used = 0;
@@ -142,7 +144,8 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
   // ⚠️ **The secret is still read and still sent, and it is currently always `''`.** The six console
   // routes have `locked()` commented out, so the header is ignored — but keeping the send means
   // re-wiring the lock is a change in `lock.ts`'s callers and nothing here. See DECISIONS.md.
-  const {secret} = useSecret();
+  const {secret, run} = useSecret();
+  const router = useRouter();
   const [roster, setRoster] = useState<Roster | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,22 +240,33 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
   //
   // ⚠️ Classified by what each chunk STARTS with, which is string inspection of a known generator's
   // output — the same basis `markdown.tsx` works on. Nothing parses markdown here.
+  // ⚠️ **FIX 1 — the provenance line is a CAPTION, not a section.** It was its own part with its own
+  // `h2`, so `pack()` treated it as an item; the table filled page one and the caption was pushed to
+  // page two, which then held a masthead, a title block and one line. **It is attached to the table's
+  // own chunk here**, so it can never separate from the figures it describes.
   const parts = doc
     ? chunk(doc.markdown)
         // The `# directive` and `Report hash …` lines move into `.paper-title` above, whole and
         // unchanged. They are not dropped — they are where the design puts a document's identity.
         .filter((c) => !c.startsWith('# ') && !c.startsWith('Report hash '))
+        .reduce<string[]>((acc, c) => {
+          // The provenance line rides with the last table chunk rather than standing alone.
+          const last = acc[acc.length - 1];
+          if (c.startsWith('Live data from The Graph') && last?.startsWith('|')) {
+            acc[acc.length - 1] = `${last}\n\n${c}`;
+            return acc;
+          }
+          acc.push(c);
+          return acc;
+        }, [])
         .flatMap((c) => (c.startsWith('|') ? splitTable(c, MAX_TABLE_ROWS) : splitProse(c, MAX_PROSE_CHARS)))
         .map((source, i, all) => {
           if (source.startsWith('|')) {
-            // Only the first slice of a split table carries the heading.
             const firstTable = all.findIndex((x) => x.startsWith('|'));
-            return {title: i === firstTable ? 'Figures' : null, source};
+            return {title: i === firstTable ? 'Figures' : null, source, cont: i !== firstTable};
           }
-          if (source.startsWith('Live data from The Graph')) return {title: 'Provenance', source};
-          // Only the first piece of a split assessment carries the heading; the rest continue it.
-          const firstProse = all.findIndex((x) => !x.startsWith('|') && !x.startsWith('Live data from The Graph'));
-          return {title: i === firstProse ? 'Assessment' : null, source};
+          const firstProse = all.findIndex((x) => !x.startsWith('|'));
+          return {title: i === firstProse ? 'Assessment' : null, source, cont: i !== firstProse};
         })
     : [];
 
@@ -274,7 +288,11 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
     // the chrome: padding, masthead, the title block and the footer.
     const chromeHeight = sheet.getBoundingClientRect().height - body;
     const available = Math.max(120, PAGE_HEIGHT - chromeHeight);
-    setPages(pack(heights, available));
+    // ⚠️ **FIX 3 — continuation pages do not carry the title block, so they have more room.**
+    // Measured rather than assumed: the title block's own height is handed back to pages two onward.
+    const titleBlock = sheet.querySelector('.paper-title') as HTMLElement | null;
+    const extra = titleBlock ? titleBlock.getBoundingClientRect().height : 0;
+    setPages(pack(heights, available, available + extra));
   }, [doc, pages]);
 
   const pageCount = pages ? pages.length : 1;
@@ -361,6 +379,12 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
             >
               <ChevronRight size={17} />
             </button>
+            {/* ⚠️ `router.refresh()` re-runs the server component without a page reload, so the
+                terminal and the run survive it. A run already does this on save; this is for the
+                case where you want the store re-read by hand. */}
+            <button type="button" aria-label="Reload the latest report" onClick={() => router.refresh()}>
+              <RefreshCw size={14} />
+            </button>
             <button type="button" aria-label="Expand report" onClick={onExpand}>
               <Maximize size={15} />
             </button>
@@ -369,6 +393,22 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
 
         {tab === 'report' ? (
           <div className="tab-panel document-stage">
+            {/* ⚠️ **FIX 4 — the panel says what the run is doing, so the previous report never
+                passes for the new one.** While a run is in flight the sheet below is explicitly
+                labelled as the earlier report; when a run dies the panel says nothing was saved
+                rather than sitting on a spinner or quietly showing a stale document as the result. */}
+            {run === 'running' && (
+              <p className="notice">
+                Atlas is writing a report — about 50 seconds. <strong>The sheet below is the previous
+                report</strong>; the new one replaces it when the run saves.
+              </p>
+            )}
+            {run === 'failed' && (
+              <p className="notice">
+                The run did not finish, and <strong>nothing was saved</strong> — the model tokens are
+                spent and no report exists. The sheet below is unchanged. Ask again to start over.
+              </p>
+            )}
             <div className="fit-panel" ref={frameRef}>
               <div className="fit-panel-content" ref={contentRef} style={contentStyle}>
                 <div className="paper-scale">
@@ -400,6 +440,12 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
                         <span>RESEARCH REPORT</span>
                       </header>
 
+                      {/* ⚠️ **FIX 3 — the title block is page one's only.** Every sheet repeating the
+                          eyebrow, a 42px headline, the directive and the byline cost ~190px on every
+                          page, which is what left page two three-quarters empty. Continuation sheets
+                          carry the masthead — it is the letterhead and a loose sheet needs it — and
+                          one line naming the report and the page instead. */}
+                      {current === 1 || pages === null ? (
                       <div className="paper-title">
                         <span className="eyebrow">{doc.meta.deployments} · block {doc.meta.block.toLocaleString('en-US')}</span>
                         <h1>{doc.meta.heading}</h1>
@@ -414,13 +460,25 @@ export function ConsoleViewer({doc}: {doc: {markdown: string; meta: DocMeta} | n
                           {doc.meta.analyst.toUpperCase()} · BLOCK {doc.meta.block} · {doc.meta.hash}
                         </span>
                       </div>
+                      ) : (
+                        <p className="paper-byline">
+                          {doc.meta.heading.toUpperCase()} · CONTINUED · PAGE {current} OF {pageCount}
+                        </p>
+                      )}
 
                       {(pages === null ? parts.map((_, i) => i) : pages[current - 1] ?? []).map((i) => {
                         const part = parts[i]!;
                         return (
                           <div data-chunk={i} key={i}>
+                            {/* ⚠️ **FIX 2 — a split section says it is split, at both ends.** A
+                                three-page assessment with no marker reads as three unrelated blocks
+                                of prose. `.muted` is the design's own quiet register. */}
                             {part.title ? <h2>{part.title}</h2> : null}
+                            {part.cont ? <p className="muted">…continued</p> : null}
                             <Markdown source={part.source} />
+                            {pages !== null && !(pages[current - 1] ?? []).includes(i + 1) && parts[i + 1]?.cont ? (
+                              <p className="muted">Continues on page {current + 1} →</p>
+                            ) : null}
                           </div>
                         );
                       })}

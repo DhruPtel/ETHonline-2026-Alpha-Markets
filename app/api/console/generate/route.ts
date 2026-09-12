@@ -172,6 +172,9 @@ export async function POST(request: Request): Promise<Response> {
         // hidden; splitting the catch is a change to this route's error contract and was not asked
         // for.
         await recordContextDigest(hash, context);
+          // ⚠️ Beside the report, never inside it. A null title — the digit guard rejected it, or
+          // the narrator gave none — is a no-op; NULL already means "no title".
+          await recordTitle(hash, title);
         emit({
           stage: 'save', status: 'ok', hash, inserted, facts, block: report.block, title,
           contextDigest: context?.digest ?? null,

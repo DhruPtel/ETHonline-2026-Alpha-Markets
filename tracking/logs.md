@@ -12333,3 +12333,100 @@ object it is deliberately outside of.** That broke five call sites. Four are scr
 to `const { report } = …`. ⚠️ **Beyond the constraint's list, and I did it anyway** — leaving them
 uncompilable was not an option and the alternative was module-level state.
 
+
+---
+
+## 2026-09-12 — Commit two: four panel fixes, and two faults of mine found by running it
+
+`app/components/{ConsoleViewer,AtlasPanel,ConsoleSecret}.tsx`, `app/console/page.tsx`. `next build`
+exit 0 with `.next` cleared. `globals.css` untouched — **no rule was missing.**
+
+### ⚠️ Two faults the proof caught, and neither would have shown in a build
+
+**1 · `recordTitle` was imported and never called.** My patch targeted
+`"          await recordContextDigest(hash, context);"` and the file's indentation was eight spaces,
+not ten — so the replace silently did nothing. The stream reported
+`"title":"MakerDAO Vault Deposits Vs Borrows"` while the column stayed NULL. ⚠️ **A build cannot
+catch a string replace that matched nothing**, and the commit-one proof I ran read the stream rather
+than the column. Fixed, and re-proved against the column this time.
+
+**2 · `/console` had lost `export const dynamic = 'force-dynamic'`.** My block-builder insertion
+earlier in the phase removed it. The page was being **prerendered at build time**, so the panel froze
+on whatever report was newest when the deploy ran — and `router.refresh()` had nothing new to fetch.
+⚠️ **The refresh was correct and the page was cached underneath it.** `/console` now shows as `ƒ` in
+the route table. `/` carries the same directive for the same reason.
+
+### The four fixes
+
+**1 · The provenance page.** The line had its own `h2` and was therefore its own item to `pack()`;
+the table filled page one and the caption was pushed to page two, which then held a masthead, a title
+block and one line of text. ⚠️ **It is a caption, not a section** — it is now appended to the table's
+own chunk, so it can never separate from the figures it describes. `Provenance` is gone as a heading.
+
+**2 · The assessment split.** Split parts now carry `…continued` at the top and
+`Continues on page N →` at the foot, in `.muted`, the design's own quiet register. ⚠️ **If one
+paragraph alone exceeds a page:** `splitProse()` cuts at sentence ends first, so it does not — the
+guard is 900 characters ≈ 370px against a ~506px budget. The unsplittable case left is a single
+*sentence* longer than a sheet (~1,400 characters); that chunk would sit alone on a page it
+overflows and `useFitPanel` would scale that one sheet. No narrator has produced one.
+
+**3 · The masthead on every page.** Page one carries the full title block; ⚠️ **continuation sheets
+carry the masthead and one line** — `HEADING · CONTINUED · PAGE n OF m` in `.paper-byline` — instead
+of repeating a 42px headline, the directive and the byline. That is ~190px returned to every page
+after the first, and `pack()` now takes **two budgets**, the second measured from the title block's
+own height rather than assumed.
+
+**4 · The refresh.** `router.refresh()` fires on the `save` stage — not `done`, because the row
+exists the moment save reports. ⚠️ **It re-runs the server component without reloading the page**, so
+the terminal, the log and the finished run all survive it.
+
+⚠️ **And the panel says what the run is doing, so the previous report never passes for the new one.**
+Run state is shared through the context that already exists for the secret — the two panels are
+siblings, so it cannot be lifted into either:
+
+| state | the document panel shows |
+|---|---|
+| running | *"Atlas is writing a report — about 50 seconds. **The sheet below is the previous report**"* |
+| failed / truncated / HTTP error | *"The run did not finish, and **nothing was saved** — the model tokens are spent and no report exists. The sheet below is unchanged."* |
+| saved | the banner clears and the new report is there |
+
+**It never sits loading**: `setRun('failed')` is on every exit path — the truncation branch, the
+catch, and a non-OK response. The toolbar also gained a **Reload the latest report** control for the
+case where you want the store re-read by hand.
+
+### Proof — generated and watched, no reload
+
+```
+directive  "Balance overview for Compound v3 on Ethereum"
+save       title:"Compound v3 Ethereum Balance Overview"
+column     title="Compound v3 Ethereum Balance Overview"      ← read back from Postgres
+panel      h1        Compound v3 Ethereum Balance Overview    ← the narrator's title
+           subtitle  Balance overview for Compound v3 on Ethereum   ← the directive, verbatim
+           sections  Figures · Assessment                     ← provenance folded into Figures
+           "{fact:"  0
+```
+
+### The title, short directive and long
+
+```
+short  "Balance overview for Compound v3 on Ethereum"   (43 chars)
+    →  "Compound v3 Ethereum Balance Overview"          0 figures · v3 kept, it is a name
+
+long   "Show me a balance overview of the MakerDAO markets on Ethereum including which
+        vault types hold the most collateral and how the deposits compare against
+        outstanding borrows across the whole protocol"  (199 chars)
+    →  "MakerDAO Vault Deposits Vs Borrows"             0 figures
+```
+
+⚠️ **The long one was produced before fault 1 was fixed, so it is from the stream rather than the
+column** — said rather than glossed. Eleven pre-008 rows plus that one still read NULL and get the
+derived heading: `Show me a balance overview of the MakerDAO markets on…`, cut at a word boundary.
+
+### Pages
+
+⚠️ **Estimated — the packing measures real element heights in a browser I do not have.** With the
+provenance folded in and the title block off continuation pages, the makerdao report should drop from
+4 to about 3, and page two now carries the masthead, a one-line continuation header and content
+rather than a title block and one sentence. **If it is still empty when you look, that is a real
+finding.**
+
