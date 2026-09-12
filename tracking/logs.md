@@ -15190,3 +15190,184 @@ The five that carry `aave-v3-ethereum.totalBorrowBalanceUSD` all plan: `65fb085d
    grades when it settles on 2026-09-15.
 
 **Nothing was committed. That press is yours.**
+
+---
+
+## 2026-09-12 — PHASE-7 planned: the feedback loop's surfaces
+
+One new file, `tracking/phases/PHASE-7.md`. No code.
+
+### Four premises in the brief were wrong, and each changed the plan
+
+⚠️ **The resolved rehearsals cannot be scored — they carry no claims.** Markets 8, 9 and 10 have
+zero claims between them, and `scoreMarket()` iterates `claimsFor()`. `scoreSettled()` run right now
+writes nothing. So the "don't inflate the record with rehearsals" problem is moot today — there is
+nothing there to inflate it with. The rule still has to be written, because a future rehearsal could
+carry a claim, but it is not on the critical path.
+
+⚠️ **The first real scores are hours away, not days, and two are imminent.** Markets 6 and 7 become
+resolvable at **2026-09-13T00:00:00Z** — a quarter of an hour after I measured — and their resolve
+deadline is **2026-09-15**. A market not resolved by its deadline voids, and a void scores
+`forecast_correct = null`. **If nothing runs, the first two grades in this project's history are two
+nulls**, one of them on a market holding a human's 1.00 USDC. That is now the plan's only deadline.
+
+⚠️ **`/holdings` is not wired.** The page renders a `HOLDINGS` const with invented values and the
+route table shows it `○` static, which a store-reading page cannot be. `app/api/holdings/route.ts`
+**is** real — mirror node, `report_tokens`, `balanceOf`. So absorbing it is building a page over an
+existing route, not moving a finished one, and the estimate says so.
+
+⚠️ **Market 12 already has a claim.** Chain claim 9, report `65fb085d26…`, side TRUE, **1.0 USDC**,
+committed 2026-09-12T23:34:01Z — the commit control was pressed from the browser. The last unproven
+step of the loop is proven, and every task can assume it.
+
+**A fifth thing, found while checking the join:** ⚠️ two market rows share `chain_market_id = '8'` on
+the same contract, one with `resolve_tx` and one without. Anything joining display data on
+`chain_market_id` picks whichever comes back first. Every query in the phase joins on `markets.id`.
+
+### The question asked directly: can a score reach its Arc transaction?
+
+**Yes, and no column is missing.** `scores` is keyed `(market_id, claim_id)`, both FKs; `markets`
+carries `resolve_tx` (005) and `void_tx` (006), and both are **populated** on the settled markets. One
+join over `scores → markets → claims → reports` yields the grade, the market, the claim, the report,
+the money and the settlement transaction. A resolved market links `resolve_tx`; a voided one links
+`void_tx` and says *voided*, not *wrong*. ⚠️ And arcscan's status code proves nothing — it is an SPA
+that serves the same shell for a nonsense path — so any task shipping one of these links verifies the
+transaction on the Arc RPC first, the way the ATS receipt was checked against the mirror node.
+
+### The decisions, all taken rather than deferred
+
+**Nav becomes four: Console · Reports · Markets · Analyst**, with `/holdings` absorbed and unlinked —
+a separate holdings item and an analyst item would be two answers to one question.
+
+**Scoring is triggered by the resolve cron**, with a manual script beside it. On-read was rejected
+because a render that writes makes `scored_at` record when somebody browsed; manual-only was rejected
+because of the 2026-09-15 deadline.
+
+**The context section shows the literal block**, not a rendering of the rows — the digest is taken
+over exactly those bytes and `reports.context_digest` stores it, so showing the bytes is the only
+version that stays checkable. It goes on `/analyst`, and it names which stored reports carry that
+digest, which is the loop made checkable rather than asserted.
+
+⚠️ **The marker is three counts, never a percentage.** A report backing two claims that disagree
+reads *"2 claims graded · 1 right, 1 wrong"* — neutral, not 50%, because averaging destroys exactly
+what a buyer wants to know. A void is grey, counted in neither column, and stated separately. An
+ungraded report gets **no marker at all**, not a grey zero.
+
+**Rehearsals are scored and excluded from the record**, by the `observation_end <= created_at`
+arithmetic rather than by name, and the exclusion is printed beside the counts rather than applied
+silently.
+
+### Tasks, and the minimum
+
+```
+1  scoring runs — cron caller + scripts/ops/score.ts        ~60 lines   ⚠️ deadline 2026-09-15
+2  /analyst — record, holdings, reports generated          ~260 lines
+3  the context block, verbatim, with its digest             ~90 lines
+4  the green/red/grey marker on report cards               ~120 lines
+5  the score on the market page                             ~70 lines   extra
+```
+
+⚠️ **Minimum for the loop to be visible: 1, 2 and 3.** Task 4 is the one to add if there is time —
+a marker on a marketplace card is the moment the record stops being a page you navigate to and
+becomes a property a buyer sees while browsing. Task 5 is polish.
+
+**Four of the five tasks are views over machinery that already works** — `score.ts`, `context.ts`,
+`resolve.ts` and `/api/holdings` are all built and proven. Only Task 1 touches behaviour, and it is
+the smallest. **Nothing in the phase needs a migration, a contract change or a new dependency.**
+
+### The one thing the plan cannot decide
+
+Whether the context block is legible enough to show verbatim or needs structure around it. It is
+generated prose and `build()` returns `null` today because `scores` is empty, so I have never seen it
+rendered with content. **Task 3 decides it, and only after Task 1 has put rows in the table.**
+
+---
+
+## 2026-09-12 — orientation before Task 1: the two checks, and five things the plan has slightly wrong
+
+No code. A read-only survey of the machinery Phase 7 is about to build on, taken at 23:51Z, plus the
+two checks. Nothing was spent, nothing was written to the chain or the database.
+
+### The two checks both pass
+
+`npx next build` after clearing `.next` — **exit 0**, TypeScript clean, 23 routes. Worth noting the
+route table still shows `/holdings` as `○` static, which is the tell PHASE-7 §0.3 already called: a
+page that reads the store cannot be static, so that page is still demo content.
+
+`npx tsx --env-file=.env scripts/ops/migrate.ts` — **PASS**, nine migrations, every statement a
+`already exists, skipping` no-op. Thirteen tables.
+
+### Where markets 6 and 7 actually are, read off the chain rather than the plan
+
+Both are **unsettled on chain and unsettled in the store** — `resolved=false voided=false`, no
+`resolve_tx`, no `void_tx`. The chain clock was 2026-09-12T23:52:50Z when I read it.
+
+```
+chain 6   poolTrue 1.01  poolFalse 0.0   obsEnd 2026-09-13T00:00Z  deadline 2026-09-15T00:00Z
+chain 7   poolTrue 0.01  poolFalse 0.0   obsEnd 2026-09-13T00:00Z  deadline 2026-09-15T00:00Z
+chain 11  poolTrue 4.01  poolFalse 0.0   obsEnd 2026-09-15T00:00Z  deadline 2026-09-17T00:00Z
+chain 12  poolTrue 1.00  poolFalse 0.0   obsEnd 2026-09-15T00:00Z  deadline 2026-09-17T00:00Z
+```
+
+**Nothing has ever resolved except the three rehearsals** (8 and the duplicate-id row, 9, 10).
+`scores` has **zero rows**, `payouts` has **zero rows**, and `settlement_evidence` has four rows, all
+of them rehearsals — **there is no evidence row for 6, 7, 11 or 12**, so no settlement has ever been
+attempted against a real market.
+
+### ⚠️ Five corrections, each verified rather than assumed
+
+**⚠️ 1 · Nothing voids at the deadline. The contract has no upper bound on `resolve()`.** The guards
+are `NotResolver → AlreadySettled → TooEarlyToResolve → NoEvidence` and there is no "too late". What
+changes at `resolveDeadline` is that **`voidMarket` becomes permissionless** — after
+2026-09-15T00:00:00Z anybody may void markets 6 and 7, and `AlreadySettled` then locks resolve out.
+So the risk is a **race, not an expiry**, plus our own `prepare()` guard 8 voting to void if the
+subgraph never publishes the day. The plan's "a market not resolved by its deadline voids" overstates
+the mechanism while understating one half of it: the analyst can still resolve after the deadline, but
+only until someone else voids first.
+
+**⚠️ 2 · Nothing can resolve for another hour, so tonight's window is narrower than it looks.**
+`FRESHNESS_MARGIN_SECONDS` is 3600, and `settle()` requires `_meta.block.timestamp >= observationEnd +
+margin`. Markets 6 and 7 are therefore unreadable until **2026-09-13T01:00:00Z** — an hour after they
+become "resolvable". Before that `settle()` throws `SettlementTooEarly` and the run is a skip.
+
+**⚠️ 3 · The resolve cron fires at 02:00Z and there are only two of them before the deadline.**
+`vercel.json` schedules `/api/cron/resolve` at `0 2 * * *`. That is 2026-09-13T02:00Z and
+2026-09-14T02:00Z; the 09-15 run is **two hours after the deadline has already opened voiding to
+anyone**. Two scheduled attempts, no retry on Hobby.
+
+**⚠️ 4 · `context_digest` is NOT null on every report — two carry a stale demo digest.** Reports
+`0fb5b9a8df13` and `48057f007392` both carry `f28a93d4c583…`, left behind by
+`scripts/demo/context.ts`, whose cleanup blanks the column for **one** report (`anyReport.hash`) and
+evidently ran twice. `scores` is empty, so `build()` returns `null` today and that digest corresponds
+to a block that **cannot be reproduced**. Task 3's planned empty-state copy — *"`context_digest` is
+null on every report"* — is false as written, and Task 3's "which reports carry this digest" section
+will match nothing while two reports display a digest with no block behind it.
+
+**⚠️ 5 · The human's money is mostly in market 11, not market 6.** Market 6 holds one 1.00 USDC stake
+from `0x683eE842…`. Market 11 holds **four** separate 1.00 USDC stakes from the same address across
+four transactions and four blocks — 4.00 USDC. Market 12's 1.00 USDC is the **analyst's own** commit,
+not a human's. The hands-off list is right; the sentence explaining it is not.
+
+**And a sixth, which is good news:** `poolFalse` is **0.00 on all four markets**, so `payoutOf`'s
+`winningPool == 0` branch refunds every staker their own stake whichever way these resolve. **Nobody
+loses money on the outcome.** What is actually at stake tonight is the *record* — whether the first
+two grades this project produces are real or null.
+
+### What Task 1 needs, given all of that
+
+The plan's two pieces are right and the file split is right. What the survey adds:
+
+- **`scoreSettled()` today writes nothing and that is expected** — the only settled markets are
+  rehearsals 8, 9 and 10, which have zero claims between them. It becomes non-trivial the moment
+  something resolves 6 or 7.
+- **Scoring is not the blocker; resolving is.** A score row cannot exist until a market settles, and
+  settling 6 and 7 needs `settle()` → `recordSettlement()` → `prepare()` → `resolveMarket()`, which is
+  either the 02:00Z cron or `scripts/ops/resolve-market.ts --market=… --send` by hand. **That script
+  spends.** Task 1 as written adds the scoring caller; it does not by itself make 6 and 7 resolve.
+- **Attribution is clean for both.** The claims' author is the analyst `0x1b7035bb…`; the only staker
+  is `0x683eE842…`. `returnFor`'s `not-attributable` guard will not fire, and with `payouts` empty
+  both score as `no-payout-recorded` with `returned = null` — silence, not zero.
+- **An open question I could not settle from here:** whether the deployed Vercel build is current.
+  `.vercel/repo.json` links project `et-honline-2026-alpha-markets`, but if the deployment is behind
+  `main` then the cron caller Task 1 adds does not exist in the build that fires at 02:00Z, and the
+  manual script is the only mechanism tonight.
