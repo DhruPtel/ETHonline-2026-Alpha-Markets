@@ -1,5 +1,20 @@
 'use client';
 
+// ⚠️ ════ `SecretField` IS TEMPORARILY NOT RENDERED — 2026-09-12 ═══════════════════════════════
+//
+// The six console routes have their `locked()` call commented out, so no route reads this value.
+// **`SecretProvider` is still mounted and `useSecret()` still works** — `ConsoleViewer` reads it and
+// still sends the header, which is ignored — but `AtlasPanel` no longer renders the input.
+//
+// ⚠️ **A field asking for a secret the routes ignore is worse than no field.** It implies a gate
+// that is not there, and it makes every console surface look broken until something is pasted.
+//
+// **Nothing here is deleted.** Putting it back is one line in `AtlasPanel.tsx` — `<SecretField />`
+// above the composer — plus uncommenting `locked()` in the six routes. See
+// `app/api/console/lock.ts` and `tracking/DECISIONS.md` 2026-09-12.
+//
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//
 // The console doorlock's browser half — one value, shared by two panels that are not siblings.
 //
 // ⚠️ **`CONSOLE_SECRET` is typed by a human and never built into anything.**

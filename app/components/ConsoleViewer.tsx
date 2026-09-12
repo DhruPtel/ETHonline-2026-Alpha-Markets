@@ -69,6 +69,9 @@ export function ConsoleViewer({
   const [zoom, setZoom] = useState(BASE_ZOOM);
 
   // ── The roster ────────────────────────────────────────────────────────────────────────────────
+  // ⚠️ **The secret is still read and still sent, and it is currently always `''`.** The six console
+  // routes have `locked()` commented out, so the header is ignored — but keeping the send means
+  // re-wiring the lock is a change in `lock.ts`'s callers and nothing here. See DECISIONS.md.
   const {secret} = useSecret();
   const [roster, setRoster] = useState<Roster | null>(null);
   const [busy, setBusy] = useState(false);
@@ -254,18 +257,11 @@ export function ConsoleViewer({
                 <span className="eyebrow">THE GRAPH / LENDING DEPLOYMENTS</span>
                 <h2>What you can ask about.</h2>
               </div>
-              <button className="btn outline" type="button" onClick={onReadRoster} disabled={busy || !secret}>
+              <button className="btn outline" type="button" onClick={onReadRoster} disabled={busy}>
                 <RefreshCw size={15} />
                 {busy ? 'Reading…' : roster ? 'Read again' : 'Read the roster'}
               </button>
             </div>
-
-            {!secret && (
-              <p className="muted">
-                Paste <code>CONSOLE_SECRET</code> in the Atlas panel first — a read spends Graph
-                quota, so this route is locked for the same reason Generate is.
-              </p>
-            )}
 
             {error && <p className="notice">{error}</p>}
 

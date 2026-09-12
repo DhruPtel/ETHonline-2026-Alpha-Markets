@@ -15,7 +15,8 @@
 // rather than the state when the plan was drawn.
 
 import { NextResponse } from 'next/server.js';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { prepare, tokenize, FACTORY_ID, RESOLVER_ID } from '../../../../src/tokenize/ats.js';
 import { ChainWriteError, hbar, settledBalance, usdPerHbar } from '../../../../src/tokenize/hedera.js';
 import { db } from '../../../../src/store/db.js';
@@ -30,9 +31,14 @@ const SM07 = { deployEquity: 7.04954250, grantRole: 0.18894645, issue: 0.4734618
 const SM07_UNIT8 = SM07.deployEquity + SM07.grantRole + SM07.issue;   // 7.71195075
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **Locked: this spends ~7.7 HBAR and mints a PERMANENT asset.** See `../lock.ts`.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **This spends ~7.7 HBAR and mints a PERMANENT asset.** The doorlock is unwired below.
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   const { reportHash, confirm } = (await request.json().catch(() => ({}))) as
     { reportHash?: string; confirm?: boolean };

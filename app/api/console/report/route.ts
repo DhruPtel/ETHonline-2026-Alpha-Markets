@@ -35,7 +35,8 @@
 //
 
 import { NextResponse } from 'next/server.js';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { load } from '../../../../src/store/reports.js';
 import { render } from '../../../../src/agent/narrate.js';
 import { tokenFor } from '../../../../src/store/tokens.js';
@@ -46,8 +47,13 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request): Promise<NextResponse> {
   // ⚠️ **THE PAYWALL BOUNDARY. This must stay the first statement in this handler.** Everything
   // below returns the same bytes a settled x402 payment buys.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   const { reportHash } = (await request.json().catch(() => ({}))) as { reportHash?: string };
   const hash = reportHash?.trim();

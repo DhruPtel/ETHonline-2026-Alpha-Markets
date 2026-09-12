@@ -12,7 +12,7 @@
 // design and reports strictly more**: absent / EMPTY / set for four variables including
 // `HEDERA_SELLER_KEY` and `DATABASE_URL`, with finer granularity than this route has.
 //
-// ⚠️ **So it is locked for a different and better reason: a route whose safety rests on an argument
+// ⚠️ **So it WAS locked for a different and better reason: a route whose safety rests on an argument
 // about a DIFFERENT route is a route nobody can reason about locally.** If `/api/health`'s env block
 // is ever trimmed — and it arguably should be — this would silently become the most disclosing
 // endpoint in the app, with nothing here to say so. Locked, that question never has to be asked
@@ -35,7 +35,8 @@
 // shows them side by side.
 
 import { NextResponse } from 'next/server.js';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { ethers } from 'ethers';
 import { ANALYSTS } from '../../../../src/config/analysts.js';
 import { fetchJson, MIRROR, hbar } from '../../../../src/tokenize/hedera.js';
@@ -69,8 +70,13 @@ interface Account {
 
 export async function GET(request: Request): Promise<NextResponse> {
   // ⚠️ Operator-only. See the header — and note this takes `request` now, which it did not before.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   try {
     const analyst = ANALYSTS[0]!;

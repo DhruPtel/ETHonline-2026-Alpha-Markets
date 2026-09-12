@@ -11484,3 +11484,95 @@ roster* once.** Then the log says which it is:
 ⚠️ **No code changed in this task.** A fix for a problem I did not observe is how the last two
 attempts went, and the brief is right to forbid it.
 
+
+---
+
+## 2026-09-12 — ⚠️ TEMPORARY: the console doorlock is unwired so the wiring can proceed
+
+Six routes stop calling `locked()`. **Nothing deleted** — the call is commented out in each,
+`lock.ts` is intact with a banner, `CONSOLE_SECRET` stays in `.env` and `.env.example`, and
+`ConsoleSecret.tsx` keeps its provider, hook and field component. `next build` exit 0 with `.next`
+cleared. `DECISIONS.md` carries the entry and what puts it back.
+
+### ⚠️ The roster renders with nothing pasted
+
+```
+POST /api/console/source   — no x-console-secret header at all
+
+  status         200
+  rows           28
+  answering      22 of 28
+  block          25,962,726
+  requestedBlock null
+  fetchedAt      2026-09-12T17:07:59.164Z
+  versions       3.1.0 · 3.0.1 · 3.0.0 · 2.0.1 · 1.3.0
+  truncated      false
+```
+
+### The other five answer rather than refusing
+
+⚠️ **A 400 here is the route's own validation, reached only after the doorlock would have fired.**
+An empty body is deliberate: each spending route rejects it *before* it spends, so this proves the
+lock is gone without costing a token, an HBAR or a mint.
+
+```
+generate   400  {"error":"a directive is required"}
+tokenize   400  {"error":"a report hash is required"}
+transfer   400  {"error":"a report hash and a recipient address are both required"}
+report     400  {"error":"a report hash is required"}
+accounts   200  {"accounts":[{"role":"analyst","label":"alpha-1 · Alpha Markets House Analyst"…
+source     200  the roster
+
+all six, POST with no header:  200 400 400 400 400 405   ← zero 401s
+```
+
+*(`accounts` is GET-only, so its POST is 405 — also past the lock. Its GET is the 200 above.)*
+
+### ⚠️ Nothing else lost a guard, verified rather than asserted
+
+```
+/api/reports/<a real stored hash>  unpaid  →  402      the x402 gate still challenges
+/api/cron/commit   without CRON_SECRET     →  401
+/api/cron/resolve  without CRON_SECRET     →  401
+```
+
+The x402 gate works for a completely different reason — a settled on-chain payment verifiable by a
+stranger — and `CRON_SECRET` is a different mechanism for a caller that is never a human at a
+keyboard. Neither was touched.
+
+### The field: hidden, not deleted, and the reason is the brief's own
+
+⚠️ **`<SecretField />` is no longer rendered in `AtlasPanel`.** A field asking for a secret the
+routes ignore is worse than no field — it implies a gate that is not there and makes every console
+surface look broken until something is pasted.
+
+**What stayed:** `ConsoleSecret.tsx` whole, `SecretProvider` still mounted, `useSecret()` still
+working, and `ConsoleViewer` **still sends the header** with its (now always empty) value. That last
+one is deliberate: re-wiring the lock then touches the six routes and one line of `AtlasPanel`, and
+**not the data path**.
+
+**What changed downstream:** the *Read the roster* button was `disabled={busy || !secret}` and is now
+`disabled={busy}`, and the *"Paste CONSOLE_SECRET in the Atlas panel first"* message is gone. Leaving
+either would have kept the panel unusable for a lock that no longer exists.
+
+### ⚠️ Five route headers claimed to be locked and were corrected
+
+`source`, `generate`, `tokenize`, `transfer` and `accounts` each carried a comment asserting the
+route was locked — *"⚠️ **Locked: this spends ~7.7 HBAR and mints a PERMANENT asset.**"* and similar.
+**Those are now false and a false warning is worse than none**, so each says what the route spends
+and that the doorlock is unwired below. The spend warnings themselves are unchanged.
+
+### Where to look
+
+**`http://localhost:3000/console`** — the server is running.
+
+Open it, click **Source data** in the viewer's toolbar (the second tab, beside *Report*), and press
+**Read the roster**. ⚠️ **There is nothing to paste and no field to paste it into.** You should get a
+28-row table: deployment, schema, answering, block — with 22 rows reading `live` at block ~25,962,7xx
+and 6 reading `no-indexers` with a muted chip and an em dash. Above it, four chips: *22 of 28
+answering*, *block …*, *read … UTC*, *5 schema versions*. Press again and the block number moves.
+
+⚠️ **Do not press Generate or Tokenize.** They are now unguarded: Generate spends model tokens and
+Tokenize mints a permanent asset for ~7.7 HBAR. **That is the whole cost of this decision and it is
+why it is temporary.**
+

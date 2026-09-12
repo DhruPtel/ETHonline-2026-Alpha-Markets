@@ -1,3 +1,26 @@
+// ⚠️ ════ TEMPORARILY UNWIRED — 2026-09-12. NOTHING CALLS `locked()` RIGHT NOW. ════════════════
+//
+// **This module is intact and correct; the six console routes have their `locked(request)` call
+// commented out.** The lock exists for a public deployment where `/console` is one click from the
+// front door and its buttons spend real funds. That is not the situation while the frontend is
+// being wired on one machine, and requiring a pasted secret on every console surface was costing
+// more than it protected.
+//
+// ⚠️ **DO NOT DELETE THIS FILE, and do not delete `CONSOLE_SECRET` from `.env` or `.env.example`.**
+// Re-wiring is two uncommented lines per route and nothing else.
+//
+// ⚠️ **What puts it back, and it is not a matter of taste:** the console being linked from the nav
+// on a deployment a stranger can reach. `generate` burns Anthropic budget, `tokenize` mints a
+// permanent ATS asset for ~7.7 HBAR, `transfer` moves one, and `source` spends Graph quota — all
+// from any URL. `tracking/DECISIONS.md` 2026-09-12 carries the full entry.
+//
+// ⚠️ **Nothing else lost a guard.** `/api/reports/[hash]` is the x402 gate and is untouched — it
+// works for a completely different reason, a settled on-chain payment verifiable by a stranger.
+// Both cron routes keep `CRON_SECRET`, which is a different mechanism for a caller that is never
+// a human at a keyboard.
+//
+// ══════════════════════════════════════════════════════════════════════════════════════════════
+//
 // The console doorlock. ⚠️ **A shared secret, NOT authentication, and the difference is the point.**
 //
 // ⚠️ **What this defends against, exactly:** a stranger who finds `/console` — one click from the

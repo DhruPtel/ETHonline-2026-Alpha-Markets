@@ -16,7 +16,8 @@
 // `'analyst'`, which is what this route did before either direction was possible.
 
 import { NextResponse } from 'next/server.js';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { prepare, send, type SignerRole } from '../../../../src/tokenize/transfer.js';
 import { ChainWriteError, hbar, settledBalance, usdPerHbar } from '../../../../src/tokenize/hedera.js';
 import { db } from '../../../../src/store/db.js';
@@ -31,9 +32,14 @@ const SM07_UNIT8 = 7.71195075;
 const SM07_FULL = 8.13891225;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **Locked: this moves a real asset and spends gas.** See `../lock.ts`.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **This moves a real asset and spends gas.** The doorlock is unwired below.
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   const { reportHash, to, confirm, signer } = (await request.json().catch(() => ({}))) as
     { reportHash?: string; to?: string; confirm?: boolean; signer?: string };

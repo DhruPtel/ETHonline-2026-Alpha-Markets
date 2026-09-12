@@ -9,8 +9,8 @@
 // ⚠️ **IT READS. NOTHING ELSE.** No write, no chain call, no row persisted, no token spent. If this
 // file ever finds itself importing `store/` or `arc/`, something has gone wrong.
 //
-// ⚠️ **Locked with Unit 2's `locked()`.** It spends `GRAPH_API_KEY` quota from a public URL, which
-// is the same reason `generate` is locked. One lock, one place.
+// ⚠️ **WAS locked with Unit 2's `locked()`; temporarily unwired 2026-09-12.** It spends
+// `GRAPH_API_KEY` quota, which is why it was locked and why it will be again before submission.
 //
 // ── ⚠️ The two choices, and why ──────────────────────────────────────────────────────────────────
 //
@@ -72,7 +72,8 @@
 // wants a fast partial answer, and the operator's next press retries anyway.
 
 import { NextResponse } from 'next/server.js';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { querySubgraph, SubgraphError } from '../../../../src/graph/client.js';
 import { buildEvidence } from '../../../../src/graph/evidence.js';
 import { PROTOCOLS } from '../../../../src/config/protocols.js';
@@ -174,9 +175,14 @@ async function roster(): Promise<{ rows: RosterRow[]; truncated: boolean }> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **Locked: this spends Graph quota.** See `../lock.ts`.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **This spends Graph quota.** The doorlock that guarded it is unwired below.
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   const { slug } = (await request.json().catch(() => ({}))) as { slug?: string };
   const chosen = slug?.trim() || DEFAULT_SLUG;

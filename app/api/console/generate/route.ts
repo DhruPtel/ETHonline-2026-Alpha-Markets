@@ -30,7 +30,8 @@
 // event and say precisely that, because the failure is otherwise indistinguishable from a hang.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { locked } from '../lock.js';
+// ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
+// import { locked } from '../lock.js';
 import { compose } from '../../../../src/agent/compose.js';
 import { build, recordContextDigest } from '../../../../src/agent/context.js';
 import { execute, DEFAULT_BUDGET } from '../../../../src/agent/execute.js';
@@ -51,9 +52,14 @@ export const maxDuration = 300;
 const ANALYST_ID = 'alpha-1';
 
 export async function POST(request: Request): Promise<Response> {
-  // ⚠️ **Locked: this spends Anthropic budget.** See `../lock.ts` — a shared doorlock, not auth.
-  const refusal = locked(request);
-  if (refusal) return refusal;
+  // ⚠️ **This spends Anthropic budget.** The doorlock that guarded it is unwired below.
+  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
+  // without the `x-console-secret` header. It is commented out rather than deleted while the
+  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
+  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
+  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // const refusal = locked(request);
+  // if (refusal) return refusal;
 
   const { directive } = (await request.json().catch(() => ({}))) as { directive?: string };
   const asked = directive?.trim();

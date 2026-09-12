@@ -2,7 +2,6 @@
 
 import {Fragment, useState} from 'react';
 import {useFitPanel} from '../hooks/useFitPanel.js';
-import {SecretField} from './ConsoleSecret.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, CheckCircle, Database, FileText, Terminal} from './Icons.js';
 
 /**
@@ -143,10 +142,12 @@ export function AtlasPanel({atlas}: {atlas: AtlasData}) {
                 onGenerate();
               }}
             >
-              {/* ⚠️ The doorlock, inside the panel whose actions it gates and directly above the
-                  composer. Six console routes refuse without the `x-console-secret` header; this is
-                  the only place the value is ever entered. See `ConsoleSecret.tsx`. */}
-              <SecretField />
+              {/* ⚠️ **THE `CONSOLE_SECRET` FIELD IS TEMPORARILY NOT RENDERED — 2026-09-12.** The six
+                  console routes have their `locked()` call commented out, so nothing reads this
+                  value. **A field asking for a secret the routes ignore is worse than no field**: it
+                  implies a gate that is not there and it makes every surface look broken until
+                  something is pasted. `<SecretField />` goes back here, one line, when `lock.ts` is
+                  re-wired — see `app/api/console/lock.ts` and DECISIONS.md 2026-09-12. */}
               <label htmlFor="research-brief">
                 Ask Atlas <span>AGENT</span>
               </label>

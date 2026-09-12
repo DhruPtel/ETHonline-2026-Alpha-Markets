@@ -735,3 +735,49 @@ untouchable; a console route may change when its own surface requires it.
 
 **Affects.** PHASE-6 §7 and task 2, both amended in this commit. `app/api/console/source/route.ts`,
 `app/components/ConsoleViewer.tsx`, `app/console/page.tsx`.
+
+---
+
+## 2026-09-12 · ⚠️ TEMPORARY — the console doorlock is unwired
+
+**⚠️ THIS IS A TEMPORARY STATE AND IT MUST BE UNDONE BEFORE SUBMISSION.**
+
+**What we're doing.** The six console routes — `source`, `generate`, `tokenize`, `transfer`,
+`report`, `accounts` — no longer call `locked()`. The call is **commented out in each**, not deleted.
+`app/api/console/lock.ts` is intact, `CONSOLE_SECRET` stays in `.env` and `.env.example`, and
+`ConsoleSecret.tsx` keeps its provider, hook and field component.
+
+**Why.** The lock was added because `/console` was about to be linked from the nav and its buttons
+spend real funds. **That is a fact about a public deployment and it is not a fact about one machine
+during wiring.** Requiring a pasted secret on every console surface was costing more than it
+protected — every Phase 6 task has to paste it before it can see anything work.
+
+**What we give up, plainly.** Any process that can reach `localhost:3000` can spend. On a deployed
+URL this would be unacceptable; on a development machine it is the same exposure the shell already
+has.
+
+**⚠️ WHAT PUTS IT BACK — not a matter of taste.** The console being linked from the nav on a
+deployment a stranger can reach. From any such URL:
+
+- `generate` burns Anthropic budget,
+- `tokenize` mints a **permanent** ATS asset for ~7.7 HBAR,
+- `transfer` moves one,
+- `source` spends Graph quota.
+
+**How to put it back.** Uncomment two lines per route (`const refusal = locked(request);` and
+`if (refusal) return refusal;`) plus the import, and restore `<SecretField />` above the composer in
+`AtlasPanel.tsx`. **Nothing needs rebuilding.**
+
+**The field is hidden, not deleted.** ⚠️ **A field asking for a secret the routes ignore is worse
+than no field** — it implies a gate that is not there and makes every surface look broken until
+something is pasted. `SecretProvider` is still mounted and the header is still sent (and ignored), so
+re-wiring touches the routes and one line of `AtlasPanel`, not the data path.
+
+**⚠️ Nothing else lost a guard, and this was verified rather than asserted.**
+`/api/reports/<hash>` still answers **402** unpaid — the x402 gate is a settled on-chain payment
+verifiable by a stranger and has nothing to do with this. Both cron routes still answer **401**
+without `CRON_SECRET`, which is a different mechanism for a caller that is never a human.
+
+**Affects.** `app/api/console/{source,generate,tokenize,transfer,report,accounts}/route.ts`,
+`app/api/console/lock.ts`, `app/components/{AtlasPanel,ConsoleSecret,ConsoleViewer}.tsx`.
+PHASE-6 D1 is superseded for the duration: the field exists but is not rendered.
