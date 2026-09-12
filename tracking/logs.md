@@ -10931,3 +10931,95 @@ is a complete, correct, clickable shell, and commits 9 onward put the machine be
 - `rebuild/` holds only `MANIFEST.md` and is untracked. It is the incoming build's own record and
   worth keeping somewhere; **not moved here, because this commit is the five page files.**
 
+
+---
+
+## 2026-09-12 — `tracking/phases/PHASE-6.md` written: the wiring plan
+
+One new file, 13 tasks, 9 decisions, 12 proof blocks. No code, no page change, no wiring. Read
+`trash/app/` first, which is the point: **every surface in this phase was wired once against these
+same routes and it worked**, so the plan quotes the old queries and call shapes rather than inventing
+them.
+
+### ⚠️ Five things `trash/` settled that a fresh reading would have got wrong
+
+1. ⚠️ **The paywall guarantee has been stated loosely in this repo, including by me.** The old page
+   **does** call `load()` and the full report **is** in server memory. What it never does is call
+   `narrate.render()`, pass a body field as a prop, or render one. The body reaches the browser only
+   inside the JSON returned to `buy.tsx`'s own fetch. **"Never calls render()" is true and is not the
+   whole rule**, and a plan built on the loose version would have banned the wrong thing.
+2. ⚠️ **The report body arrives in TWO shapes and they need two renderers.** `load()` returns a
+   structured `Report` — facts, checks, assessment, no markdown. `/api/buy` returns markdown, because
+   that is what a paying agent is served. `ReportPaper` takes `PaperBlock[]`. **So the console builds
+   blocks straight from the fact table (no parser) and the bought body goes through
+   `app/markdown.tsx`.** ⚠️ Writing a markdown→blocks parser would be a second renderer for one
+   object, and `markdown.tsx` is the escaping boundary — a console rendering report markdown its own
+   way is *"testing its own parser instead of the build's."*
+3. ⚠️ **Arc is USDC at 18 decimals on a token the world knows as 6**, and a wallet that gets it wrong
+   is off by a factor of a trillion **with a number that still looks plausible**. The contract reverts
+   `NotAUsdcUnit` on `msg.value % 1e12 != 0`, so the control validates before opening the wallet —
+   a revert costs the staker gas for nothing.
+4. ⚠️ **401 and 500 from a console route mean different things** and the surface must keep them apart:
+   `requiredEnv` runs before the comparison, so 500 is an absent or blank secret in the environment
+   and 401 is a wrong one typed in.
+5. ⚠️ **`force-dynamic` on `/` is load-bearing.** Without it Next prerenders the marketplace at build
+   time and a published report does not appear until the next deploy — which reads as the store being
+   broken rather than as a caching choice.
+
+### ⚠️ One merge taken against the brief's numbering, and it is flagged as such
+
+The brief lists the console as four steps with *"the terminal shows the run"* as its own step after
+generation. **Landing those separately creates, for exactly one commit, the failure the brief itself
+warns about** — a fifty-second run showing three status rows and no sign of what it is doing, which
+is what happened when Unit 4c dropped `<Terminal>`. `useLog` is the stream reader's sink; there is
+nowhere else for a line to go. **Task 3 lands both**, and the plan says so rather than quietly
+renumbering. If it is to be split, the order that works is status rows first, stream and terminal
+second — never the reverse.
+
+### The nine decisions, each with an owning task
+
+```
+D1  CONSOLE_SECRET inside the Atlas panel, above the composer        task 1
+D2  no retry control — the ceiling forbids a resume, not a rerun     task 3
+D3  the paywall's three rules, restated precisely, re-proved         task 6
+D4  two body shapes, two renderers, no markdown parser               tasks 4 and 7
+D5  the attach-report toggle is CUT — PHASE-5 D6 stands              task 10
+D6  the payout estimate is MARKED, real pools shown instead          task 10
+D7  .full restored on both tokenize CTAs, labels kept                task 12
+D8  market ids become numeric                                        task 8
+D9  the three dead hashes close by construction                      task 5
+```
+
+⚠️ **D5 overrules the old code rather than following it.** `trash/` MARKED the attach toggle;
+PHASE-5 D6 CUT it. The plan takes D6's side — a mark asserts a roadmap, and this one cannot exist
+without a different contract, since `stake()` has no parameter for a report and the claim already
+cites one. **What replaces it is not empty space**: the line showing the report the claim cites is
+true and becomes unconditional.
+
+⚠️ **D9 is confirmed rather than promised.** The three dead hashes close *by construction* — `/` will
+list exactly what `list()` returns and `load()` answers for every row `list()` returned, because they
+read the same table. Not a fix; an absence of the gap.
+
+### What the pages will actually look like, said before building
+
+The plan's §4 goes surface by surface. The short version: **11 reports at one HBAR price with no
+category and no subtitle column**, 4 tokenized and 7 not; **8 markets, 2 of them forecasts, ~1.02
+USDC of total volume, 1 human stake, 0 scores** — so the record strip reads empty and every card says
+*1 report* or *no report* rather than twelve. ⚠️ **Nothing stores a probability series**, so the chart
+section stays, says why it is empty, and the real pool split fills it at the same prominence —
+`trash/`'s own answer, and the alternative to either a hole where the design's strongest element was
+or the one number on the page nobody could check.
+
+⚠️ **`0.001 HBAR` in a slot drawn for "5 USDC" reads as a placeholder and there is no dressing it
+up.** The plan says render the real number and do not invent a dollar figure: a wrong price on a page
+selling a security is worse than an unfamiliar one.
+
+### Three open items with named owners, and one without
+
+`preview` access state has no real counterpart → **task 6 decides**. The document pager counts to 4
+against a one-page report → **task 4 decides**. The bought body's state ownership → **task 7
+decides**, and it is the one place this phase may need to move markup rather than only values,
+because `trash/` deliberately kept the paper and the purchase bar in one client component and the new
+markup splits them. ⚠️ Unowned and not this phase's business: `rebuild/MANIFEST.md` is still untracked
+and should land somewhere before submission.
+
