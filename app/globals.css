@@ -1,208 +1,423 @@
-/* Plain, legible, and readable on a phone. A financial memo, not a design project.
-   No UI library, no framework — one stylesheet, system fonts, one measure. */
+/* Alpha Markets — the design system. One stylesheet, no framework, no dependency, no served font.
+   ────────────────────────────────────────────────────────────────────────────────────────────────
+   Extracted from `front-end-design/`, whose shared stylesheet is 437,720 bytes of three things:
+   ~240 KB of base64 fonts, ~135 KB of compiled Tailwind and shadcn plumbing that is mostly dead,
+   and ~55 KB that is the actual design — 782 rules over 174 semantic classes. Only the third was
+   taken, and only the parts this application's existing markup can use.
+
+   ⚠️ **THIS FILE RESTYLES EVERY PAGE AND NO `.tsx` CHANGED.** That is not luck: Phase 4's Units 13,
+   13b and 14 each recorded *"nothing below reaches for a new class"*, so every page in `app/` uses
+   only names defined here. **Every one of those names still exists below.** A name that vanished
+   would not throw — the page would simply render unstyled, which is the failure mode this file is
+   written against.
+
+   ⚠️ **Do not invent classes for screens that do not exist yet.** The console is about to be rebuilt
+   and the report page has no reference design at all; later units add what they need. Everything
+   here has a caller in `app/` today.
+
+   ⚠️ `app/console/console.css` is untouched and unaffected — it defines all eleven of its own custom
+   properties on `main.console`, so nothing here reaches it. Its `max-width: 74rem` also outranks
+   `main` below. The console keeps its own near-white ground until Unit 12 rebuilds it. */
+
+/* ── Tokens ──────────────────────────────────────────────────────────────────────────────────────
+   ⚠️ **Taken whole from the reference's own `:root`.** Renaming them would mean this file and the
+   design package describing the same colour with two words. */
 
 :root {
-  color-scheme: light dark;
-  --ink: #16181d;
-  --muted: #5f6672;
-  --rule: #dcdfe5;
-  --bg: #fbfbfa;
-  --panel: #ffffff;
-  --link: #12457a;
+  /* ⚠️ **LIGHT ONLY, and this declaration is the point of the change rather than a detail.** The
+     references carry zero `prefers-color-scheme` rules and zero `.dark` selectors — the palette is
+     one committed light ground. This file was `light dark` until now, and leaving it that way while
+     painting a light page is the actual bug: a visitor with a dark OS gets the *browser's* dark form
+     controls, dark scrollbars and dark autofill over a light page, which is worse than either scheme
+     whole. The cost is stated rather than hidden: a dark-mode visitor gets a light page. */
+  color-scheme: light;
+
+  --background: #f3f9fd;
+  --foreground: #100f0e;
+  --card: #ffffff;
+  --secondary: #eaf0f5;
+  --muted: #edf2f6;
+  --muted-foreground: #707984;
+  --accent: #eaf0f5;
+  --destructive: #b03d3d;
+  --border: #dfe5ea;
+  --input: #d1d9df;
+  --ring: #9aa4b0;
+  --radius: 0.5rem;
+
+  --chart-1: #526bd8;
+  --chart-2: #d18a3c;
+  --chart-3: #b15c98;
+
+  /* Drawn from the reference's own usage rather than invented: rules inside a document are #d3d6d9,
+     statlines are #87939e, ledes are #74818e, and a panel floats on #fffc over the page ground. */
+  --rule-strong: #d3d6d9;
+  --statline: #87939e;
+  --lede: #74818e;
+  --panel: rgba(255, 255, 255, 0.8);
+  --good: #2f6b46;
+  --warn-edge: #d8c48a;
+  --warn-bg: #fdfaf1;
+  --paid-bg: #f1f7f3;
+
+  /* ⚠️ **NO FONT IS SERVED AND NONE SHOULD BE.** `front-end-design/FONT-LICENSE.txt` is AGPL-3 with
+     an exception covering *"a Postscript or PDF file"* — it does not mention the web, and a web page
+     is neither, so shipping those faces would be plain AGPL-3 distribution of this application.
+     The two faces are **Nimbus Roman and Nimbus Sans**, which are metric clones of Times and
+     Helvetica, so naming those first gives the reference's own letterforms on nearly every machine
+     at zero bytes, with no `public/` directory and no licence exposure.
+     ⚠️ **Never reach for `next/font/local`**: `next` ships no `exports` map, that specifier resolves
+     to a *directory*, and its `index.js` is a zero-byte file — the same trap that forced plain
+     `<a href>` over `next/link`. */
+  --font-display: "Nimbus Roman", "Times New Roman", Times, Georgia, serif;
+  --font-body: "Nimbus Sans", Helvetica, Arial, system-ui, -apple-system, sans-serif;
+  --font-mono: SFMono-Regular, Consolas, "Liberation Mono", ui-monospace, Menlo, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ink: #e7e9ed;
-    --muted: #9aa2b0;
-    --rule: #2d323b;
-    --bg: #15171b;
-    --panel: #1b1e24;
-    --link: #7fb3e8;
-  }
-}
+/* ── Reset and elements ──────────────────────────────────────────────────────────────────────── */
 
 * { box-sizing: border-box; }
 
+html { scroll-behavior: smooth; }
+
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  font: 16px/1.45 var(--font-body);
+  -webkit-font-smoothing: antialiased;
   -webkit-text-size-adjust: 100%;
 }
 
+/* ⚠️ Weight 400 on headings is the reference's, not an oversight. The display face carries the
+   emphasis; bolding it as well is what makes a serif masthead look like a template. */
+h1, h2, h3 { font-weight: 400; margin: 0; }
+h1, h2 { font-family: var(--font-display); letter-spacing: -0.02em; }
+p { margin: 0; }
+
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.45; }
+:is(button, a, input, textarea):focus-visible { outline: 2px solid #6b7985; outline-offset: 4px; }
+input:focus, textarea:focus { border-color: #74818d; box-shadow: 0 0 0 2px rgba(116, 129, 141, 0.12); }
+::selection { background: #dce2e7; color: var(--foreground); }
+
+/* ⚠️ The reference resets links to `color: inherit` and re-styles them per component. Every page
+   here uses a bare `<a>`, so a bare `<a>` has to stay findable: inherited colour with a muted
+   underline, which is the reference's `.text-link` flavour applied as the default. */
+a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: #b9c6d2;
+  transition: text-decoration-color 0.15s;
+}
+a:hover { text-decoration-color: var(--foreground); }
+
+/* ⚠️ **The measure is split in two and no markup moved to do it.** `main` is wide enough for the
+   card grids on `/`, `/markets` and `/holdings`; `.memo` — the document column on `/report/[hash]`,
+   `/markets/[id]` and the console's paper — is held to a reading width inside it. */
 main {
-  max-width: 46rem;
+  max-width: 60rem;
   margin: 0 auto;
-  padding: 2rem 1.15rem 5rem;
+  padding: 2.5rem 1.25rem 5rem;
 }
 
-a { color: var(--link); }
+/* ── Primitives ──────────────────────────────────────────────────────────────────────────────── */
 
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.8125rem;
-}
+.mono { font-family: var(--font-mono); font-size: 0.8125rem; }
 
 /* A 64-character hash has no spaces and would otherwise force the page sideways on a phone. */
 .break { overflow-wrap: anywhere; }
 
-/* ── The index ───────────────────────────────────────────────────────────── */
-
-.masthead { border-bottom: 1px solid var(--rule); padding-bottom: 1.25rem; margin-bottom: 1.5rem; }
-.masthead h1 { font-size: 1.5rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
-.lede { margin: 0; color: var(--muted); max-width: 34rem; }
-
-.empty { color: var(--muted); }
-
-.reports { list-style: none; margin: 0; padding: 0; }
-.reports li {
-  padding: 1.1rem 0;
-  border-bottom: 1px solid var(--rule);
+/* ⚠️ **The design's device for labelling what a block *is*.** Monospace, 0.12em, uppercase.
+   It has no `className="eyebrow"` caller in `app/` yet — the screens that use it by name arrive in
+   later units — so rather than leave it dangling it is the *shared* definition for the two places
+   the treatment is already needed: a definition-list label and a table header. One rule, three
+   callers, and the later units get the name for free. */
+.eyebrow, .identity dt, .memo th {
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #737d87;
 }
-.reports a { font-weight: 600; text-decoration: none; }
-.reports a:hover { text-decoration: underline; }
+.eyebrow { font-size: 0.75rem; line-height: 1.5; }
 
-.meta {
+.dim { color: var(--muted-foreground); }
+
+.empty { color: var(--muted-foreground); }
+
+/* ── The masthead ────────────────────────────────────────────────────────────────────────────── */
+
+.masthead {
+  padding-bottom: 1.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--border);
+}
+/* Scales rather than a fixed 42px: `/markets/[id]`'s heading is a whole question. */
+.masthead h1 {
+  font-size: clamp(2rem, 1.4rem + 2.2vw, 2.625rem);
+  line-height: 1.06;
+  margin: 0 0 0.75rem;
+}
+.lede {
+  color: var(--lede);
+  font-size: 1.0625rem;
+  line-height: 1.55;
+  max-width: 44rem;
+  margin: 0 0 0.5rem;
+}
+.lede:last-child { margin-bottom: 0; }
+.lede strong { color: var(--foreground); font-weight: 600; }
+
+.back {
+  margin: 0 0 1.75rem;
+  font-size: 0.8125rem;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+
+/* ── Card lists — `/`, `/markets`, `/holdings` ───────────────────────────────────────────────────
+   ⚠️ A grid rather than a stack, which the 60rem measure above is what makes possible. `<ol>` and
+   `<li>` are unchanged; only the layout is. */
+
+.reports {
+  list-style: none;
+  margin: 0 0 2.5rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 1rem;
+}
+.reports li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.15rem 1.25rem 1.25rem;
+  background: var(--card);
+  border: 1px solid #dce4eb;
+  border-radius: 7px;
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+.reports li:hover { box-shadow: 0 6px 22px rgba(37, 62, 77, 0.07); transform: translateY(-1px); }
+/* The card title, which is the reference's `.report-card-title h2`: display face, 22px, tight. */
+.reports li > a:first-child {
+  font-family: var(--font-display);
+  font-size: 1.3125rem;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+.reports li > a:first-child:hover { text-decoration: underline; text-decoration-color: var(--foreground); }
+
+/* ⚠️ `.meta` is on BOTH a `<div>` of chips and a `<p>` of prose, and one rule cannot serve both —
+   flex on a paragraph turns every inline run into a flex item and spaces the words apart. Qualified
+   by element, which needs no markup change. */
+div.meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem 1rem;
-  margin-top: 0.45rem;
-  color: var(--muted);
-  font-size: 0.8125rem;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  color: var(--statline);
+  font-size: 0.75rem;
+}
+/* Each chip reads as the reference's `.badge`. `<strong>` is the emphatic one — the standing line. */
+div.meta > span, div.meta > strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 5px;
+  background: var(--secondary);
+  color: #64717d;
+  font-weight: 400;
+  white-space: nowrap;
+}
+div.meta > strong { background: #e2e9f0; color: var(--foreground); font-weight: 500; }
+div.meta > a { color: var(--statline); font-size: 0.8125rem; }
+div.meta .mono { font-size: 0.6875rem; }
+
+p.meta {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  margin: 0 0 1.25rem;
+  max-width: 44rem;
+}
+p.meta strong { color: var(--foreground); }
+
+.hash {
+  color: var(--statline);
+  font-size: 0.6875rem;
+  overflow-wrap: anywhere;
+  margin-top: 0.15rem;
 }
 
-.hash { color: var(--muted); margin-top: 0.35rem; overflow-wrap: anywhere; }
-
-/* ── One report ──────────────────────────────────────────────────────────── */
-
-.back { margin: 0 0 1.25rem; font-size: 0.875rem; }
+/* ── The identity panel ──────────────────────────────────────────────────────────────────────────
+   Always a `<dl>` of `<div><dt><dd>`. The reference's receipt block: a quiet panel, a monospace
+   value under a lettered label. */
 
 .identity {
   display: grid;
-  gap: 0.7rem;
-  margin: 0 0 2rem;
-  padding: 1rem 1.1rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.9rem 1.5rem;
+  margin: 0 0 1.75rem;
+  padding: 1.1rem 1.25rem;
   background: var(--panel);
-  border: 1px solid var(--rule);
-  border-radius: 6px;
+  border: 1px solid #e1e7ed;
+  border-radius: 9px;
 }
-.identity div { display: grid; gap: 0.15rem; }
-.identity dt {
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+.identity div { display: grid; gap: 0.2rem; min-width: 0; }
+.identity dt { font-size: 0.625rem; }
+.identity dd { margin: 0; font-size: 0.9375rem; overflow-wrap: anywhere; }
+
+/* ── The document — `/report/[hash]`, `/markets/[id]`, the console's paper ────────────────────────
+   The reference's `.report-paper`: a white sheet on the page ground, set in the display face, with
+   a soft shadow rather than a hard border. */
+
+.memo {
+  max-width: 46rem;
+  background: var(--card);
+  border-radius: 9px;
+  padding: 2.25rem 2.5rem 2rem;
+  box-shadow: 0 6px 28px rgba(37, 62, 77, 0.045);
+  font-family: var(--font-display);
+  font-size: 1.0625rem;
+  line-height: 1.45;
 }
-.identity dd { margin: 0; }
-
-.memo h1 { font-size: 1.375rem; line-height: 1.3; margin: 0 0 1.5rem; letter-spacing: -0.01em; }
-.memo p { margin: 0 0 1.15rem; }
-
-/* The table can be wider than the screen; it scrolls inside itself so the document does not. */
-.table-wrap {
-  overflow-x: auto;
+.memo h1 {
+  font-size: clamp(1.875rem, 1.3rem + 2.2vw, 2.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.03em;
   margin: 0 0 1.5rem;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: var(--panel);
 }
-.memo table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+.memo h2 { font-size: 1.375rem; line-height: 1.2; margin: 1.75rem 0 0.6rem; }
+.memo h3 { font-family: var(--font-body); font-size: 0.9375rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+.memo p { margin: 0 0 0.95rem; }
+/* ⚠️ The panels, notices and controls inside a document are UI, not prose — they keep the body
+   face while the prose around them keeps the display face. */
+.memo .identity, .memo .meta, .memo .lede,
+.memo .no-durable, .memo .settled, .memo .agent-pays,
+.memo section > h2 + p, .memo .buy, .memo table { font-family: var(--font-body); }
+.memo section { margin: 0 0 1.5rem; }
+.memo > section:last-child { margin-bottom: 0; }
+
+/* The bought body, delivered below the gate. Separated by a rule so it reads as arriving. */
+.memo.bought {
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  box-shadow: none;
+  border-radius: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* ── Tables — the reference's `.financial-table` ─────────────────────────────────────────────────
+   Ruled cells in the display face. The wrapper scrolls so a wide table never moves the document. */
+
+.table-wrap { overflow-x: auto; margin: 0 0 1.5rem; }
+.memo table {
+  border-collapse: collapse;
+  width: 100%;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  line-height: 1.3;
+  background: var(--card);
+}
 .memo th, .memo td {
+  border: 1px solid var(--rule-strong);
+  padding: 0.5rem 0.6rem;
   text-align: right;
-  padding: 0.55rem 0.85rem;
-  border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
-.memo th:first-child, .memo td:first-child { text-align: left; }
-.memo th {
-  font-size: 0.6875rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  font-weight: 600;
+.memo th:first-child, .memo td:first-child { text-align: left; white-space: normal; }
+.memo th { font-size: 0.6875rem; font-weight: 400; background: var(--muted); }
+
+/* ── Buying and staking ──────────────────────────────────────────────────────────────────────────
+   ⚠️ `.buy` is on BOTH a `<button>` and a `<section>` — `report/[hash]/buy.tsx` uses it for the
+   control, `markets/[id]/stake.tsx` for the panel around it. One rule cannot serve both without
+   painting the staking panel as a giant button, so both are qualified by element. No markup moved. */
+
+button.buy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 10px 17px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #fff;
+  background: var(--foreground);
+  border: 1px solid var(--foreground);
+  border-radius: 6px;
+  transition: background 0.18s, transform 0.18s, border-color 0.18s;
 }
-.memo tbody tr:last-child td { border-bottom: 0; }
+button.buy:hover:not(:disabled) { background: #2c2a28; transform: translateY(-1px); }
+button.buy:disabled { background: transparent; color: var(--muted-foreground); border-color: var(--border); }
 
-/* ── Buying, and the inventory ────────────────────────────────────────────────────────────────
-   Added 2026-09-09. ⚠️ **Additive only.** Every rule below is a new selector and a new custom
-   property — nothing above this line is modified, so the marketplace index and the report preview
-   render exactly as they did. Dual-scheme like the rest of this file: the console's light theme is
-   scoped to `main.console` and is not involved here. */
-
-:root {
-  --good: #1d6b3f;
-  --warn-bg: #fffdf6;
-  --warn-edge: #d9b45a;
-  --paid-bg: #f3f9f4;
+section.buy {
+  margin: 1.75rem 0 0;
+  padding: 1.25rem 1.4rem 1.4rem;
+  background: var(--panel);
+  border: 1px solid #e1e7ed;
+  border-radius: 9px;
 }
+section.buy > h2 { font-size: 1.125rem; margin: 0 0 0.6rem; }
+section.buy p { margin: 0 0 0.8rem; font-size: 0.9375rem; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --good: #6fbf8b;
-    --warn-bg: #211d14;
-    --warn-edge: #6b5a2a;
-    --paid-bg: #16201a;
-  }
+.buy-stage { margin: 0.7rem 0 0; color: var(--muted-foreground); font-size: 0.875rem; }
+.buy-error { margin: 0.7rem 0 0; color: var(--destructive); font-size: 0.875rem; }
+
+/* ── Notices ─────────────────────────────────────────────────────────────────────────────────────
+   The reference's `.notice`: a tinted block, 13px, generous leading. Three variants, each carrying
+   a sentence the product must not soften. */
+
+.agent-pays, .no-durable, .settled {
+  border-radius: 6px;
+  padding: 0.85rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
+.agent-pays strong, .no-durable strong, .settled strong { color: var(--foreground); }
 
-/* The one button on the product that spends. Weight and a solid fill, because it is irreversible. */
-.buy {
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0.7rem 1.25rem;
-  margin: 0.25rem 0 0;
-  color: var(--bg);
-  background: var(--ink);
-  border: 1px solid var(--ink);
-  border-radius: 5px;
-}
-.buy:hover:not(:disabled) { opacity: 0.88; }
-.buy:disabled { cursor: progress; color: var(--muted); background: transparent; border-color: var(--rule); }
-
-.buy-stage { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.875rem; }
-.buy-error { margin: 0.6rem 0 0; color: #a3241f; font-size: 0.875rem; }
-@media (prefers-color-scheme: dark) { .buy-error { color: #e08a83; } }
-
-/* ⚠️ Who pays. This sits above the button on purpose — it is the thing a reader must not misread. */
+/* ⚠️ Who pays. Sits above the button on purpose — the thing a reader must not misread. */
 .agent-pays {
   margin: 1.25rem 0 1rem;
-  padding: 0.8rem 1rem;
-  background: var(--panel);
-  border: 1px solid var(--rule);
-  border-left: 3px solid var(--link);
-  border-radius: 4px;
-  font-size: 0.9375rem;
+  color: #6d7881;
+  background: rgba(234, 240, 245, 0.55);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--chart-1);
 }
-.agent-pays .dim { color: var(--muted); }
 
 /* ⚠️ The honest limit of a purchase, said in the interface rather than only in a document. */
 .no-durable {
   margin: 1.25rem 0 0;
-  padding: 0.7rem 0.9rem;
+  color: #6f6a5c;
   background: var(--warn-bg);
   border: 1px solid var(--warn-edge);
-  border-radius: 4px;
-  color: var(--muted);
-  font-size: 0.875rem;
-  line-height: 1.6;
 }
-.no-durable strong { color: var(--ink); }
 
 .settled {
-  margin: 0 0 0.75rem;
-  padding: 0.85rem 1rem;
+  margin: 0 0 0.85rem;
+  color: #4a5b50;
   background: var(--paid-bg);
-  border: 1px solid var(--rule);
+  border: 1px solid #cfe0d6;
   border-left: 3px solid var(--good);
-  border-radius: 4px;
-  font-size: 0.9375rem;
 }
-.settled-links { margin: 0 0 0.5rem; font-size: 0.875rem; }
+.settled-links { margin: 0 0 0.6rem; font-size: 0.875rem; }
 
-/* The bought document: the same look the memo has, separated by a rule so it reads as delivered. */
-.memo.bought { margin-top: 1.75rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.read-at { margin-top: 2.5rem; font-size: 0.8125rem; color: var(--muted-foreground); }
 
-.read-at { margin-top: 2.5rem; font-size: 0.8125rem; }
+/* ── Narrow screens ─────────────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 34rem) {
+  main { padding: 1.75rem 1rem 4rem; }
+  .memo { padding: 1.5rem 1.25rem 1.25rem; border-radius: 7px; }
+  .reports { grid-template-columns: 1fr; }
+  .identity { grid-template-columns: 1fr; padding: 1rem; }
+}

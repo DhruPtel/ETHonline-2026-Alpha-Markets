@@ -8994,3 +8994,126 @@ product and must stay reachable by the paywall button.
 
 ⚠️ Neither exercise spends: `report` is a store read plus `render()`, and `accounts` is Mirror Node
 and `balanceOf` reads. The paywall probe above used an offline oracle and came back clean.
+
+---
+
+## 2026-09-11 — Phase 5 Unit 3: `app/globals.css` rewritten, and no `.tsx` was touched
+
+208 lines → 423. **One file in `git diff --stat`, and every page in the application is visibly the
+new design.** `npx tsc -p tsconfig.json --noEmit` exits **0**, `npm run build` passes, all six pages
+return 200. No markup change, no new file, no font served, no `public/`, no dependency.
+
+⚠️ **This worked because Phase 4 paid for it.** Units 13, 13b and 14 each recorded *"nothing below
+reaches for a new class"* as a shipping discipline, so the whole app draws on 22 names. Restyling 22
+rules restyles everything. **That discipline was the asset and this unit cashed it out.**
+
+### The check the brief asked for, both directions
+
+| | |
+|---|---|
+| every class `app/` uses outside the console | **22 used · 22 defined · 0 missing** |
+| every class `globals.css` defines | **23 defined · 0 orphaned** |
+| console-only names leaking into globals | **0** |
+| classes rendered per page, unresolved | `/` 0 · `/report/[hash]` 0 · `/markets` 0 · `/markets/6` 0 · `/holdings` 0 · `/console` **1** |
+
+⚠️ The one unresolved name is **`op-secret`** on `/console` — a modifier I added in Unit 2b on
+`<section className="op op-secret">`. `.op` carries the panel, so nothing is unstyled; `op-secret` is
+a hook with no rule. It is console-only, so `console.css` and Unit 12 own it. **Not added here**, per
+the brief's rule about not inventing classes for screens that do not exist yet.
+
+`.eyebrow` was the only definition with no caller, and rather than leave it dangling it became the
+**shared** definition for the two places the treatment was already needed — `.identity dt` and
+`.memo th`. One rule, three callers, and the later units get the name for free.
+
+### ⚠️ Two classes are on two different elements each, and one rule could not serve either
+
+Found by enumerating before writing, which is the reason to enumerate before writing.
+
+- **`.buy` is on a `<button>` *and* a `<section>`.** `report/[hash]/buy.tsx` uses it for the paywall
+  control; `markets/[id]/stake.tsx` uses it for the panel around the staking control **and** for its
+  closed-staking notice. The old file styled it as a button, so the staking panel was rendering as a
+  giant dark button-shaped block. Split into `button.buy` (the reference's `.btn.primary`) and
+  `section.buy` (a quiet panel).
+- **`.meta` is on a `<div>` of chips *and* a `<p>` of prose.** Flex on a paragraph makes every inline
+  run a separate flex item and spaces the words apart, which is what `/markets`'s explanatory
+  paragraphs were doing. Split into `div.meta` (a chip row) and `p.meta` (muted prose).
+
+⚠️ **Both were fixed with element-qualified selectors and no markup moved**, which is the whole point
+— the brief said to stop and name it if a page could not be styled without a markup change, and
+neither of these needed one.
+
+### ⚠️ Both `.buy` branches happen to be live right now, which proved the split immediately
+
+`/markets/6` renders `<section class="buy">` — **"Staking is closed"** — because market 6's close time
+was `2026-09-11 23:59 UTC` and it is now **2026-09-12 03:38 UTC**. `open:false` in the RSC payload.
+**PHASE-4's clock table said 23:59:00Z on the 11th and it held.** Markets 6 and 7 are past close;
+observation ends 2026-09-13 00:00Z and the earliest legal resolve is 01:00Z.
+
+So today `section.buy` renders on `/markets/6` and `button.buy` renders on `/report/<hash>`. ⚠️ **Had
+`.buy` stayed a single button rule, the closed-staking notice would today be a giant black button.**
+
+### What each page looks like
+
+- **`/`** — `main` at 60rem. Serif masthead at weight 400, two 17px `#74818e` ledes, a hairline rule.
+  Then `.reports` as `repeat(auto-fill, minmax(19rem, 1fr))` — **three cards across**, 11 reports over
+  four rows, where it was a stacked list. Each card is white on `#f3f9fd`, 1px `#dce4eb`, 7px radius,
+  lifting 1px into a soft shadow on hover. The directive is the card title in the display face at
+  21px; the meta row below is badge chips on `#eaf0f5` — price, *Tokenized · ISIN* (the emphatic
+  darker chip) or *Not tokenized*, block, timestamp, analyst; the full 64-character hash sits under
+  it in 11px mono, wrapping.
+- **`/report/[hash]`** — a mono `.back` link, then the document as a **white sheet**: 46rem, 9px
+  radius, `0 6px 28px` shadow, display face at 17px, h1 up to 40px at `-0.03em`. The identity panels
+  are translucent white with 10px uppercase mono labels. `.agent-pays` is a tinted notice with a
+  `--chart-1` blue left edge; `.no-durable` is warm `#fdfaf1` behind `#d8c48a`. The buy control is a
+  40px black pill.
+- **`/markets`** — masthead, the record strip, then `Forecasts` / `Rehearsals` / `Not on chain` as
+  three card grids, the rehearsal explanation now reading as prose rather than spaced-out flex items.
+- **`/markets/6`** — the question as a serif h1, the standing line as a lede, the four landmarks in an
+  identity panel, the analyst's position, the *"there is nothing to choose"* notice, the pool, the
+  closed-staking panel, and the recorded stake in a ruled serif table.
+- **`/holdings`** — masthead and a card grid of four tokens.
+- **`/console`** — ⚠️ **deliberately unchanged.** `console.css` defines all eleven of its own custom
+  properties on `main.console` and sets its own `max-width: 74rem` and `#fbfbfa` ground, so nothing
+  here reaches it. It keeps Phase 3's look until Unit 12 rebuilds it, and it will look different from
+  the rest of the app until then.
+
+### Traced sizes — identical to the byte
+
+```
+                 before        after
+markets/[id]     2.23 MB  →   2.23 MB   113 files
+markets          2.16 MB  →   2.16 MB   111 files
+report/[hash]    1.77 MB  →   1.77 MB   113 files
+/                1.70 MB  →   1.70 MB   110 files
+console          1.69 MB  →   1.69 MB   111 files
+holdings         1.67 MB  →   1.67 MB   110 files
+```
+
+**A stylesheet is not a dependency and nothing got imported.** Same byte counts, same file counts.
+
+### The decisions inside the file
+
+⚠️ **`color-scheme: light`, changed in the same commit as the palette.** The references carry zero
+`prefers-color-scheme` rules and zero `.dark` selectors. Leaving the old `light dark` while painting a
+light page is the actual bug — a dark-OS visitor gets the browser's dark form controls, scrollbars and
+autofill over a light page, which is worse than either scheme whole. **The cost is stated: a dark-mode
+visitor gets a light page.**
+
+⚠️ **No font is served.** `FONT-LICENSE.txt` is AGPL-3 with an exception covering *"a Postscript or
+PDF file"* and no mention of the web, so shipping those faces would be plain AGPL-3 distribution of
+this application. The two are **Nimbus Roman and Nimbus Sans** — metric clones of Times and Helvetica
+— so naming those first in a system stack is the reference's own letterforms at **zero bytes**, no
+`public/`, no licence exposure. ⚠️ `next/font/local` is named in the file as a thing never to reach
+for: no `exports` map, resolves to a directory, zero-byte `index.js`.
+
+**The measure is split in two without moving markup:** `main` at 60rem so the card grids have room,
+`.memo` at 46rem inside it so the document keeps a reading column.
+
+### The standing checks
+
+⚠️ **The paywall holds** — `$2214.84B`, pulled by calling `load()` + `render()` **offline** (the gate's
+own two functions, not `/api/console/report`), appears **0 times** in the unpaid `/report/<hash>` HTML.
+
+⚠️ **Unit 14's staking control has no side picker** — `/markets/6` renders **0** `<select>` elements
+and **0** radio inputs, and still carries *"The side is the claim's, read by the contract from the
+claim itself — there is nothing to choose."*
