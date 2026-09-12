@@ -26,6 +26,14 @@ import { closePool, db } from '../../src/store/db.js';
 
 const DRY = process.argv.includes('--dry-run');
 const WRONG_WALLET_CHILD = process.argv.includes('--wrong-wallet-child');
+// ⚠️ **STOPS AFTER `createMarket`, LEAVING A MARKET WITH NO CLAIM.** The harness's normal job is to
+// create AND commit, which is right for verifying the whole path — and wrong when what is needed is
+// an **open market the browser's commit control can act on**. The contract allows one claim per
+// author per market, so a market this script has already committed to refuses every later commit
+// from the same analyst. `--create-only` is the one-line difference: same `prepare()`, same refusals,
+// same `create()`, and then it stops before the money goes in. **No stake is placed** — the 0.01
+// USDC enters at commit, which is the press this exists to enable.
+const CREATE_ONLY = process.argv.includes('--create-only');
 const EXPLORER = 'https://testnet.arcscan.app';
 
 let failures = 0;
@@ -43,20 +51,38 @@ const refuses = async (label: string, run: () => Promise<unknown>, mustSay: stri
 };
 
 const STAKE = ethers.parseUnits('0.01', 18).toString();   // 18-dp native, a whole 6-dp USDC unit
+// ⚠️ **THE METRIC IS A KNOB BECAUSE THE MARKET ID IS DERIVED FROM THE QUESTION.**
+// `idFor('m', {specHash, core, contractAddress})` — an identical question at identical times derives
+// an identical id and collides with the market already on chain. A different metric is a genuinely
+// different question rather than the same one at a nudged threshold.
+// ⚠️ Environment and not argv: this script re-invokes itself for the wrong-wallet refusal test, and
+// `process.env` is what that child inherits.
+const METRIC = (process.env.MARKET_METRIC ?? 'totalDepositBalanceUSD') as 'totalDepositBalanceUSD';
+const SLUG = 'aave-v3-ethereum';
+// ⚠️ Follows `METRIC`. It was pinned to the deposit key, and a changed metric would have sent the
+// untokenized-report probe looking for the wrong fact and tripping the wrong guard again.
+const SLUG_METRIC_KEY = `${SLUG}.${METRIC}`;
 
 // ── Pick the subject from the store as it actually is ────────────────────────────────────────────
 const [tokenized] = await db()<{ hash: string }[]>`
   SELECT r.hash FROM reports r JOIN report_tokens rt ON rt.report_hash = r.hash ORDER BY r.created_at LIMIT 1`;
+// ⚠️ **IT MUST ALSO CARRY THE FACT, OR THE REFUSAL TEST BELOW HITS THE WRONG GUARD.** This probe
+// exists to prove Unit 6c refuses an untokenized report. It picked the oldest untokenized row, and
+// as reports were tokenized over time that row became one with no
+// `aave-v3-ethereum.totalDepositBalanceUSD` — so `prepare` refused for a missing fact, *before*
+// reaching the tokenization check, and the assertion silently stopped testing what it names. Caught
+// on 2026-09-12 when the harness printed `WRONG GUARD`.
 const [untokenized] = await db()<{ hash: string }[]>`
   SELECT r.hash FROM reports r LEFT JOIN report_tokens rt ON rt.report_hash = r.hash
-  WHERE rt.report_hash IS NULL ORDER BY r.created_at LIMIT 1`;
+  WHERE rt.report_hash IS NULL
+    AND r.canonical_json LIKE ${'%' + SLUG_METRIC_KEY + '%'}
+  ORDER BY r.created_at LIMIT 1`;
 if (!tokenized || !untokenized) { console.error('\nSTOP  need one tokenized and one untokenized report.\n'); process.exit(1); }
 
 const report = (await load(tokenized.hash))!;
 // ⚠️ The measured figure the market will ask about. Not the headline — every report in this store
 // has the `metric.` sentinel as its headline. See `decideSide`.
-const SLUG = 'aave-v3-ethereum';
-const METRIC = 'totalDepositBalanceUSD';
+
 const observed = report.facts[`${SLUG}.${METRIC}`]?.value;
 if (!observed) { console.error(`\nSTOP  report ${tokenized.hash} has no ${SLUG}.${METRIC}.\n`); process.exit(1); }
 
@@ -78,7 +104,21 @@ const threshold = ((BigInt(latestFigure.split('.')[0]!) * 99n) / 100n).toString(
 // `closeTime > now`, so `dayStart(observedDay) > now` always. **A commit through market.ts is always
 // a forecast** — the rehearsal shape Unit 6 drove is unreachable from here, because Unit 6 built its
 // markets through ethers and bypassed `spec.ts` entirely.
-const OBSERVED_DAY = '2026-09-12';
+// ⚠️ **THE OBSERVED DAY IS THE ONE KNOB, AND IT DECIDES WHETHER THE MARKET IS STAKEABLE.**
+// `questionCore` requires `closeTime <= dayStart(observedDay)` — the past-posting rule — and the
+// contract's `_open` refuses once `block.timestamp >= closeTime`. So a market that accepts a stake
+// is one whose observed day has **not started yet**, and its staking window is everything between
+// now and the minute before that day opens.
+//
+// ⚠️ Read from the environment rather than argv **because this script re-invokes itself** for the
+// wrong-wallet refusal test; `process.env` is inherited by that child and argv is not, so the two
+// would otherwise disagree about which day they are planning.
+//
+//   MARKET_OBSERVED_DAY=2026-09-14 npx tsx --env-file=.env scripts/ops/commit-market.ts --dry-run
+//
+// The literal default is the day this harness was written against and is left alone so a bare run
+// still verifies what it always verified.
+const OBSERVED_DAY = process.env.MARKET_OBSERVED_DAY ?? '2026-09-12';
 const CLOSE = dayStart(OBSERVED_DAY) - 60;                 // one minute before the day opens
 const RESOLVE_DEADLINE = dayStart(OBSERVED_DAY) + 86_400 * 3;
 
@@ -199,6 +239,19 @@ try {
   ok('callData round trip: closeTime matches', Number(m0.closeTime) === plan.core.closeTime, String(m0.closeTime));
   ok('callData round trip: observationEnd matches', Number(m0.observationEnd) === plan.core.observationEnd, String(m0.observationEnd));
   ok('callData round trip: resolveDeadline matches', Number(m0.resolveDeadline) === plan.core.resolveDeadline, String(m0.resolveDeadline));
+
+  if (CREATE_ONLY) {
+    const afterCreate = await arcProvider().getBalance(identity.address);
+    console.log('\n══ what it cost');
+    console.log(`  balance ${ethers.formatUnits(before, 18)} → ${ethers.formatUnits(afterCreate, 18)} USDC`);
+    console.log(`  gas     ${ethers.formatUnits(before - afterCreate, 18)}  createMarket only`);
+    console.log('  stake   none — the claim, and its stake, is what the browser control places');
+    console.log(`\n  open for staking until ${new Date(plan.core.closeTime * 1000).toISOString()}`);
+    console.log(`  /markets/${created.chainMarketId}`);
+    console.log(failures === 0 ? '\nPASS  market created, no claim.\n' : `\nFAIL  ${failures} check(s).\n`);
+    await closePool();
+    process.exit(failures === 0 ? 0 : 1);
+  }
 
   console.log('\n══ commitPrediction');
   const committed = await commit(plan, created.chainMarketId).catch((e: unknown) => {

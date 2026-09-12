@@ -764,6 +764,12 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .amount-shortcuts button { flex: 1; padding: 6px 0; border: 1px solid #ffffff24; border-radius: 4px; color: #c4c7cd; font-size: 12px; }
 .amount-shortcuts button.active { background: var(--paper); color: #1b1b1b; border-color: var(--paper); }
 .balance-line { font-size: 11px; color: #b1b6be; text-align: right; margin: 8px 0 16px; }
+/* ⚠️ THE ONE REFERENCE CLASS THIS SCREEN NEEDS THAT HAD NO RULE. `front-end-design`'s prediction
+   pages define `.position-sub{color:#8a96a0;margin-top:5px;font-size:12px;display:block}` and
+   `.position-sub{font-size:11px}` at their narrow breakpoint; the extraction carried the markup's
+   other panel classes and left this one behind. Copied from the reference, not invented — it is the
+   left-aligned caption under a control, where `.balance-line` is the right-aligned one. */
+.position-sub { display: block; margin-top: 5px; font-size: 12px; color: #8a96a0; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 23px 0 11px; font-size: 13px; }
 .switch-row .switch { background: #ffffff25; }
 .switch-row .switch.on { background: #bdcbd6; }
@@ -1189,6 +1195,8 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
   .outcome-row b { font-size: 22px; }
   .position-panel { width: 100%; position: static; padding: 26px; margin-top: 5px; }
   .position-panel > p, .position-panel > label, .position-panel .choice, .position-panel .stake-side, .position-panel .btn.full { font-size: 14px; }
+  /* ⚠️ The reference's own narrow value for the caption added above. */
+  .position-sub { font-size: 11px; }
   .switch-row { font-size: 14px; }
   .amount-shortcuts button { font-size: 14px; padding: 8px; }
   .payout-estimate { font-size: 14px; }

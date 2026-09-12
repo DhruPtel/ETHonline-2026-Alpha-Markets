@@ -14634,3 +14634,559 @@ body; the browser sends one field, the transaction hash.
 staker holding the only handle on money that has already moved, and "Record it" finishes the job.
 
 `.next` cleared, `npx next build` exit 0. No commits.
+
+---
+
+## 2026-09-12 — market 11: an open forecast, so the staking control can actually be pressed
+
+One file changed, in `scripts/ops/`. **Markets 6 and 7 were not touched** — verified on chain after
+the run: both still close 2026-09-11T23:59:00Z with pools 1.01/0.0 and 0.01/0.0.
+
+### The window, and the constraint that fixes it
+
+⚠️ `questionCore` requires `closeTime <= dayStart(observedDay)` — the past-posting rule, because a
+stake placed during the day being measured is a bet on a partly known outcome. The contract's `_open`
+refuses once `block.timestamp >= closeTime`. **So an open market is one whose observed day has not
+started yet**, and its staking window is everything between now and the minute before that day opens.
+
+Today is 2026-09-12 and it was 22:38Z when I planned this. Observed day **2026-09-13** would have
+given roughly **80 minutes** of staking — minutes, not hours. So:
+
+```
+observed day       2026-09-14
+staking closes     2026-09-13T23:59:00Z    ← 25.3 hours open from creation
+observation ends   2026-09-15T00:00:00Z    ← the earliest it can resolve
+resolve deadline   2026-09-17T00:00:00Z    ← after this it voids
+```
+
+`resolveDeadline` is exactly `observationEnd + 2 days`, which is the earliest legal value:
+`questionCore` refuses anything less because the resolver is a daily cron with no retry.
+
+### The real path, not a hand-rolled create
+
+`scripts/ops/commit-market.ts` — the existing harness — through `prepare` → `create` → `commit` in
+`src/arc/market.ts`. ⚠️ **`prepare()` is the safety property**: every check that can stop the run
+happens before anything spends, and the dry run printed the whole plan with the balance unchanged.
+
+**One change to the script, and it is a knob, not a rewrite:** `OBSERVED_DAY` now reads
+`process.env.MARKET_OBSERVED_DAY` and falls back to the literal it always had. ⚠️ **Environment and
+not argv, because the script re-invokes itself** for the wrong-wallet refusal test — `process.env` is
+inherited by that child and argv is not, so the two would otherwise plan different days.
+
+### ⚠️ A red check I found and fixed before spending
+
+The first dry run printed:
+
+```
+❌ a report that was never tokenized (Unit 6c)   WRONG GUARD: the report has no fact
+   aave-v3-ethereum.totalDepositBalanceUSD
+```
+
+The probe picked the oldest *untokenized* report, and as reports have been tokenized over time that
+row became one with no `aave-v3-ethereum.totalDepositBalanceUSD` — so `prepare` refused for a missing
+fact **before reaching the tokenization check**, and an assertion that claims to test Unit 6c had
+silently stopped testing it. Fixed by requiring the probe report to carry the fact too. It now reads
+*"…a prediction is staked on tokenized work; this report is not tokenized."* — the guard it names.
+
+⚠️ Worth saying plainly: this was pre-existing and would not have blocked the run (`failures` only
+sets the exit code; there is no gate before `create()`). A red check in a script that spends is
+exactly the thing not to walk past.
+
+### The report backing the claim
+
+**`f2285b4e60905abf34fc2d503913421b13212951e6cf203d0d769d204ce3a84e`** — the oldest tokenized report,
+ISIN `XX37EMRMEZ29`, proxy `0x9C3766E941A37Dc7490Fff8333DDf505Ac42d593`. The admission check passed
+against its EquityDeployed creation event before the commit. It is also the report I published to the
+marketplace earlier today, and it carries the fact the market settles on.
+
+### What it is
+
+```
+question   is aave-v3-ethereum.totalDepositBalanceUSD above 24,315,301,463 on 2026-09-14 (UTC)?
+side       TRUE — the 2026-09-11 daily snapshot put it at 24,560,910,569.10…, so the analyst
+           predicts it still will be
+stake      0.01 USDC of the analyst's own money
+```
+
+⚠️ **A genuine forecast about a day that has not happened, and the arithmetic classifies it on its
+own**: `observation_end (2026-09-15) <= created_at (2026-09-12)` is false, so
+`after_the_fact = false` and both pages label it **FORECAST**. Nothing was labelled by hand.
+
+### What it cost
+
+```
+balance 17.436668843445309559 → 17.419849231415309559 USDC
+stake   0.01          in the contract, claimable after settlement
+gas     0.00681961203 across createMarket + commitPrediction, through Circle
+total   0.01681961203 USDC
+```
+
+on-chain market **11** · claim **8**
+create `0x148d33fc4478c5dd1543d5894f0bbf20492a06db03a0402b80d424c5e8277a77`
+commit `0xae423ebef5e5dde684f89429d1143b216a8228c0b5ce032b187ee0073af896ef`
+
+### Proof the control is live
+
+`/markets/11` eyebrow reads **FORECAST / MARKET #11 · OPEN FOR STAKING**, and the panel renders the
+open branch for the first time:
+
+- amount field present (`id="stake-amount"`)
+- presets `0.01 · 0.1 · 1 · 10`
+- main button **"Connect wallet and stake"**, `disabled=false` — it will open MetaMask
+- **no** inert button anywhere in the panel
+- side **TRUE**, from claim #8, with the cited report linked
+- the parimutuel line and the real-funds warning
+- the wallet chunk is referenced by the page, and the calldata in the payload decodes to
+  **`stake(marketId=11, claimId=8)`**
+
+The index now reads **3 FORECASTS · 1 OPEN FOR STAKING · 1.03 USDC staked in total**, eight cards,
+with Market #11 badged **Open**. Markets 6 and 7 still read **STAKING CLOSED — OBSERVING**.
+
+`.next` cleared, `npx next build` exit 0. **I did not stake on it.** No commits.
+
+---
+
+## 2026-09-12 — the analyst can back a market from the page
+
+Three files: a new route `app/api/markets/[id]/commit/route.ts`, a new client control
+`app/markets/[id]/CommitControl.tsx`, and the market page that renders it. **Nothing was committed.**
+
+### First, something that happened between tasks
+
+⚠️ **Market 11's pool reads 1.01 USDC and one recorded stake, and that is not a bug — it is a real
+human stake.** The chain and the store agree: `0x683eE842…` staked **1.00 USDC** on market 11,
+transaction `0x8cbb5d21ff1ccb76…`, recorded through `/api/markets/11/refresh`. So the staking
+control's open branch — the one that had never been reached — has now been exercised end to end by a
+browser, a wallet and a real transaction. I checked the chain before writing this down, because a
+page showing 1.01 where I expected 0.01 looks exactly like a cross-market bug.
+
+### Where it went, and why not the console
+
+**The market page, in the Supporting research panel, exactly where the claim is or would be.**
+
+The console looked like the natural home — reports live there — but ⚠️ **`prepare()` derives the
+market id from the market's own spec, times and contract address**, so the market is the fixed thing
+and the report is the parameter. Driving it from a report would mean listing every open market inside
+the console and rebuilding each one's question there. And this is the moment someone decides *this
+market is worth backing*, which happens while looking at the market. Built once, on the market page.
+
+⚠️ **Only on an open market.** Closed, resolved and voided markets take no new claim and the revert
+costs real USDC, so the control is absent on those three rather than present-and-refusing. It **is**
+rendered on an open market that already has a claim, because "already committed" is a real state
+worth reading.
+
+### The route, and why it is a route
+
+⚠️ **Two presses with a plan in between.** Publishing a report is one timestamp, so it is a server
+action; this is not. `prepare()` runs every refusal and returns what is about to happen — the side
+the analyst picked and why, the stake, the token it is bound to — and a human reads that before
+confirming. A server action returning data to render would need `useActionState` and would still be a
+fetch. A route makes the boundary explicit and lets the whole refusal surface be exercised with
+`curl` without spending. **`/api/console/tokenize` is the precedent and this is the same shape**:
+always `prepare`, `{mode:'dry'}` without `confirm`, spend only with `confirm: true`, refusals as 409.
+
+It is also server-only by necessity: `src/arc/market.ts` carries Circle's SDK, `ethers` and the full
+`ALPHA_MARKET_ABI` with the contract bytecode. `CommitControl.tsx` holds no ABI at all.
+
+### No side picker
+
+**The human picks the market and the report. The analyst picks the side.** `decideSide` runs
+`settle()` against the latest finished day — the same series settlement will read — so the side is by
+construction what settlement would decide on today's figure. A picker would let a human take a side
+the analyst's own rule disagrees with, and the score would then be grading the human.
+
+### What a person sees before it spends
+
+> This commits one of the analyst's own reports to this market and stakes the analyst's own USDC on
+> it, through Circle. **No wallet connects and you are not charged.** The analyst chooses the side,
+> not you… Cost is the stake plus about 0.0068 USDC of gas.
+
+Then the plan — side, the snapshot day and figure it was decided from, the stake, the claim id, the
+proxy it is bound to and who issued it, the verdict (or `null — a metric-across-deployments report
+carries none`), and `decideSide`'s reason in full. Then: **"The next press spends… There is no undo
+and no confirmation dialog after this one."**
+
+### Every refusal, exercised — nothing spent
+
+```
+market 11  confirm:false   409 kind=refused
+  "claim c/55bbde81a141cd2446715d12 already committed at 2026-09-12T22:40:40.300Z (on-chain
+   claim 8). The contract allows one claim per author per market and would revert
+   AlreadyCommitted; refusing before spending gas to find that out."
+
+market 6   (closed)        409  "Staking closed at 2026-09-11T23:59:00.000Z. The contract reverts
+                                 StakingClosed and the revert costs gas."
+market 8   (resolved)      409  "This market has already resolved. A claim after the answer is
+                                 known is not a forecast."
+market 9   (voided)        409  "This market is voided — there is no outcome to back."
+bad hash                   400  "reportHash must be 64 lowercase hex characters"
+no amount                  400  "amount must be a plain decimal string of USDC"
+market 999                 404  "no market 999"
+```
+
+⚠️ **The lifecycle refusals are this route's own, not `prepare`'s.** `prepare` validates a question,
+not a market's lifecycle — it cannot see that a market has closed. That is the one refusal the route
+owns and it runs before `prepare`.
+
+⚠️ **The admission refusal cannot be exercised today, and I am not going to pretend otherwise.**
+`prepare`'s already-committed check is step 7 and the admission check is step 8, so on market 11 —
+the only open market — the first always wins, whatever report hash is passed. The control renders a
+distinct `kind: 'admission'` branch for it that adds *"A prediction is only admitted if it is staked
+on tokenized work: the token must exist, its creation event must carry this report's hash, and this
+analyst must have issued it. Nothing was spent."* — written, wired, and unreachable until there is an
+open market without a claim.
+
+### ⚠️ What a working commit needs, and I am asking rather than doing it
+
+A **second open market with no claim from this analyst**. Three things it needs:
+
+1. **A different question.** `idFor('m', {specHash, core, contractAddress})` means the same question
+   and times derive market 11's id. A different threshold is enough.
+2. **An observed day that has not started** — 2026-09-14 again gives a close of 2026-09-13T23:59Z,
+   about 25 hours of open window.
+3. **`create()` without `commit()`.** `scripts/ops/commit-market.ts` does both in one run, so it
+   would leave exactly the claim that must not be there. It needs a `--create-only` flag, or a small
+   sibling script that calls `prepare` then `create` and stops.
+
+**Cost: createMarket gas only — roughly 0.0034 USDC**, half the 0.00681961203 measured across create
+plus commit on market 11, and **no stake**, because the 0.01 is only staked at commit. Whoever
+presses the new control would then spend the stake plus commit gas, about 0.0134 USDC.
+
+**Not created. Say the word and I will add the flag and run it.**
+
+`.next` cleared, `npx next build` exit 0, `ƒ /api/markets/[id]/commit` in the route table. No commits.
+
+---
+
+## 2026-09-12 — report staking moves into the position panel, with a picker
+
+Three files: `app/markets/[id]/CommitControl.tsx`, `app/markets/[id]/page.tsx`, and one class in
+`app/globals.css`. **The route was not touched.** Nothing committed, nothing staked.
+
+### The picker
+
+⚠️ **Nobody types a hash any more.** The reference's panel carries a second combobox after the switch
+row — `aria-label="Supporting report"`, empty in the export — and this is it, filled: a native
+`<select className="choice">`. `.position-panel .choice` is the design's own dark control
+(`#ffffff05` on `#ffffff35`, 43px min-height), so no look was invented.
+
+⚠️ **It lists only reports that can actually be committed.** Unit 6c's admission check requires the
+report to be tokenized and issued by this analyst, so the query is those same two conditions: a
+`report_tokens` row, and `reports.analyst` in the registered set from `config/analysts.ts`. **7 of 19
+reports qualify** and all seven are in the dropdown, by title. Listing the other twelve would mean
+someone choosing one, pressing check, and being refused for a reason they had no way to see.
+
+⚠️ It is eligibility, not a guarantee — `prepare()` still re-reads the Hedera creation event itself.
+What the list removes is the *predictable* refusal, not the check.
+
+⚠️ **Labels fall back to the directive**, shortened at 58 characters: sixteen of nineteen reports
+pre-date migration 008 and a blank option is unusable.
+
+⚠️ **The empty case is named rather than a dead select**: *"This analyst has no report it can commit.
+A report becomes eligible once it is tokenized — minting writes the ATS security whose creation event
+carries the report's hash, which is what the admission check reads. Tokenize one in the console and
+it appears here."*
+
+⚠️ **One markup detail that is not decoration**: `<option>` colours are set inline. The popup list is
+drawn by the OS and inherits the select's colours, and this select's background is `#ffffff05` —
+nearly transparent over a dark panel — so several browsers would render white on white. There is no
+reference rule for an option, so it is markup rather than an invented class.
+
+### The panel now holds both actions
+
+`.position-panel` top to bottom: the USDC control (side, amount, presets, **Connect wallet and
+stake**, the real-funds line), then an `.arc-evidence` divider — the panel's own top rule, which is
+how the reference separates its evidence block — then **ANALYST · STAKE A REPORT** with the picker,
+the stake field, presets, and **Check what would happen**, then the existing ARC / ONCHAIN EVIDENCE.
+
+Dark throughout: `.choice`, `.amount-field`, `.amount-shortcuts`, `.position-sub`,
+`.position-disclaimer`, `.validation-message`, `.transaction-receipt` for the plan, and
+`.btn dark-outline full` / `.btn white full`. **No light form crossed into the dark panel.**
+
+⚠️ **The two-press shape is unchanged** — `prepare()` returns a plan, a person reads it, the second
+press spends — and the plan renders in `.transaction-receipt`, which is a flex row that will not
+wrap, so it carries short values only: side, the snapshot figure it was decided from, the stake, the
+proxy prefix, the verdict. `decideSide`'s full sentence goes underneath as `.position-sub`.
+
+⚠️ **No side picker.** The reference's `Outcome` combobox stays cut.
+
+⚠️ **Copy corrected: one claim per AUTHOR, not per market.** It now reads *"This analyst has already
+committed claim #8 to this market… Another analyst could still commit its own."*
+
+### Supporting research, back to the reference
+
+Heading · **All reports →** · one row: thumbnail, title, byline, arrow. **No controls.**
+
+⚠️ **One row, and that is not a shortfall.** The reference draws several; a market cites ONE claim
+which cites ONE report. There is no second row to render, and inventing one was never an option.
+
+### The stacked boxes — what each was, and where it went
+
+The reference's `market-main` is exactly three panels: chart, supporting research, resolution rules.
+The page had grown past that. Each box, judged:
+
+| box | verdict |
+|---|---|
+| `.market-chart-panel` | **stays.** The chart, pools, outcome rows — the reference's own. |
+| `.supporting-research` | **stays**, stripped back to heading + link + rows. |
+| `.resolution-rules` | **stays.** It is a `<details>`, one line until opened — the reference has it. |
+| the commit form | **moved** into the position panel. It was a light form in a light panel below the fold. |
+| the recorded-stakes table | **moved** into the chart panel. Supporting research displays what *backs* the market; these are who put money *in* it, and they add up to the outcome rows directly above. |
+| the claim's score (forecast / reconciliation / returned) | **moved** into the chart panel, beside the outcome it describes. |
+
+So the left column is three panels again, which is the reference's count. The paragraphs under the
+title — the rehearsal warning, the void and resolved statements, the one-sided note — are prose, not
+boxes, and they carry facts a reader cannot get anywhere else.
+
+### One class added, because the reference has a rule and the extraction did not
+
+`.position-sub`. `front-end-design`'s prediction pages define
+`.position-sub{color:#8a96a0;margin-top:5px;font-size:12px;display:block}` and `{font-size:11px}` at
+their narrow breakpoint; the extraction carried the panel's other classes and left this one behind.
+Copied with the reference's own values — it is the left-aligned caption under a control, where
+`.balance-line` is the right-aligned one. Nothing else in globals.css changed.
+
+### Proof
+
+**http://localhost:3000/markets/11**, top to bottom:
+
+```
+LEFT   market-title            FORECAST / MARKET #11 · OPEN FOR STAKING, the question, the criterion
+       market-chart-panel      POOL SHARE, range buttons, the illustrative chart with its in-chart
+                               label, legend, one-sided note, statline, outcome rows,
+                               and the recorded-stakes table (your 1.00 USDC, with an arcscan link)
+       supporting-research     heading · All reports → · one row: thumbnail, title, byline, arrow
+       resolution-rules        a closed <details>
+
+RIGHT  position-panel          Your side TRUE · Stake amount + presets · the cited report ·
+                               Connect wallet and stake · the real-funds line
+         ─ divider ─           ANALYST · STAKE A REPORT
+                               Supporting report ▾  (7 options, by title)
+                               "7 tokenized reports by this analyst · XXZ3KOQKJVW4 · 65fb085d…"
+                               Analyst's stake 0.01 USDC + presets
+                               ⚠️ This analyst has already committed claim #8 to this market…
+                               Check what would happen
+         ─ divider ─           ARC / ONCHAIN EVIDENCE
+```
+
+Labels rendered: `Your side | Stake amount | Supporting report | Analyst's stake`. The picker's seven
+options are the seven eligible reports. Pressing check returns the same refusal as before —
+`409 kind=refused`, *"claim c/55bbde81… already committed at 2026-09-12T22:40:40.300Z (on-chain claim
+8)…"* — with nothing spent.
+
+On markets 6, 8 and 9 the commit control is **absent** (0 occurrences) because the three closed
+states take no new claim, and Supporting research reads *"No committed claim, so no report backs this
+market yet."*
+
+`.next` cleared, `npx next build` exit 0. No commits.
+
+---
+
+## 2026-09-12 — one position control, and the panel picks the call
+
+Two component files became one: `app/markets/[id]/PositionControl.tsx` replaces
+`app/components/StakeControl.tsx` and `app/markets/[id]/CommitControl.tsx`, both deleted. The page
+changed with it. **The route was not touched. Nothing committed, nothing staked.**
+
+### The failure
+
+The panel had **two staking controls, each with its own amount field and its own button**. A person
+could stake USDC twice, in two places, for what is one action: put money on this market, backed by a
+report.
+
+### Which call fires is state, not a button
+
+```
+no claim on this market  →  commitPrediction(marketId, reportHash, side)
+                            the ANALYST'S own USDC, through Circle. No wallet connects.
+                            The chosen report enters the market and becomes the graded thing.
+a claim exists           →  stake(marketId, claimId)
+                            the VISITOR'S own USDC, signed in MetaMask on Arc.
+                            Carries no report — the claim's is already fixed.
+```
+
+⚠️ **Whose money is the first line in the panel, before anything is typed**, because the two branches
+spend different people's funds through different rails:
+
+> *join* — "Claim #8 already backs this market, so your amount joins its side. You sign from your own
+> wallet on Arc and the USDC is yours."
+> *commit* — "No claim backs this market yet. Your report is committed with the analyst's own USDC,
+> through Circle — no wallet connects and you are not charged."
+
+### The dropdown when a claim exists: **disabled, showing the cited report**
+
+Not hidden. Hiding it would make the panel a different shape on different markets and would hide that
+this position *is* backed by research. Disabled says both true things at once — here is what you are
+backing, and no, you cannot swap it. The caption underneath: *"Fixed by claim #8 — stake() carries no
+report, so there is nothing to choose."* ⚠️ **An enabled select whose value the call cannot carry
+would be a lie about what the button does.**
+
+⚠️ **No eligibility filtering.** The list is the analyst's tokenized reports — 7 of 19 — and nothing
+is filtered beyond that. A report that turns out to be uncommittable is refused by `prepare()` with
+the reason, which beats a shorter list that silently omits things.
+
+### Two presses in both branches
+
+In **commit** the plan comes from `prepare()` over the unchanged route. In **join** it is computed
+locally from the live pools and the contract's constants, and then **MetaMask is itself the second
+confirmation** — it shows the amount in the wallet's own words before signing, which is a stronger
+second press than one of ours. Either way the first press can only describe or refuse: *Review this
+position* → the plan in `.transaction-receipt` → *Stake N USDC from your wallet* or *Commit and stake
+N USDC of the analyst's*.
+
+The four contract refusals (`ZeroStake`, `NotAUsdcUnit`, `OverStakeCap`, and no report chosen) are
+still computed before any wallet opens. **The analyst picks the side, never the person.**
+
+### Removed
+
+**The `.attached-report` block** above the Parimutuel line — *"…CLAIM #8 CITES IT · BACKS TRUE"*. It
+restated what Supporting research says twelve inches below. Gone; 0 occurrences in the served HTML.
+
+**The stakes table under the outcome rows.** What it was for: who staked, which side, how much, and a
+link to the transaction. What already says it — the statline carries `1.02 USDC pool` and
+`1 recorded stake`, and the outcome rows carry the per-side totals, so the *aggregate* is fully
+covered. ⚠️ **What goes with it, said honestly: the durable per-stake arcscan link.** The control
+shows that link for the stake you just made, but after a reload there is no longer anywhere on the
+page to follow an individual stake to the chain. If that record is wanted back it belongs as a row in
+ARC / ONCHAIN EVIDENCE inside the panel, not as a fourth box in the left column. Not built.
+
+### The panel, top to bottom, on market 11
+
+```
+Your position
+"Claim #8 already backs this market, so your amount joins its side. You sign from your own
+ wallet on Arc and the USDC is yours."
+Supporting report   ▾ [disabled] Balance overview for Aave v3 on Ethereum — how big is it…
+                    "Fixed by claim #8 — stake() carries no report, so there is nothing to choose."
+Your stake          [ 1 ] USDC     0.01 · 0.1 · 1 · 10
+                    Review this position
+⚠️ Real funds. You sign from your own wallet on Arc testnet… 18 decimals… 10¹²… at most 1000 USDC.
+── ARC / ONCHAIN EVIDENCE
+```
+
+Measured in the served HTML: **1 select, 1 amount input, 1 full-width button.** `CITES IT` 0,
+`table-wrap` 0.
+
+### The three steps, on market 11 — the only open market
+
+1. **"I pick a report, set an amount, press one button."** On market 11 the report is **not picked**
+   — it is fixed at claim #8's `f2285b4e…` and shown disabled, because `stake()` has no parameter for
+   one. You set an amount and press *Review this position*, then *Stake N USDC from your wallet*.
+2. **The transaction lands and I can follow it.** MetaMask signs, the hash is on the page before
+   anything is confirmed, `/api/markets/11/refresh` records it **from the `Staked` event**, and the
+   panel shows *Follow it on arcscan*.
+3. **The report appears in Supporting research.** ⚠️ On market 11 it is **already there** —
+   `f2285b4e…`, because claim #8 cites it. Joining a claim does not put a new report into the market;
+   it puts money behind the one already there. The success line says exactly that.
+
+⚠️ **So step 3 is only the *new* thing in the commit branch, and that branch cannot be reached
+today**: market 11 is the only open market and it already carries this analyst's claim, so the panel
+takes the join path. Verified: markets 6, 8, 9 and 10 render the three closed states; 11 renders
+JOIN; **nothing renders COMMIT.** That is the same gap I flagged last task — an open market with no
+claim from this analyst, roughly 0.0034 USDC of createMarket gas and no stake. Still not created,
+still waiting on your word.
+
+`.next` cleared, `npx next build` exit 0. No commits.
+
+---
+
+## 2026-09-12 — market 12: open, no claim, so the commit control can finally be pressed
+
+One file changed: `scripts/ops/commit-market.ts`. **Markets 6, 7 and 11 were not touched.**
+
+### `--create-only`, a flag rather than a sibling script
+
+The harness creates *and* commits, which is right for verifying the whole path and wrong when what
+is needed is a market the browser's control can act on — one claim per author per market means a
+market this script has committed to refuses every later commit from the same analyst. The flag is
+the one-line difference: same `prepare()`, same five refusals, same `create()`, then it stops before
+the money goes in and prints its own cost block. A sibling script would have been a second create
+path, and `market.ts`'s prepare/spend split is the thing worth having exactly once.
+
+### A different question, because the market id is derived from it
+
+`idFor('m', {specHash, core, contractAddress})` — an identical question at identical times derives an
+identical id and collides. So `MARKET_METRIC` joined `MARKET_OBSERVED_DAY` as an environment knob
+(environment, not argv, because the script re-invokes itself for the wrong-wallet test and that child
+inherits `process.env`). ⚠️ `SLUG_METRIC_KEY` now follows the metric too — it was pinned to the
+deposit key, and a changed metric would have sent the untokenized-report probe hunting the wrong fact
+and tripping the wrong guard, which is the bug I fixed in that probe two tasks ago.
+
+**Market 11** asks about deposits. **Market 12 asks about borrows** — a genuinely different subject,
+not the same question at a nudged threshold.
+
+```
+Will aave-v3-ethereum's totalBorrowBalanceUSD be above $9,758,974,006 on 2026-09-14?
+side TRUE — the 2026-09-11 snapshot put it at 9,857,549,502.18…
+market id m/79d5f70c9c17cfc9cee45f8f   (market 11 is m/96c87241ef10e6a6a75bffc0 — no collision)
+```
+
+### The window
+
+`questionCore` requires `closeTime <= dayStart(observedDay)` and the contract's `_open` refuses once
+`now >= closeTime`, so an open market is one whose observed day has not started.
+
+```
+staking closes     2026-09-13T23:59:00Z   ≈ 24.5 hours from creation
+observation ends   2026-09-15T00:00:00Z   the earliest it can resolve
+resolve deadline   2026-09-17T00:00:00Z   after this it voids
+```
+
+### What it cost
+
+```
+balance 17.419849231415309559 → 17.416856410217309559 USDC
+gas     0.002992821198   createMarket only
+stake   none — the claim and its stake are what the browser control places
+on-chain market 12 · tx 0x524a988f55a103329b8db641b64ae8dd9fe35b45f0762367407cad31a5fea987
+```
+
+Under half a cent, as estimated. Verified after: **market 12 pools 0.0/0.0, zero claims**,
+`after_the_fact = false` so both pages classify it **FORECAST**. Markets 6 and 7 unchanged at
+1.01/0.0 and 0.01/0.0 and still closed.
+
+⚠️ **Market 11's pool is now 4.01, up from 1.01** — three more USDC went in through the browser panel
+between tasks. Noted, not touched.
+
+### The control is live — the commit branch renders for the first time
+
+`/markets/12`, eyebrow **FORECAST / MARKET #12 · OPEN FOR STAKING**:
+
+```
+Your position
+"No claim backs this market yet. Your report is committed with the analyst's own USDC,
+ through Circle — no wallet connects and you are not charged."
+Supporting report  ▾ ENABLED, 7 options
+Analyst's stake    [0.01] USDC   0.01 · 0.1 · 1
+                   Review this position     (btn dark-outline full, NOT disabled)
+```
+
+⚠️ **Two of the seven will refuse, and that is the design working.** The list is the analyst's
+tokenized reports with no eligibility filtering, so a report that never measured this market's metric
+is refused *with the reason* rather than silently omitted. Checked with `confirm:false`, nothing
+spent:
+
+```
+65fb085d26…  PLAN  side TRUE, 0.01 USDC, claim c/9d769892a331…, spent=false
+f2285b4e60…  PLAN  side TRUE, 0.01 USDC
+9ccc3a394d…  REFUSED "the report has no fact aave-v3-ethereum.totalBorrowBalanceUSD…"  (MakerDAO)
+600935014c…  REFUSED  same                                                             (Spark Lend)
+```
+
+The five that carry `aave-v3-ethereum.totalBorrowBalanceUSD` all plan: `65fb085d`, `348482a5`,
+`c2649f05`, `24041ca2`, `f2285b4e`.
+
+### What happens when it is pressed
+
+1. Pick a report, leave 0.01, press **Review this position** → `prepare()` runs every refusal and
+   returns the plan: side TRUE, the 2026-09-11 snapshot figure it was decided from, the stake, the
+   proxy it is bound to, the verdict, and `decideSide`'s full sentence. **Nothing has spent.**
+2. Press **Commit and stake 0.01 USDC of the analyst's** → `commitPrediction(12, reportHash, true)`
+   through Circle. The claim row and the binding evidence are written *before* the submit; the
+   on-chain claim id comes back from the `Committed` event, not a return value, because Circle
+   returns no logs.
+3. The panel shows the claim id and **Follow it on arcscan**. Reload and the report is in
+   **Supporting research** at the bottom — the evidence behind the position, and the thing the market
+   grades when it settles on 2026-09-15.
+
+**Nothing was committed. That press is yours.**

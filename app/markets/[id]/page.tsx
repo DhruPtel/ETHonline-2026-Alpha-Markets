@@ -27,9 +27,11 @@
 import {notFound} from 'next/navigation.js';
 import {ethers} from 'ethers';
 import {ProbabilityChart, illustrativeSeries} from '../../components/ProbabilityChart.js';
-import {StakeControl} from '../../components/StakeControl.js';
+import {PositionControl, type AnalystReport} from './PositionControl.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
+import {ANALYSTS} from '../../../src/config/analysts.js';
+import {MiniDocument} from '../../components/MiniDocument.js';
 import {requiredEnv} from '../../../src/config/env.js';
 
 export const runtime = 'nodejs';
@@ -140,6 +142,28 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
       : open
         ? 'open'
         : 'closed';
+
+  // ⚠️ **A STARTING POINT FOR THE FIELD, NOT A CHOICE MADE FOR ANYBODY.** The commit control needs a
+  // 64-character hash and nobody should have to find one by hand. This is the newest report that is
+  // tokenized at all — the first condition the admission check tests — so the common case begins
+  // valid. The operator can paste any other hash over it and `prepare` is the authority either way.
+  // ⚠️ **THE PICKER'S LIST: THE ANALYST'S TOKENIZED REPORTS, AND NOTHING IS FILTERED BEYOND THAT.**
+  // A report that turns out to be uncommittable is refused by `prepare()` **with the reason** — it
+  // re-reads the Hedera creation event itself — and a refusal that explains itself beats a shorter
+  // list that silently omits things. 7 of 19 reports are tokenized.
+  const analystAddresses = ANALYSTS.map((a) => a.arcAddress.toLowerCase());
+  const eligibleRows = await db()<{hash: string; title: string | null; directive: string; isin: string}[]>`
+    SELECT r.hash, r.title, r.directive, rt.isin
+      FROM reports r JOIN report_tokens rt ON rt.report_hash = r.hash
+     WHERE lower(r.analyst) = ANY(${analystAddresses})
+     ORDER BY r.created_at DESC`;
+  const analystReports: AnalystReport[] = eligibleRows.map((r) => ({
+    hash: r.hash,
+    isin: r.isin,
+    // ⚠️ The narrator's title where there is one; otherwise the question it answers, shortened.
+    // Sixteen of nineteen reports pre-date migration 008 and a blank option is unusable.
+    label: r.title ?? (r.directive.length > 58 ? `${r.directive.slice(0, 58).trimEnd()}…` : r.directive),
+  }));
 
   const heading = claim?.title ?? claim?.directive ?? 'The report behind this claim';
 
@@ -280,89 +304,65 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 </div>
               );
             })}
+
+            {/* ⚠️ **THE SCORE — AND TWO OF THE THREE ARE ABSENT RATHER THAN ZERO.** Reconciliation
+                quality is null on every stored report by design; a null return is "not collected",
+                not "earned nothing", because the contract is pull-based. It describes the outcome,
+                so it sits with the outcome rows. */}
+            {claim && (claim.forecast_correct !== null || market.resolved_at || market.voided_at) && (
+              <div className="market-statline" style={{display: 'block', lineHeight: 1.8}}>
+                <span>
+                  Forecast:{' '}
+                  {claim.forecast_correct === null
+                    ? 'no outcome — voided, so neither right nor wrong'
+                    : claim.forecast_correct
+                      ? 'right'
+                      : 'wrong'}
+                </span>
+                <br />
+                <span>
+                  Reconciliation: {claim.reconciliation_quality ?? 'not recorded — this report carries no verdict call'}
+                </span>
+                <br />
+                <span>
+                  Returned:{' '}
+                  {claim.returned === null ? 'not collected yet' : `${usdc(BigInt(claim.returned))} USDC`}
+                </span>
+              </div>
+            )}
           </div>
 
+          {/* ── ⚠️ SUPPORTING RESEARCH, THE REFERENCE'S SHAPE AND NOTHING ELSE ──────────────── */}
+          {/* A heading, "All reports →" on the right, and one row per report: thumbnail, title,
+              byline, arrow. **It displays what backs this market and holds no controls.** The commit
+              control moved to the position panel and the stake table and the claim's score moved
+              into the chart panel, where the pool and the outcome they describe already are.
+              ⚠️ **One row, and that is not a shortfall.** The reference draws several; a market
+              cites ONE claim which cites ONE report. There is no second row to render. */}
           <div className="supporting-research panel">
             <div className="section-title">
               <h2>Supporting research</h2>
-              <span className="eyebrow">ONE CLAIM · ONE REPORT</span>
+              <a className="text-link" href="/">
+                All reports <ArrowRight size={14} />
+              </a>
             </div>
             {claim ? (
-              <>
-                <p>
-                  The analyst committed <strong>{claim.side ? 'TRUE' : 'FALSE'}</strong> and staked{' '}
-                  <strong>{usdc(BigInt(claim.amount))} USDC</strong> of its own money on it.
-                </p>
-                {/* ⚠️ The tie between a stake and the research behind it. A commit is refused if the
-                    report was never tokenized, so this hash is not decoration. */}
-                <a className="supporting-row" href={`/report/${claim.report_hash}`}>
-                  <div>
-                    <span className="badge">CLAIM #{claim.chain_claim_id}</span>
-                  </div>
-                  <div>
-                    <h3>{heading}</h3>
-                    <p>{claim.report_hash}</p>
-                    <span>Staked by {claim.author}</span>
-                  </div>
-                  <ArrowUpRight size={18} />
-                </a>
-
-                {/* ⚠️ **THE SCORE — AND TWO OF THE THREE ARE ABSENT RATHER THAN ZERO.**
-                    Reconciliation quality is null on every stored report by design. A null return is
-                    "not collected", not "earned nothing": the contract is pull-based. */}
-                {(claim.forecast_correct !== null || market.resolved_at || market.voided_at) && (
-                  <div className="market-statline" style={{display: 'block', lineHeight: 1.8}}>
-                    <span>
-                      Forecast:{' '}
-                      {claim.forecast_correct === null
-                        ? 'no outcome — voided, so neither right nor wrong'
-                        : claim.forecast_correct
-                          ? 'right'
-                          : 'wrong'}
-                    </span>
-                    <br />
-                    <span>
-                      Reconciliation: {claim.reconciliation_quality ?? 'not recorded — this report carries no verdict call'}
-                    </span>
-                    <br />
-                    <span>
-                      Returned:{' '}
-                      {claim.returned === null ? 'not collected yet' : `${usdc(BigInt(claim.returned))} USDC`}
-                    </span>
-                  </div>
-                )}
-              </>
+              <a className="supporting-row" href={`/report/${claim.report_hash}`}>
+                <div className="supporting-thumbnail" aria-hidden="true">
+                  <MiniDocument title={heading} subtitle={claim.report_hash.slice(0, 18)} preview="bars" locked />
+                </div>
+                <div>
+                  <h3>{heading}</h3>
+                  <p>
+                    {claim.author} · staked {usdc(BigInt(claim.amount))} USDC on{' '}
+                    {claim.side ? 'TRUE' : 'FALSE'}
+                  </p>
+                  <span>Claim #{claim.chain_claim_id}</span>
+                </div>
+                <ArrowUpRight size={18} />
+              </a>
             ) : (
-              <p>No committed claim, so no report backs this market and there is no side to join.</p>
-            )}
-
-            {recorded.length > 0 && (
-              <div className="table-wrap">
-                <table className="financial-table full">
-                  <thead>
-                    <tr>
-                      <th>Staker</th>
-                      <th>Side</th>
-                      <th>Amount</th>
-                      <th>Transaction</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {recorded.map((r) => (
-                      <tr key={r.tx_hash}>
-                        <td>{r.staker}</td>
-                        <td>{r.side ? 'TRUE' : 'FALSE'}</td>
-                        <td>{usdc(BigInt(r.amount))} USDC</td>
-                        <td>
-                          <a href={`https://testnet.arcscan.app/tx/${r.tx_hash}`} target="_blank" rel="noreferrer">
-                            {r.tx_hash.slice(0, 14)}…
-                          </a>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <p>No committed claim, so no report backs this market yet.</p>
             )}
           </div>
 
@@ -398,37 +398,43 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
         </section>
 
         <aside className="position-panel dark-panel">
-          <h2>Your position</h2>
-          <p>
-            {claim
-              ? `A staker joins the analyst's claim, so the side is fixed at ${claim.side ? 'TRUE' : 'FALSE'}. There is no side to pick.`
-              : 'This market carries no single claim, so there is no side to stake alongside.'}
-          </p>
-
-          {claim && (
-            /* ⚠️ **THE CALLDATA IS ENCODED HERE, ON THE SERVER, AND ARRIVES AS A STRING.**
-               `src/arc/abi.ts` carries the contract's full bytecode and must never reach a client
-               component — the established pattern, and `trash/` did the same. The minimal inline
-               fragment above is the only ABI this page needs, and the browser gets 68 bytes of hex
-               rather than a compiler artefact. */
-            <StakeControl
-              marketId={id}
-              claimId={claim.chain_claim_id}
-              side={claim.side}
-              sidePct={staked ? (claim.side ? truePct! : Number((100 - truePct!).toFixed(1))) : null}
-              poolTrue={poolTrue.toString()}
-              poolFalse={poolFalse.toString()}
-              maxStakeWei={maxStake.toString()}
-              contractAddress={market.contract_address}
-              rpcUrl={publicRpc}
-              callData={STAKE_IFACE.encodeFunctionData('stake', [BigInt(id), BigInt(claim.chain_claim_id)])}
-              reportHash={claim.report_hash}
-              reportTitle={heading}
-              state={panelState}
-              standing={standing}
-              outcome={market.outcome}
-            />
-          )}
+          {/* ── ⚠️ ONE CONTROL. THE PANEL PICKS THE CALL, NOT THE PERSON. ──────────────────── */}
+          {/* `commitPrediction` when no claim backs this market — the analyst's own USDC through
+              Circle, and the chosen report enters the market as the thing that gets graded when it
+              settles. `stake` when a claim exists — the visitor's own wallet joining that claim's
+              side, with the report already fixed by it. Two controls, each with an amount field and
+              a button, meant a person could stake USDC twice for what is one action.
+              ⚠️ The heading and the whose-money line live inside the control because both change
+              with the branch. */}
+          <PositionControl
+            chainMarketId={id}
+            reports={analystReports}
+            claim={
+              claim
+                ? {
+                    chainClaimId: claim.chain_claim_id,
+                    side: claim.side,
+                    reportHash: claim.report_hash,
+                    reportLabel: heading,
+                  }
+                : null
+            }
+            poolTrue={poolTrue.toString()}
+            poolFalse={poolFalse.toString()}
+            maxStakeWei={maxStake.toString()}
+            contractAddress={market.contract_address}
+            rpcUrl={publicRpc}
+            /* ⚠️ Encoded on the server: `src/arc/abi.ts` carries the contract bytecode and must not
+               reach a browser. Empty when there is no claim, because there is nothing to join. */
+            callData={
+              claim
+                ? STAKE_IFACE.encodeFunctionData('stake', [BigInt(id), BigInt(claim.chain_claim_id)])
+                : ''
+            }
+            state={panelState}
+            standing={standing}
+            outcome={market.outcome}
+          />
 
           <div className="arc-evidence">
             <span className="eyebrow">ARC / ONCHAIN EVIDENCE</span>
