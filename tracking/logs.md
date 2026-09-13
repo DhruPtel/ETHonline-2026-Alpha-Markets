@@ -16769,3 +16769,119 @@ it. They are real forecasts and must count; if they resolve, the record moves to
 `7 settled — 4 right, 2 wrong, 1 voided · 5 test data · 1 demo` and `real` goes from 0 to 2.
 
 `npx next build` after `rm -rf .next` passes. No schema change, no contract change.
+
+---
+
+## 2026-09-13 — PHASE-8 Task 3: the demo surface, playable from /markets
+
+Six preset questions, a market created per run, the judge's own claim from their own wallet, a
+countdown, a reveal. Nothing was staked or resolved in building it — `marketCount` is still 13 and
+markets 6, 7, 11 and 12 are untouched.
+
+Five files: `app/markets/demo.ts` (presets, participants, cap), `app/markets/actions.ts` (the two
+server actions), `app/markets/DemoStarter.tsx` (pick a question), `app/markets/[id]/DemoControl.tsx`
+(play it), and edits to `app/markets/page.tsx` and `app/markets/[id]/page.tsx`.
+`scripts/ops/demo-market.ts` gains `--presets`.
+
+### ⚠️ The shape question was asked before anything was built
+
+On-demand creation versus a script pre-creating six markets. **Asked in chat because getting it
+wrong meant rewriting**, and the answer was on-demand, gated by `CONSOLE_SECRET`. Pre-creation
+genuinely does not work — a market made an hour ago has a `closeTime` an hour ago and cannot be
+staked at all, so six ready-made markets would be six dead ones by the time a judge arrived.
+
+### ⚠️ One button spends the analyst's money from a public page. It is locked.
+
+`startDemoMarket` runs `createMarket` + `commitPrediction` through Circle — about 0.02 USDC a press.
+`DECISIONS.md` (2026-09-12) already wrote down what puts the console lock back: *"the console being
+linked from the nav on a deployment a stranger can reach"*, because its buttons spend. **A demo
+button on `/markets` is that situation by another door**, so it takes the same `CONSOLE_SECRET`,
+compared after `requiredEnv` so a missing env var and a wrong secret are never the same message.
+
+**`revealDemoMarket` is deliberately NOT gated** — it is the button the judge presses, so it cannot
+ask for a secret. Three things bound it instead: it **refuses any market that is not past-posted**
+(so markets 6, 7, 11 and 12 are unreachable through it at any price, by arithmetic rather than a
+denylist), it is idempotent via `resolve.ts`'s reconcile path, and it can only act on markets the
+gated call created. Verified on screen: `/markets/6` still renders `FORECAST` with no play controls.
+
+### The seventh run — the rule people expect is not the rule that binds
+
+The six presets are **questions, not markets**. `AlreadyCommitted` is one claim per author per
+*market*, so picking a question again creates a new market with a later `closeTime` that the same
+wallet may commit to. That is not a loophole: the contract's rule holds exactly as written, and a
+judge is staking a new market rather than restaking an old one.
+
+⚠️ **What a judge actually hits is the cap**, not a seventh-run message: three demo markets open for
+staking at once, and the refusal names the cap and the UTC time the next slot frees. The gas behind
+each creation is the real limit; the cap is what makes it visible.
+
+### The two payouts, and only one of them is money
+
+`participantsFor()` derives ten participants from the market id — deterministic, stored nowhere, no
+schema change. ⚠️ **The marker is in the identity itself**: they are called `sim-01`…`sim-10`, never
+a plausible `0x9f3c…`, because a badge beside a realistic address is one glance away from being
+missed. They render as **pool shape only** — a TRUE/FALSE share — and **no payout is derived from
+them anywhere.** The only USDC figure on the page is `payoutOf(marketId, account)` read from the
+contract after settlement.
+
+⚠️ **And the real number is boring, which the page says before it is seen:** with the analyst and one
+judge, either the losing pool is empty and both get their stake back, or the judge took the other
+side and the winner takes both. The page states it, so arcscan confirms rather than contradicts —
+and it says plainly that a wrong call loses the stake.
+
+### The wait, and what fills it
+
+`closeTime` must pass before `resolve` will run, so there is a real ~2-minute window. A countdown
+alone is a page someone leaves, so during it the panel shows **exactly what pressing Reveal will
+do** — query the named deployment for that day's `financialsDailySnapshot` unpinned so the freshness
+rule has a block timestamp; canonicalize and `sha256` the response and store those bytes *before*
+anything goes on chain; then `resolve(marketId, outcome, evidenceHash)`, which cannot be amended. The
+dead time carries the explanation the demo exists to give.
+
+### The answer is not hidden and the page opens by saying so
+
+*"The answer already exists."* The snapshot is public, the day is on screen, and anyone can read the
+figure off The Graph in a minute. What settlement proves is that it was read **after** the commit,
+hashed, and put on chain — not that it was secret. A commit-reveal scheme would be cryptography
+performing confidence rather than establishing it, since neither party controls a public fact.
+
+### ⚠️ The straggler is gone, and the SQL version would not have been equivalent
+
+`app/markets/[id]/page.tsx` carried `(observation_end <= created_at) AS after_the_fact` — the third
+spelling `rehearsal.ts` exists to end, and the one its header named. It now uses the imported
+`isRehearsal` and `pastPosted`. **A SQL `pastPosted` was not written and must not be:**
+`close_time > (observed_day || 'T00:00:00Z')::timestamptz` resolves that cast in the session's
+TimeZone, and this rule is a midnight boundary — off UTC it shifts by hours and flips a market's
+category silently, where `dayStart()` is explicit `Date.UTC`.
+
+### ⚠️ Two selectors were wrong, and checking is why that cost nothing
+
+`DemoControl` hand-encodes `commitPrediction(uint256,bytes32,bool)` because the judge picks the
+report and the side, so the bytes cannot be pre-encoded server-side the way `PositionControl`'s
+`stake` calldata is. **Both selectors I wrote from memory were wrong** — `commitPrediction` is
+`0xcdb24e7d` and `payoutOf` is `0x16df4910`, computed with `ethers.id()`. Left unchecked this
+presents as an unexplained revert *after* a judge has signed, which is the worst possible moment.
+
+### Preset pins, verified rather than trusted
+
+`--presets` re-reads every question's day and prints whether the pinned threshold still sits where
+its description claims. All six agree: two clearly one way, two clearly the other, and two within 1%
+(`d2` at +0.97%, `d3` at −0.31%) which are the ones worth playing. ⚠️ **Four distinct subjects across
+two metrics and two days, deliberately** — six thresholds on one metric and day would mean the first
+reveal answers the other five. The script prints drift and never rewrites a pin.
+
+### What the surface says at each state
+
+| state | shown |
+|---|---|
+| index | a Demo section with its own eyebrow, the six questions, `n/3 open` |
+| open | countdown, connect-or-skip, report picker, TRUE/FALSE, stake field |
+| waiting | the three steps Reveal will run, with the real deployment and day |
+| ready | the Reveal button |
+| settled | the figure, the outcome, the real payout, a link to `/analyst` |
+
+Rendered and checked: `/markets` 200 with the section and `5 settled — 2 right, 2 wrong, 1 voided ·
+5 test data · 1 demo`; `/markets/13` 200 showing `DEMO`, the past-posting explanation, `sim-01`…
+and the play panel; `/markets/6` 200 still reading `FORECAST` with no demo controls.
+
+`npx next build` after `rm -rf .next` passes. No schema change, no contract change.

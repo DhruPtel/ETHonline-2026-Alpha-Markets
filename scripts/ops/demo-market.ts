@@ -1,5 +1,6 @@
 // PHASE-8 Task 1 — the demo market: create one, list them, retire the abandoned.
 //
+//   npx tsx --env-file=.env scripts/ops/demo-market.ts --presets          ← free, checks the pins
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --list             ← free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create           ← plan only, free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create --send    ← ⚠️ SPENDS
@@ -42,6 +43,7 @@ import { pastPosted } from '../../src/arc/rehearsal.js';
 import { ResolveRefused, prepare as planSettlement, voidMarket } from '../../src/arc/resolve.js';
 import { recordSettlement, settle } from '../../src/arc/settle.js';
 import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
+import { DEMO_SLUG, PRESETS } from '../../app/markets/demo.js';
 import { close } from '../../src/store/markets.js';
 import { db } from '../../src/store/db.js';
 
@@ -236,9 +238,44 @@ async function retire(): Promise<void> {
   console.log('');
 }
 
-if (flag('list') !== undefined) await list();
+/**
+ * Re-read every preset's day and say whether the pinned threshold still sits where its description
+ * claims. ⚠️ **A check, never a rewrite.** The thresholds are pinned precisely so a reindex cannot
+ * move them silently; a script that "corrected" them on the fly would defeat the pin. Drift is
+ * printed and a human decides.
+ */
+async function presets(): Promise<void> {
+  console.log(`\n══ preset questions — ${PRESETS.length} pinned, re-read against The Graph now\n`);
+  let drift = 0;
+  for (const p of PRESETS) {
+    const spec = validateSpec({ slug: DEMO_SLUG, metric: p.metric, comparison: 'above', threshold: p.threshold, observedDay: p.observedDay });
+    const r = await settle(spec);
+    if (r.kind !== 'settled') {
+      console.log(`  ${p.id}  ⚠️ ${p.observedDay} ${p.metric} — ${r.kind}. This question cannot be played.`);
+      drift += 1;
+      continue;
+    }
+    const figure = Number(r.observed);
+    const pct = ((Number(p.threshold) - figure) / figure) * 100;
+    const near = Math.abs(pct) < 1;
+    const saysNear = p.distance.includes('within 1%');
+    const agrees = near === saysNear;
+    if (!agrees) drift += 1;
+    console.log(
+      `  ${p.id}  ${agrees ? '✅' : '⚠️'} ${p.metric.padEnd(22)} ${p.observedDay}  ` +
+      `resolves ${r.outcome ? 'TRUE ' : 'FALSE'}  threshold is ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}% from ${r.observed.slice(0, 14)}`,
+    );
+    if (!agrees) console.log(`        pinned description says "${p.distance}" — that no longer holds.`);
+  }
+  console.log(drift === 0
+    ? '\n  ✅ every pin still describes its question truthfully.\n'
+    : `\n  ⚠️ ${drift} preset(s) drifted. Edit app/markets/demo.ts by hand — do not let a script move a pin.\n`);
+}
+
+if (flag('presets') !== undefined) await presets();
+else if (flag('list') !== undefined) await list();
 else if (flag('create') !== undefined) await createOne();
 else if (flag('retire') !== undefined) await retire();
-else console.log('\n  one of --list, --create, --retire. See the header for the full forms.\n');
+else console.log('\n  one of --presets, --list, --create, --retire. See the header for the full forms.\n');
 
 await close();

@@ -5,7 +5,8 @@
 //   the **market lookup by `chain_market_id` AND `contract_address`** — a chain id alone is not an
 //     identity, since a redeployed contract restarts its numbering;
 //   the **claims join** onto `reports` and `scores`;
-//   the **`after_the_fact`** arithmetic that tells a rehearsal from a forecast;
+//   the arithmetic that tells a rehearsal from a forecast — ⚠️ since replaced by `rehearsal.ts`'s
+//     imported predicates, which also added the demo category this file could not express;
 //   the **public-RPC swap**: `ARC_RPC_URL` may carry a key, so a URL with credentials, a query or a
 //     path is replaced by the public endpoint before it reaches anything a browser can read;
 //   the **`stakes` table read** for who actually staked, with arcscan links;
@@ -28,6 +29,9 @@ import {notFound} from 'next/navigation.js';
 import {ethers} from 'ethers';
 import {ProbabilityChart, illustrativeSeries} from '../../components/ProbabilityChart.js';
 import {PositionControl, type AnalystReport} from './PositionControl.js';
+import {DemoControl} from './DemoControl.js';
+import {illustrativeTrueShare, participantsFor} from '../demo.js';
+import {isRehearsal, pastPosted} from '../../../src/arc/rehearsal.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
 import {ANALYSTS} from '../../../src/config/analysts.js';
@@ -66,11 +70,10 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const [market] = await db()<{
     id: string; spec_json: string; created_at: Date; close_time: Date; observation_end: Date;
     resolve_deadline: Date; contract_address: string; resolved_at: Date | null;
-    voided_at: Date | null; outcome: boolean | null; after_the_fact: boolean;
+    voided_at: Date | null; outcome: boolean | null; observed_day: string;
   }[]>`
     SELECT id, spec_json, created_at, close_time, observation_end, resolve_deadline,
-           contract_address, resolved_at, voided_at, outcome,
-           (observation_end <= created_at) AS after_the_fact
+           contract_address, resolved_at, voided_at, outcome, observed_day
       FROM markets
      WHERE chain_market_id = ${id}
        AND contract_address = ${requiredEnv('ARC_MARKET_ADDRESS')}`;
@@ -94,6 +97,21 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const claim = claims.length === 1 ? claims[0]! : null;
 
   const spec = JSON.parse(market.spec_json) as Spec;
+
+  // ⚠️ **THE SQL COPY OF THE REHEARSAL RULE IS GONE FROM THIS FILE.** It carried
+  // `(observation_end <= created_at) AS after_the_fact` — the third spelling `rehearsal.ts` was
+  // created to end, and the one its header named as the straggler. Both categories are now the
+  // imported predicates.
+  //
+  // ⚠️ **AND THE SQL VERSION OF `pastPosted` WOULD NOT HAVE BEEN EQUIVALENT.** The obvious inline,
+  // `close_time > (observed_day || 'T00:00:00Z')::timestamptz`, resolves that cast in the session's
+  // TimeZone, and this rule is a midnight boundary — off UTC it moves by hours and a market near the
+  // boundary silently changes category. `dayStart()` is explicit `Date.UTC`. A wrong answer that
+  // looks right is worse than the duplication was.
+  const rehearsal = isRehearsal(market.observation_end, market.created_at);
+  const demo = pastPosted(market.close_time, market.observed_day);
+  const participants = demo ? participantsFor(id) : [];
+  const simTrueShare = demo ? illustrativeTrueShare(participants) : 0;
 
   // ⚠️ **THE RPC URL A BROWSER MAY SEE.** `ARC_RPC_URL` can carry a key in its userinfo, query or
   // path. Anything but a bare host is replaced by the public endpoint before it is handed to a
@@ -178,7 +196,8 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
         <section className="market-main">
           <div className="market-title">
             <div className="eyebrow">
-              {market.after_the_fact ? 'REHEARSAL' : 'FORECAST'} / MARKET #{id} · {standing.toUpperCase()}
+              {demo ? 'DEMO' : rehearsal ? 'REHEARSAL' : 'FORECAST'} / MARKET #{id} ·{' '}
+              {standing.toUpperCase()}
             </div>
             <h1>
               Will {spec.slug}&rsquo;s {spec.metric} be {spec.comparison} ${grouped(spec.threshold)} on{' '}
@@ -194,7 +213,21 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 distinction but this. `observation_end <= created_at` is the test — arithmetic, not a
                 naming convention, because one stored market's id contains the word "rehearsal" while
                 being a forecast by that arithmetic. */}
-            {market.after_the_fact && (
+            {/* ⚠️ **A DEMO MUST NEVER READ AS A FORECAST**, and on chain nothing tells them apart —
+                the contract stores three timestamps and never checks them against the day the
+                question names. `pastPosted` is the only thing that does. */}
+            {demo && (
+              <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
+                ⚠️ <strong>This is a demo, not a forecast.</strong> Staking opened on{' '}
+                {when(market.close_time)} — <strong>after {spec.observedDay} had already ended</strong>,
+                so the answer was public before anyone could commit. Every totalizator on earth is
+                built to prevent exactly this; the racing term is past-posting, and here it is
+                deliberate so the whole loop can be run in minutes. <strong>It counts towards no
+                record and reaches no planning prompt.</strong>
+              </p>
+            )}
+
+            {rehearsal && !demo && (
               <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
                 ⚠️ <strong>This is a rehearsal, not a forecast.</strong> The observed day
                 ({spec.observedDay}) had already finished when this market was created on{' '}
@@ -395,6 +428,45 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               </div>
             </div>
           </details>
+          {/* ── ⚠️ ILLUSTRATION, AND THE NAMES SAY SO ───────────────────────────────────── */}
+          {demo && (
+            <div className="holdings-panel panel" style={{marginTop: 20}}>
+              <div className="section-title">
+                <div>
+                  <span className="eyebrow">POOL SHAPE / NOT ON CHAIN</span>
+                  <h2>Ten illustrative participants</h2>
+                </div>
+                <span className="badge">{simTrueShare}% TRUE</span>
+              </div>
+              <p className="market-statline" style={{display: 'block', lineHeight: 1.6, paddingTop: 0}}>
+                ⚠️ <strong>These are not real and they hold nothing.</strong> They exist to give the
+                pool a shape a judge can read at a glance. They are derived from this market&rsquo;s
+                id, stored nowhere, and <strong>no payout on this page is derived from them</strong> —
+                the only USDC figure here comes from <code>payoutOf</code> against the real pool.
+                <strong> Arcscan will show the real stakers, not twelve.</strong>
+              </p>
+              <div className="table-scroll">
+                <table className="financial-table">
+                  <thead>
+                    <tr><th>Participant</th><th>Side</th><th>Illustrative size</th></tr>
+                  </thead>
+                  <tbody>
+                    {participants.map((pt) => (
+                      <tr key={pt.handle}>
+                        <td><code>{pt.handle}</code></td>
+                        <td>
+                          <span className={`badge grade-${pt.side ? 'right' : 'wrong'}`}>
+                            {pt.side ? 'TRUE' : 'FALSE'}
+                          </span>
+                        </td>
+                        <td>{pt.amountUsdc} <span className="holdings-sub">simulated</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </section>
 
         <aside className="position-panel dark-panel">
@@ -406,6 +478,25 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               a button, meant a person could stake USDC twice for what is one action.
               ⚠️ The heading and the whose-money line live inside the control because both change
               with the branch. */}
+          {/* ⚠️ **A DEMO MARKET GETS A DIFFERENT CONTROL, NOT A RESKINNED ONE.** `PositionControl`'s
+              COMMIT branch spends the ANALYST's money through Circle, which is the wrong wallet
+              entirely here — §2.3 settled that the judge commits their own claim, from their own
+              wallet, backing a report they choose. Its JOIN branch calls `stake`, which carries no
+              report at all. Neither is the call this needs. */}
+          {demo ? (
+            <DemoControl
+              chainMarketId={id}
+              contractAddress={market.contract_address}
+              rpcUrl={publicRpc}
+              reports={analystReports.map((r) => ({hash: r.hash, label: r.label}))}
+              closeTimeMs={market.close_time.getTime()}
+              observationEndMs={market.observation_end.getTime()}
+              state={panelState}
+              outcome={market.outcome}
+              observedDay={spec.observedDay}
+              deployment={spec.slug}
+            />
+          ) : (
           <PositionControl
             chainMarketId={id}
             reports={analystReports}
@@ -435,6 +526,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             standing={standing}
             outcome={market.outcome}
           />
+          )}
 
           <div className="arc-evidence">
             <span className="eyebrow">ARC / ONCHAIN EVIDENCE</span>

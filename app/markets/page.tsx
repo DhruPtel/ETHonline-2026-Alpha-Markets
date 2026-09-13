@@ -40,6 +40,7 @@ import {MarketFilters} from '../components/MarketFilters.js';
 import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityChart.js';
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
 import {analystRecord, recordLine} from '../components/GradeMarker.js';
+import {DemoStarter} from './DemoStarter.js';
 import {db} from '../../src/store/db.js';
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
@@ -121,11 +122,9 @@ export default async function MarketIndex() {
   // was staked on it, by someone, for real. Leaving it in either section would put a true-looking
   // heading over a false claim, which is worse than not listing it.
   //
-  // ⚠️ **SO IT IS CURRENTLY NOT LISTED ON THIS PAGE AT ALL, AND THAT IS A KNOWN GAP, NOT A FIX.**
-  // PHASE-8 §2.9 specifies a third `Demo` section with its own copy, and that is Task 5's work — it
-  // needs a new `kind` on `card()` and the section text written. Until then the record line below is
-  // the only place these appear, and it names them. **Listing them wrongly is the one thing that
-  // could not wait; listing them rightly can.**
+  // ⚠️ **THEY GET THEIR OWN SECTION, WITH ITS OWN CLAIM ABOUT THEM.** Task 2 removed them from both
+  // buckets and left them unlisted, which was honest but incomplete — the record line named a count
+  // with nothing to click. The Demo section below is where that resolves.
   const demos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
   const forecasts = onChain.filter(
     (r) => !isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
@@ -168,9 +167,19 @@ export default async function MarketIndex() {
   // and it therefore said *"no forecast has settled yet"* while `/analyst` said *"5 settled"*. Two
   // pages answering one question differently is worse than either answer. `analystRecord()` counts
   // **graded claims**, which is what a grade is a property of — see its own header.
+  // ⚠️ Open for STAKING, not merely unsettled — the cap `startDemoMarket` enforces is about markets
+  // a judge could still commit to, and a header counting settled ones would contradict its refusal.
+  const openDemoCount = demos.filter(
+    (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
+  ).length;
+
   const record = await analystRecord();
 
-  const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'offchain') => {
+  // ⚠️ `kind` is not read inside — the card renders from the row — but it is the label at each call
+  // site and a demo passed as 'rehearsal' would be a false statement in the source even though the
+  // output is identical. Kept honest rather than deleted, because the moment a card needs different
+  // copy per section this is the parameter that will carry it.
+  const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'demo' | 'offchain') => {
     const spec = JSON.parse(r.spec_json) as Spec;
     const p = r.chain_market_id ? pools.get(r.chain_market_id) : undefined;
     const total = p ? p.t + p.f : null;
@@ -284,7 +293,7 @@ export default async function MarketIndex() {
         <span>{recordLine(record)}</span>
         <span>
           rehearsals excluded
-          {demos.length > 0 ? ` · ${demos.length} demo market not listed yet` : ''}
+          {demos.length > 0 ? ` · ${demos.length} demo` : ''}
         </span>
       </div>
 
@@ -296,6 +305,25 @@ export default async function MarketIndex() {
         <p className="market-statline">No forecasts on chain.</p>
       ) : (
         <div className="prediction-grid">{forecasts.map((r) => card(r, 'forecast'))}</div>
+      )}
+
+      {/* ── ⚠️ ITS OWN SECTION, ITS OWN SENTENCE, AND THE ENTRY POINT TO PLAYING ONE ────────── */}
+      <div className="section-title">
+        <h2>Demo</h2>
+        <span className="eyebrow">STAKING WAS OPEN AFTER THE DAY BEING MEASURED</span>
+      </div>
+      <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
+        These exist so a visitor can run the settlement loop in minutes rather than waiting a day.
+        Staking opened <strong>after</strong> the day each one measures had already ended, so the
+        answer was published before anyone could commit. ⚠️ <strong>None is a forecast and none counts
+        towards the record</strong> — and none reaches the agent&rsquo;s planning prompt either. What
+        keeps them out is <code>pastPosted</code>, arithmetic over each market&rsquo;s own timestamps;
+        it is <em>not</em> that a judge&rsquo;s claim is theirs, because the analyst commits on these
+        too and the author filter does nothing.
+      </p>
+      <DemoStarter openCount={openDemoCount} />
+      {demos.length > 0 && (
+        <div className="prediction-grid" style={{marginTop: 20}}>{demos.map((r) => card(r, 'demo'))}</div>
       )}
 
       {/* ⚠️ **A REHEARSAL MUST NOT READ AS A FORECAST, AND NOTHING ON CHAIN ENFORCES THAT BUT US.**
