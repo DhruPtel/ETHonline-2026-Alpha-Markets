@@ -2,7 +2,7 @@
 //
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --presets          ← free, checks the pins
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --seed             ← plan only, free
-//   npx tsx --env-file=.env scripts/ops/demo-market.ts --seed --send      ← ⚠️ SPENDS, six markets
+//   npx tsx --env-file=.env scripts/ops/demo-market.ts --seed --send      ← ⚠️ SPENDS, one market
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --list             ← free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create           ← plan only, free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create --send    ← ⚠️ SPENDS
@@ -45,7 +45,8 @@ import { pastPosted } from '../../src/arc/rehearsal.js';
 import { ResolveRefused, prepare as planSettlement, voidMarket } from '../../src/arc/resolve.js';
 import { recordSettlement, settle } from '../../src/arc/settle.js';
 import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
-import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, PRESETS } from '../../app/markets/demo.js';
+import { DEMO_SLUG, PRESETS } from '../../app/markets/demo.js';
+import { demoSeedPlan, seedDemoMarkets } from '../../app/markets/actions.js';
 import { close } from '../../src/store/markets.js';
 import { db } from '../../src/store/db.js';
 
@@ -275,65 +276,30 @@ async function presets(): Promise<void> {
 }
 
 /**
- * Put the six preset questions on chain, ready to play. ⚠️ **Spends ~0.02 USDC per market.**
+ * Open ONE demo market on the next preset question. ⚠️ **Spends about 0.02 USDC** — the analyst's
+ * 0.01 stake plus ~0.008–0.009 of gas, measured off the receipts of markets 28–30.
  *
- * ⚠️ **THE PAGE IS NOW THE PRIMARY PATH — `SeedButton` on `/markets` does this with no secret**,
- * bounded by the open-market cap and the cost rather than a password. This stays as the operator's
- * escape hatch: it can be run before a demo day without opening a browser, and it prints a plan.
- *
- * ⚠️ **Staggered closeTimes.** Six markets created in one pass would otherwise all shut within
- * seconds of each other, giving a judge one playable market and five corpses. Each is offset by a
- * full staking window so they come due in sequence.
- *
- * ⚠️ **The cap is deliberately NOT applied here.** It exists to stop a browser looping `resetDemo
- * Market`; an operator seeding a demo day is the case it was never meant to catch. The count is
- * printed so the decision is visible rather than silent.
+ * ⚠️ **THE START BUTTON'S OWN FUNCTION, CALLED RATHER THAN COPIED.** This used to put all six presets
+ * on chain in one pass with staggered closes, and the Demo section filled with markets nobody was
+ * playing. It now runs `seedDemoMarkets` — one market per run, the question rotated, the open-market
+ * cap applied — so the operator and the button cannot drift into two rules. Run it again to open
+ * another.
  */
 async function seed(): Promise<void> {
-  const block = await arcProvider().getBlock('latest');
-  if (!block) { console.error('\n❌ STOP  could not read the Arc chain clock.\n'); process.exit(1); }
-
-  const [report] = await db()<{ hash: string }[]>`
-    SELECT r.hash FROM reports r JOIN report_tokens rt ON rt.report_hash = r.hash
-    WHERE r.canonical_json LIKE ${`%${DEMO_SLUG}.totalDepositBalanceUSD%`}
-    ORDER BY r.created_at LIMIT 1`;
-  if (!report) { console.error('\n❌ STOP  no tokenized report to bind against.\n'); process.exit(1); }
-
-  console.log(`\n══ seeding ${PRESETS.length} demo markets${SEND ? ' — ⚠️ SPENDING' : ' — plan only'}\n`);
-  console.log(`  ⚠️ the open-market cap is ${MAX_OPEN_DEMO_MARKETS} and is NOT applied to a script run — the page's button tops up to it instead.\n`);
-
-  const plans = [];
-  for (const [i, preset] of PRESETS.entries()) {
-    // ⚠️ Staggered, so they come due one at a time rather than all at once.
-    const closeTime = block.timestamp + DEMO_STAKING_SECONDS * (i + 1);
-    const observationEnd = closeTime + 1;
-    try {
-      const plan = await prepareDemo({
-        reportHash: report.hash,
-        spec: { slug: DEMO_SLUG, metric: preset.metric, comparison: 'above', threshold: preset.threshold, observedDay: preset.observedDay },
-        closeTime, observationEnd,
-        resolveDeadline: observationEnd + DEMO_RETIREMENT_SECONDS,
-        amount: STAKE,
-      });
-      plans.push({ preset, plan, closeTime });
-      console.log(`  ${preset.id}  ${preset.metric.padEnd(22)} ${preset.observedDay}  above ${preset.threshold.padStart(12)}  closes ${new Date(closeTime * 1000).toISOString().slice(11, 19)}Z`);
-    } catch (e) {
-      console.log(`  ${preset.id}  ❌ refused: ${(e as Error).message.slice(0, 96)}`);
-    }
-  }
+  const plan = await demoSeedPlan();
+  console.log(`\n══ seed one demo market${SEND ? ' — ⚠️ SPENDING' : ' — plan only'}\n`);
+  console.log(`  next question  ${plan.nextLabel ?? '—'}`);
+  console.log(`  cost           about ${plan.costUsdc} USDC of the analyst's — 0.01 stake plus gas`);
+  console.log(`  open now       ${plan.open} of ${plan.cap}${plan.free === 0 ? ` — at the cap${plan.nextFrees ? `, the next frees at ${plan.nextFrees} UTC` : ''}` : ''}`);
 
   if (!SEND) {
-    console.log('\n  Plan only. Nothing spent. Add --send to put them on chain.\n');
+    console.log('\n  Plan only. Nothing spent. Add --send to open it.\n');
     return;
   }
 
-  console.log('');
-  for (const { preset, plan, closeTime } of plans) {
-    const made = await create(plan);
-    await commit(plan, made.chainMarketId);
-    console.log(`  ${preset.id}  → /markets/${made.chainMarketId}  open until ${new Date(closeTime * 1000).toISOString().slice(11, 19)}Z`);
-  }
-  console.log(`\n  ✅ ${plans.length} markets live. Open /markets and play one.\n`);
+  const r = await seedDemoMarkets();
+  if (!r.ok) { console.error(`\n❌ REFUSED  ${r.why}\n`); process.exit(2); }
+  console.log(`\n  ✅ ${r.note}  → /markets/${r.chainMarketId}\n`);
 }
 
 if (flag('seed') !== undefined) await seed();

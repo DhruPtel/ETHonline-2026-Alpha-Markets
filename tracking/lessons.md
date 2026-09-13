@@ -1406,3 +1406,30 @@ external explanations. This one adds a smaller one: ⚠️ **a measurement that 
 leave that number somewhere the code can be checked against.** "The widest legitimate output is
 ~3,500 tokens" was written in `lessons.md` on 2026-09-07 and `max_tokens` stayed at 24,000 for five
 days, because nothing connected the finding to the constant.
+
+---
+
+## 2026-09-13 — a judge's own stake is never recorded, so it is never graded
+
+**Expected.** PHASE-8 §2.7 tier 1 — *wallet + USDC, the full loop* — and §2.3's "what the judge sees
+instead": the judge commits their own claim from their own wallet, and after reveal finds it graded on
+`/analyst`, marked demo.
+
+**What happened.** The money leg works and the record leg does not. `commitAsJudge` sends
+`commitPrediction` from the browser, and `commitPrediction` emits **`PredictionCommitted`**, not
+`Staked` (`AlphaMarket.sol` — only `stake()` emits `Staked`). The panel then posts the hash to
+`/api/markets/[id]/refresh`, which parses **only** `Staked` and answers 422 "mined but carries no
+Staked event". Even with the right event it would stop at the next line: the route requires the claim
+to exist in `claims`, and **nothing writes a claim that did not come through Circle** — the only
+writers are `market.ts` and seed scripts. `scoreMarket` grades store claims, so the judge's is never
+graded. Checked against the data: all 17 demo markets carry exactly one claim, the analyst's, and
+`stakes` has no demo rows. **Nobody has ever completed tier 1** — every demo run so far was tier 3,
+watch-it-run.
+
+**What changes.** ⚠️ **§2.3's "their graded claim on `/analyst`" and §2.7 tier 1's "full loop" are not
+true of the build as it stands.** On chain the judge's claim is real and `payoutOf` pays it; in the
+store and on every record surface it does not exist. Closing it means recording a claim authored by an
+address that is not the analyst, off `PredictionCommitted`, which touches the refresh route and what
+the store records — raised in chat rather than built. **The habit:** a loop described in a plan as
+"lifted, not rewritten" still needs one run end to end; the wallet half here was type-checked and
+never executed.

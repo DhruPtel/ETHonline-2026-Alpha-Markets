@@ -17389,3 +17389,46 @@ pressed, staked, seeded or resolved.
   exceptions and no console errors; the countdown still ticks (9:22 → 9:19). A probe confirmed both
   `console.error` and `reportError` were being captured, so a clean run is not a blind one.
 - ⚠️ **Wallet speed not measured** — headless Chromium has no wallet extension.
+
+---
+
+## 2026-09-13 — demo market cleanup: the panel closes itself, one market per press, the read checked
+
+**The stale Stake button.** When the countdown reaches zero the panel now switches itself to the
+closed state — "Awaiting settlement" and **Reveal answer** — and refreshes the page so the header
+agrees. Before, it offered Stake until a reload, and a stake sent then reverts StakingClosed. It waits
+while a stake is in the wallet or mining, and the judge's arcscan link carries across the switch.
+
+**Hiding, one-per-press and the Graph proof were already in the uncommitted tree** from the crashed
+session, so they were checked rather than rebuilt. The Demo section lists markets still open for
+staking plus the single most recent other one; the rest are hidden, not voided — still on chain, at
+their own pages and on `/analyst`. The ops `--seed` still opened six staggered markets with its own
+copy of the loop; it now calls the button's `seedDemoMarkets`, so there is one seed path. **Cost per
+market, off the receipts of 28–30: 0.0178–0.0192 USDC** — the analyst's 0.01 stake plus ~0.009 gas.
+
+**The settlement read is now checked against the contract, not asserted.** The panel compares the
+stored evidence hash with the contract's `evidenceHash` (all three resolved demo markets match), and
+Reveal refuses a market the store already records as settled — `recordSettlement` upserts, so a
+second press from another tab would have overwritten the read the chain committed to.
+
+⚠️ **Surprise: a judge's own stake has never been recorded.** `commitPrediction` emits
+`PredictionCommitted`, the refresh route only parses `Staked`, and nothing writes a judge's claim to
+the store — all 17 demo markets carry only the analyst's claim and there are no demo stakes. The
+money moves on chain and `payoutOf` sees it, but the panel says "no Staked event" and the claim is
+never graded. Not fixed: it is outside this task's files and changes what gets recorded. Raised in
+chat.
+
+⚠️ **My mistake:** `rm -rf .next` ran while the operator's `next dev` was up. It recovered and kept
+serving; verification then used `next start` on separate ports to stay out of `.next/dev`.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes. Root `tsc` — one error, in the untouched
+  `scripts/ops/seed-demo-record.ts`, pre-existing.
+- Browser, nothing pressed: market 30 with the clock shifted crossed zero from Stake to Reveal and
+  the eyebrow went `OPEN FOR STAKING` → `AWAITING SETTLEMENT`; `/markets/13` shows every field and the
+  match line; `/markets` shows one demo card and "16 finished ones are not listed"; `/markets/11`
+  unchanged. No console errors anywhere; a probe confirmed the capture was live.
+- Links: the IPFS manifest URL returns 200. Etherscan serves a Cloudflare challenge to curl and to
+  headless Chromium, so the page itself could not be fetched; block 25,965,405 was confirmed on a
+  public RPC at 02:05:23Z, the same second the panel shows as "Indexed to".

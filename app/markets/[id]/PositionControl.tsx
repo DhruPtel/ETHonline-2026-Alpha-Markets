@@ -184,6 +184,21 @@ export function PositionControl({
     return () => clearInterval(t);
   }, [demo]);
 
+  // ⚠️ **THE CLOSE, NOTICED WHERE THE CLOCK IS.** `state` was decided when the server rendered, so a
+  // demo panel left open past `closeTimeMs` kept offering Stake — and a stake sent then reverts
+  // StakingClosed after the judge has paid gas to learn it. At zero the panel takes the closed state
+  // itself, Reveal included, and refreshes the page so the header and the rows agree with it.
+  // ⚠️ **Not while `busy`.** A stake already in the wallet or waiting to be mined keeps its stage on
+  // screen until it finishes; it may well have landed before the close.
+  const closedHere = demo && state === 'open' && !busy && now !== null && closeTimeMs !== undefined && now >= closeTimeMs;
+  const shownState: typeof state = closedHere ? 'closed' : state;
+  const shownStanding = !closedHere
+    ? standing
+    : (now ?? 0) < (observationEndMs ?? 0) ? 'Staking closed — observing' : 'Awaiting settlement';
+  useEffect(() => {
+    if (closedHere) router.refresh();
+  }, [closedHere, router]);
+
   const max = BigInt(maxStakeWei);
   const wei = toWei(amount);
   const chosen = reports.find((r) => r.hash === hash) ?? null;
@@ -437,7 +452,7 @@ export function PositionControl({
   };
 
   // ── ⚠️ THE THREE CLOSED STATES. Neither call is available; each says what is true of it. ──────
-  if (state !== 'open') {
+  if (shownState !== 'open') {
     return (
       <>
         <h2>Your position</h2>
@@ -446,7 +461,7 @@ export function PositionControl({
             ? 'Voided: the day could not be observed, so there is no outcome and every stake is refundable. Nothing new can be staked and nothing was lost.'
             : state === 'resolved'
               ? `Resolved ${outcome ? 'TRUE' : 'FALSE'}. The parimutuel pays the winning side from the whole pool — and where one side is empty it returns each stake to whoever made it.`
-              : `${standing}. The close time has passed, so the contract reverts StakingClosed on any new stake or claim. Stakes already placed are unaffected.`}
+              : `${shownStanding}. The close time has passed, so the contract reverts StakingClosed on any new stake or claim. Stakes already placed are unaffected.`}
         </p>
         {claim && (
           <p className="stake-side">
@@ -458,7 +473,7 @@ export function PositionControl({
         {/* ⚠️ The status a real market shows, FIRST — the demo's extra control goes under it, not
             in front of it. A button above the sentence that explains the state reads as the primary
             action on a settled market, which it is not. */}
-        {(!demo || (state !== 'closed' && !revealed)) && (
+        {(!demo || (shownState !== 'closed' && !revealed)) && (
           <span className="btn white full inert">
             <Lock size={15} /> {state === 'voided' ? 'Voided' : state === 'resolved' ? 'Market resolved' : 'Staking closed'}
           </span>
@@ -468,7 +483,7 @@ export function PositionControl({
             daily pass; a demo's day finished hours ago, so settlement can run the moment staking
             shuts. `revealDemoMarket` refuses anything that is not past-posted, so this cannot reach
             markets 6, 7, 11 or 12 whatever id it is handed. */}
-        {demo && state === 'closed' && !revealed && (
+        {demo && shownState === 'closed' && !revealed && (
           <button className="btn white full" type="button" disabled={revealing} onClick={() => void doReveal()}>
             {revealing ? 'Reading the day…' : 'Reveal answer'}
           </button>
@@ -476,6 +491,13 @@ export function PositionControl({
         {demo && revealed && <p className="position-sub"><Check size={13} /> {revealed}</p>}
         {demo && payout !== null && (
           <p className="position-sub">Your payout is {fromWei(payout)} USDC, from the real pool.</p>
+        )}
+        {/* ⚠️ Carried across the close. A stake sent in the last seconds is still this judge's only
+            handle on money that moved, and flipping into this state must not drop it. */}
+        {demo && txHash && (
+          <a className="text-link" href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer">
+            Your transaction on arcscan <ArrowUpRight size={13} />
+          </a>
         )}
         {/* ⚠️ One claim per author per market, so the same market cannot be replayed. This creates a
             NEW market on the same question with a later closeTime — a different market, which leaves

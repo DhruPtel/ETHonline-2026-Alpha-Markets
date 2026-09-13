@@ -64,12 +64,11 @@ export const DEMO_SLUG = 'aave-v3-ethereum';
  * What stops that looping is this cap and the gas behind it: every creation is a real
  * `createMarket` plus a real `commitPrediction` paid by the analyst, about 0.02 USDC a time.
  *
- * ⚠️ **SIX, RAISED FROM THREE WHEN SEEDING BECAME A BUTTON.** A full seed is the six preset
- * questions, so a cap of three would have made the button refuse itself halfway through its own
- * job — and two different caps for two paths is the kind of rule nobody can state. One number:
- * **at most six demo markets open for staking at once**, which also fixes the most the analyst can
- * have at risk in open demo markets at about 0.12 USDC. Seeding tops up to it; reset respects it;
- * both refusals name it and say when the next slot frees.
+ * ⚠️ **SIX, AND NO LONGER REACHED BY ONE PRESS.** It was sized for a seed that opened all six preset
+ * questions at once. Seeding now opens one market per press, so six is only met by six starts inside
+ * one staking window. Still one number: **at most six demo markets open for staking at once**, about
+ * 0.12 USDC of the analyst's at risk at full stretch. Seed and reset both respect it, and both
+ * refusals name it and say when the next slot frees.
  */
 export const MAX_OPEN_DEMO_MARKETS = 6;
 

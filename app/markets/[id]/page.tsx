@@ -31,7 +31,7 @@ import {ProbabilityChart, illustrativeSeries} from '../../components/Probability
 import {PositionControl, type AnalystReport} from './PositionControl.js';
 import {bandsFor, participantsFor} from '../demo.js';
 import {isRehearsal, pastPosted} from '../../../src/arc/rehearsal.js';
-import {ArrowLeft, ArrowRight, ArrowUpRight, Clock} from '../../components/Icons.js';
+import {ArrowLeft, ArrowRight, ArrowUpRight, Check, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
 import {ANALYSTS} from '../../../src/config/analysts.js';
 import {MiniDocument} from '../../components/MiniDocument.js';
@@ -219,6 +219,10 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const proof = proofRow
     ? {...proofRow, record: JSON.parse(proofRow.raw) as {deployment: string; document: string | null; block: number; rowCount: number | null; fetchedAt: string}}
     : null;
+  // ⚠️ The contract's own `evidenceHash`, already read above for the pools. The panel compares the
+  // stored row against it rather than asserting they agree — `recordSettlement` upserts, so a row
+  // re-recorded after resolve would otherwise sit under a hash the chain never took.
+  const evidenceOnChain = (onChain.evidenceHash as string).replace(/^0x/, '');
 
   const recorded = await db()<{staker: string; amount: string; side: boolean; tx_hash: string}[]>`
     SELECT staker, amount, side, tx_hash FROM stakes WHERE market_id = ${market.id} ORDER BY seq`;
@@ -708,8 +712,17 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 <dd style={{overflowWrap: 'anywhere'}}>{proof.evidence_hash}</dd>
               </dl>
               <p className="position-sub" style={{marginTop: 10}}>
-                ⚠️ These are the bytes the resolve transaction committed to — read before the outcome
-                went on chain, not after. The hash above is <code>sha256</code> over them.
+                {evidenceOnChain === proof.evidence_hash ? (
+                  <>
+                    <Check size={13} /> Matches the evidence hash the contract holds for market #{id}.
+                    These are the bytes the settlement transaction committed to, read before the outcome
+                    went on chain; the hash is <code>sha256</code> over them.
+                  </>
+                ) : /^0+$/.test(evidenceOnChain) ? (
+                  'Recorded before settlement. The contract has not committed to an evidence hash yet.'
+                ) : (
+                  `⚠️ Does not match the contract's evidence hash (${evidenceOnChain.slice(0, 16)}…). This row was re-recorded after the market settled, so it is not the read the chain committed to.`
+                )}
               </p>
             </div>
           )}
