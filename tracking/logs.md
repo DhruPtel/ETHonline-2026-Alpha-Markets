@@ -17183,3 +17183,86 @@ without a browser, and it still prints a plan. Its header now says the page is t
 
 ⚠️ Still unexercised by me: pressing **Above**/**Below** (a wallet signature) and **Reveal answer**.
 Markets 17–19 were open at the time of writing with closes at 03:16:46, 03:19:16 and 03:21:46 UTC.
+
+---
+
+## 2026-09-13 — demo market: five band colours, five chart lines, and a band picker
+
+Presentation only. No change to the commit call, the thresholds, the sims, or the reveal path.
+Nothing staked, seeded or resolved.
+
+### ⚠️ The brief's derivation rule was inverted, and it decides money
+
+The task said: *"picking a band above the settling threshold means FALSE on chain, picking one at or
+below means TRUE."* **Worked through against market 19 that produces a perverse market.**
+
+Market 19 asks *is aave-v3 total borrows above $12,000,000,000 on 2026-09-11?* The day actually
+posted **$9.86B**, so it settles **FALSE**. Bands run 11.28 / 11.76 / **12.00** / 12.24 / 12.84.
+
+Under the stated rule, a judge picking the **highest** band — $12.84B, the most bullish call on the
+board — is staked **FALSE**, and **wins**, because the figure came in lowest. The most optimistic
+pick is rewarded for the most pessimistic outcome.
+
+**So the implemented rule is the other way round**, which is what the band labels already say:
+
+```
+the row reads "above $B", so picking it means believing the figure clears $B
+  B ≥ settling threshold  →  clearing B also clears it        →  TRUE
+  B <  settling threshold  →  the figure reaches only this far →  FALSE
+```
+
+⚠️ **And the derivation is printed under the picker rather than left implicit**, because this is
+precisely the bug that costs a judge money without anything on screen looking wrong:
+
+> The market settles on **above $12,000,000,000**, so your pick is **FALSE** on chain.
+
+Compared on integers over the decimal strings, not `Number()` — these are eleven-digit figures and a
+double starts dropping digits before the end of them.
+
+### What a judge presses
+
+The panel no longer asks Above or Below. It asks **where the figure lands** and offers the five bands
+as rows, each with its own colour dot and the settling one marked `settles here`. One press picks the
+band; the side is worked out from it and never put as a second question. The receipt then reads
+`your call · above $12,240,000,000` and `on chain · TRUE`.
+
+### The colours — three new, two already in the design
+
+`--band-a` is `#526bd8`, which is `.dot-true`; `--band-c` is `#d18a3c`, which is `.dot-false`. Only
+three are new: `--band-b #3f8f86` teal, `--band-d #8a6ea3` violet, `--band-e #a5675e` terracotta.
+They are matched to the existing pair for chroma and lightness on purpose — **five saturated lines on
+a page of neutrals reads as a different product**, and the chart is decoration around one real number.
+
+Each hue is used three ways — the row's dot, the row's figure, and the chart's line — so a reader can
+follow a colour from the table to the plot. ⚠️ **That correspondence is the entire reason for giving
+them colours**; before this, four rows were amber and one blue while the plot drew two bold lines and
+three anonymous grey ones, so the extra lines pointed at nothing.
+
+### The chart
+
+Five lines, one per band, each ending on that band's share. ⚠️ **The binary TRUE/FALSE pair is no
+longer drawn alongside them** — the settling band's line already ends on the real displayed pool
+share, so drawing both would put one number on the chart twice in two colours. The legend drops its
+TRUE/FALSE entries on a demo and keeps `* settlement is binary — two pools`, which matters more now
+there are five lines than it did when there were three faint ones.
+
+### Spacing, scoped so forecasts do not move
+
+`.outcome-row.band` gets `22px` vertical padding and `1fr 150px 104px` columns at a `22px` gap — the
+pool figure and the share were running into each other with five rows where two had been fine.
+⚠️ **Scoped to band rows deliberately**: `/markets/11` is the comparison this change is checked
+against and it must not shift. One line widens the base rule instead if forecasts should get the
+same room.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes.
+- **`/markets/6` and `/markets/11` render text-identical to the baseline**, and the CSS additions are
+  all under `.band` / `.dot-band-*` / `.line-band-*`, none of which a forecast page emits.
+- Markets 18 and 19 emit all five `dot-band-a…e` and all five `line-band-a…e`, and the asterisk is
+  still on the chart.
+
+⚠️ **Not rendered by me: the band picker in its open state.** Every demo market had passed its
+`closeTime` by the time this was finished (latest close 03:21:46Z, checked at 03:26:02Z), so they all
+render the reveal state instead. The picker compiles and type-checks but its first real render will
+be the operator's. Market 14 is already resolved — revealed by the operator, not by me.

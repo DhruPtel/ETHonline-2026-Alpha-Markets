@@ -56,6 +56,9 @@ interface Spec {
   slug: string; metric: string; comparison: 'above' | 'below'; threshold: string; observedDay: string;
 }
 
+/** ⚠️ Five, matching `--band-a…e` in `globals.css`. Index order is table order, top to bottom. */
+const BAND_KEYS = ['a', 'b', 'c', 'd', 'e'] as const;
+
 const usdc = (wei: bigint): string => ethers.formatUnits(wei, 18);
 const when = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 const grouped = (dec: string) => Number(dec).toLocaleString('en-US');
@@ -172,13 +175,19 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const showStaked = showTotal > 0n;
   const showTruePct = showStaked ? Number((showTrue * 1000n) / showTotal) / 10 : null;
 
-  /** ⚠️ Decoration only — see `ProbabilityChart`'s `decorLines`. Seeded so they do not shuffle. */
   /** ⚠️ Demo only. Exactly one of these is the market's own threshold — see `bandsFor`. */
   const bands = demo ? bandsFor(id, spec.threshold, showTruePct ?? 50) : [];
 
-  const decorLines = demo
-    ? [17, 43, 71].map((k) => illustrativeSeries(`${id}/${k}`, ((showTruePct ?? 50) + k) % 90 + 5).trueLine)
-    : [];
+  /**
+   * ⚠️ **One line per band, in the band's own colour, each ending on that band's share.** The
+   * settling band's line therefore ends on the real displayed pool share — which is why the binary
+   * TRUE/FALSE pair is no longer drawn beside them: it would put the same number on the chart twice
+   * in two colours. Seeded per band so the shapes do not shuffle between renders.
+   */
+  const bandLines = bands.map((b, i) => ({
+    values: illustrativeSeries(`${id}/band/${b.threshold}`, b.sharePct).trueLine,
+    className: `line-band-${BAND_KEYS[i]}`,
+  }));
 
   const recorded = await db()<{staker: string; amount: string; side: boolean; tx_hash: string}[]>`
     SELECT staker, amount, side, tx_hash FROM stakes WHERE market_id = ${market.id} ORDER BY seq`;
@@ -309,7 +318,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 truePct={showTruePct!}
                 falsePct={Number((100 - showTruePct!).toFixed(1))}
                 illustrative
-                decorLines={decorLines}
+                bandLines={bandLines}
               />
             ) : (
               <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
@@ -356,7 +365,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 `stake(marketId, claimId)` takes no side; the contract reads it off the claim, so a
                 per-row action would build the hole the contract closed. These rows are display.
                 Two of them, never three: the contract is binary. */}
-            <div className="outcome-header">
+            <div className={demo ? 'outcome-header band' : 'outcome-header'}>
               <span>OUTCOME</span>
               <span>POOL</span>
               <span>SHARE</span>
@@ -369,17 +378,20 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 band even in principle. The other rows say `illustrative` in the column where the
                 live one shows its share, and the chart's asterisk says the same thing again. */}
             {demo
-              ? bands.map((b) => {
+              ? bands.map((b, i) => {
                   return (
-                    <div key={b.threshold} className={b.isMarket ? 'outcome-row chosen' : 'outcome-row'}>
+                    <div key={b.threshold} className={b.isMarket ? 'outcome-row band chosen' : 'outcome-row band'}>
                       <div>
-                        <i className={b.isMarket ? 'dot-true' : 'dot-false'} />
+                        {/* ⚠️ The dot carries the same hue as this band's line in the plot above. A
+                            reader follows the colour from the row to the line; that is the only
+                            reason the lines have colours. */}
+                        <i className={`dot-band-${BAND_KEYS[i]}`} />
                         <strong>Above ${grouped(b.threshold)}</strong>
                         {b.isMarket
                           ? <span className="outcome-state">this market settles here</span>
                           : <span className="outcome-state">illustrative</span>}
                       </div>
-                      <b className={b.isMarket ? 'pct-true' : 'pct-false'}>
+                      <b className={`pct-band-${BAND_KEYS[i]}`}>
                         {b.isMarket ? usdc(showTotal) : b.poolUsdc}
                       </b>
                       <span className="outcome-state">
@@ -602,6 +614,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             outcome={market.outcome}
             demo={demo}
             questionThreshold={spec.threshold}
+            bands={bands.map((b, i) => ({threshold: b.threshold, isMarket: b.isMarket, colour: `dot-band-${BAND_KEYS[i]}`}))}
             questionDay={spec.observedDay}
             closeTimeMs={market.close_time.getTime()}
             observationEndMs={market.observation_end.getTime()}

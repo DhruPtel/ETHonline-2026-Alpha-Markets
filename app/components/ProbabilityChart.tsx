@@ -64,7 +64,7 @@ export function ProbabilityChart({
   falsePct,
   compact = false,
   illustrative = false,
-  decorLines = [],
+  bandLines = [],
 }: {
   series: Series;
   truePct: number;
@@ -73,15 +73,16 @@ export function ProbabilityChart({
   /** ⚠️ Draws the label over the plot. See `illustrativeSeries`. Never default it to true. */
   illustrative?: boolean;
   /**
-   * ⚠️ **DECORATION, AND NOTHING MAY EVER BE STAKED ON ONE.** Extra paths that make a pool look
-   * traded rather than empty. **Settlement is binary — TRUE and FALSE, two pools** — so these
-   * correspond to no outcome, carry no label, no legend entry and no hit area. They are drawn
-   * faint, behind the two real lines, and the legend says in four words that there are only two.
+   * One line per band, each in its row's own colour. ⚠️ **Given, the two binary lines are NOT drawn**
+   * — the settling band's line already ends on the real pool share, so drawing TRUE/FALSE as well
+   * would put the same number on the chart twice in different colours.
    *
-   * ⚠️ A reader who could not tell a decorative line from a bettable outcome would be reading the
-   * chart as a market with six sides. The asterisk under the legend exists for exactly that reader.
+   * ⚠️ **STILL DECORATION EXCEPT FOR ONE OF THEM, AND SETTLEMENT IS STILL BINARY.** The contract has
+   * two pools. The colours exist so a reader can follow a row in the table to a line in the plot —
+   * that correspondence is the entire reason for giving them colours — and **not** because there are
+   * five things to bet on. The asterisk under the legend is what says so and it stays.
    */
-  decorLines?: number[][];
+  bandLines?: readonly {readonly values: number[]; readonly className: string}[];
 }) {
   const falseLine = series.trueLine.map((v) => 100 - v);
 
@@ -102,15 +103,21 @@ export function ProbabilityChart({
         Y_TICKS.map((t) => (
           <line key={t} x1="0" x2="100" y1={100 - t} y2={100 - t} stroke="#e7ecf0" vectorEffect="non-scaling-stroke" />
         ))}
-      {/* ⚠️ First, so every real line paints over them. Faint and unlabelled — see `decorLines`. */}
-      {decorLines.map((d, i) => (
-        <path
-          key={i} d={path(d)} fill="none" stroke="#c3ccd4" strokeWidth={1}
-          opacity={0.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"
-        />
-      ))}
-      <path d={path(falseLine)} className="line-false" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
-      <path d={path(series.trueLine)} className="line-true" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+      {/* ⚠️ Bands replace the binary pair rather than sitting behind it — see `bandLines`. */}
+      {bandLines.length > 0 ? (
+        bandLines.map((b) => (
+          <path
+            key={b.className} d={path(b.values)} className={b.className} fill="none"
+            strokeWidth={compact ? 1.6 : 2} vectorEffect="non-scaling-stroke"
+            strokeLinejoin="round" strokeLinecap="round"
+          />
+        ))
+      ) : (
+        <>
+          <path d={path(falseLine)} className="line-false" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+          <path d={path(series.trueLine)} className="line-true" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+        </>
+      )}
     </svg>
   );
 
@@ -164,20 +171,25 @@ export function ProbabilityChart({
         </div>
       </div>
       <div className="chart-legend">
-        <span>
-          <i className="dot-true" />
-          TRUE <strong>{truePct}%</strong>
-        </span>
-        <span>
-          <i className="dot-false" />
-          FALSE <strong>{falsePct}%</strong>
-        </span>
+        {bandLines.length === 0 && (
+          <>
+            <span>
+              <i className="dot-true" />
+              TRUE <strong>{truePct}%</strong>
+            </span>
+            <span>
+              <i className="dot-false" />
+              FALSE <strong>{falsePct}%</strong>
+            </span>
+          </>
+        )}
         {/* ⚠️ Names what the percentages ARE, beside them. A parimutuel pool share is not a
             probability and a one-sided pool is not a 100% belief. */}
         {illustrative && <span>pool share, not probability</span>}
-        {/* ⚠️ Four words, beside the two entries it is about. The faint lines have no legend entry
-            precisely because there is nothing to enter — they are not outcomes. */}
-        {decorLines.length > 0 && <span>* settlement is binary — two pools</span>}
+        {/* ⚠️ Stays, and matters more now there are five lines rather than three faint ones. Five
+            colours invite a reader to think there are five things to back; this is the sentence that
+            tells them there are two. */}
+        {bandLines.length > 0 && <span>* settlement is binary — two pools</span>}
       </div>
     </div>
   );

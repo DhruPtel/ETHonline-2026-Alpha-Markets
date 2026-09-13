@@ -58,6 +58,16 @@
   --verdict-right-tint: #e8f1ec;
   --verdict-wrong:      #9c463f;  /* on light: 5.4:1 on its tint            */
   --verdict-wrong-tint: #f6eae9;
+  /* ── The five band lines. ⚠️ TWO OF THESE ARE THE CHART COLOURS THE DESIGN ALREADY USES
+     (--band-a is .dot-true's #526bd8, --band-c is .dot-false's #d18a3c); only three are new.
+     They are matched to those two for chroma and lightness on purpose — five saturated lines on a
+     page of neutrals reads as a different product, and the chart is decoration around one real
+     number. Distinguishable at a 7px dot, which is the smallest they are ever drawn. */
+  --band-a: #526bd8;              /* indigo    — already in use as .dot-true   */
+  --band-b: #3f8f86;              /* teal      — new                          */
+  --band-c: #d18a3c;              /* amber     — already in use as .dot-false */
+  --band-d: #8a6ea3;              /* violet    — new                          */
+  --band-e: #a5675e;              /* terracotta— new                          */
   --verdict-right-dark: #93c3a7;  /* the same hues lifted for charcoal      */
   --verdict-wrong-dark: #dd9a92;
 
@@ -773,6 +783,13 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .outcome-header, .outcome-row { display: grid; grid-template-columns: 1fr 130px 85px; gap: 10px; align-items: center; }
 .outcome-header { font: 10px var(--font-mono); color: #929ba4; padding: 15px 0; border-top: 1px solid #dfe6ec; }
 .outcome-row { border-top: 1px solid #e5ebf0; padding: 16px 0; }
+/* ⚠️ Scoped to band rows, so a forecast's two-row table is untouched — `/markets/11` is the
+   comparison this change is checked against and it must not move. Five rows need the air that two
+   did not; the pool figure and the share were running into each other. One line to widen the base
+   rule instead, if forecasts should get the same room. */
+.outcome-row.band { padding: 22px 0; grid-template-columns: 1fr 150px 104px; gap: 22px; }
+.outcome-header.band { grid-template-columns: 1fr 150px 104px; gap: 22px; }
+.outcome-row.band > b { font-size: 20px; }
 .outcome-row > div { display: flex; gap: 10px; align-items: center; }
 .outcome-row strong { font-size: 15px; font-weight: 400; }
 .outcome-row > b { font-size: 22px; font-weight: 400; }
@@ -892,6 +909,15 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .pct-false { color: #d18a3c; }
 .line-true { stroke: #526bd8; }
 .line-false { stroke: #d18a3c; }
+
+/* ⚠️ One hue per band, used three ways — the row's dot, the row's figure and the chart's line — so a
+   reader can follow a colour from the table to the plot. That correspondence is the whole point of
+   giving them colours at all. */
+.dot-band-a { background: var(--band-a); } .pct-band-a { color: var(--band-a); } .line-band-a { stroke: var(--band-a); }
+.dot-band-b { background: var(--band-b); } .pct-band-b { color: var(--band-b); } .line-band-b { stroke: var(--band-b); }
+.dot-band-c { background: var(--band-c); } .pct-band-c { color: var(--band-c); } .line-band-c { stroke: var(--band-c); }
+.dot-band-d { background: var(--band-d); } .pct-band-d { color: var(--band-d); } .line-band-d { stroke: var(--band-d); }
+.dot-band-e { background: var(--band-e); } .pct-band-e { color: var(--band-e); } .line-band-e { stroke: var(--band-e); }
 .fill-true { fill: #526bd8; }
 .fill-false { fill: #d18a3c; }
 
@@ -1103,6 +1129,7 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
   .chart-legend { gap: 9px; }
   .chart-legend > span { font-size: 11px; }
   .outcome-header, .outcome-row { grid-template-columns: 1fr 90px 74px; gap: 6px; }
+  .outcome-row.band, .outcome-header.band { grid-template-columns: 1fr 96px 80px; gap: 10px; padding: 16px 0; }
   .market-chart-panel { padding: 18px 13px 8px; }
   .market-statline { font-size: 10px; }
   .section-title { gap: 12px; }

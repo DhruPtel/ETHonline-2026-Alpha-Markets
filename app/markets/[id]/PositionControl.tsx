@@ -112,6 +112,7 @@ export function PositionControl({
   demo = false,
   questionThreshold,
   questionDay,
+  bands = [],
   closeTimeMs,
   observationEndMs,
 }: {
@@ -139,6 +140,8 @@ export function PositionControl({
   /** ⚠️ The market's OWN threshold, unrounded — the only band a commit can settle against. */
   questionThreshold?: string;
   questionDay?: string;
+  /** The five rows from the table, in the same order. ⚠️ Exactly one carries `isMarket`. */
+  bands?: readonly {threshold: string; isMarket: boolean; colour: string}[];
   closeTimeMs?: number;
   observationEndMs?: number;
 }) {
@@ -161,6 +164,8 @@ export function PositionControl({
   const [pools, setPools] = useState({t: BigInt(poolTrue), f: BigInt(poolFalse)});
   /** ⚠️ Demo only. `commitPrediction` carries a side and the contract will not guess one. */
   const [side, setSide] = useState<boolean | null>(null);
+  /** ⚠️ Which band was pressed. The side above is derived from it and never set independently. */
+  const [chosenBand, setChosenBand] = useState<string | null>(null);
   const [revealing, setRevealing] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [payout, setPayout] = useState<bigint | null>(null);
@@ -525,28 +530,51 @@ export function PositionControl({
           the report you attach is what gets graded when this settles.
         </p>
 
-        {/* ── ⚠️ ONE DECISION, AND IT CARRIES BOTH HALVES ─────────────────────────────────────
-            A judge picks a row, and the row names the threshold **and** the side. There is no
-            second control for "which band": the market's own threshold is the only one a commit
-            can settle against — `commitPrediction` has no threshold parameter, the spec fixes it —
-            so offering a band picker would be offering a choice the contract cannot honour.
-            ⚠️ The number below is the spec's threshold unrounded, so it reads identically to the
-            row marked `this market settles here` in the table. */}
+        {/* ── ⚠️ ONE DECISION: PICK A BAND. THE SIDE IS DERIVED, NEVER ASKED TWICE ────────────
+            A judge chooses where they think the figure lands. `commitPrediction` takes a side and
+            no threshold — the market's own is fixed in its spec — so the side is worked out from
+            the band rather than put to them as a second question.
+    
+            ⚠️ **THE DERIVATION, AND IT IS THE ONE THING HERE THAT COULD BE WRONG SILENTLY.** The
+            band label reads "above $B". Picking it means believing the figure clears $B. So:
+    
+              B ≥ the settling threshold  →  clearing B also clears it  →  **TRUE**
+              B <  the settling threshold  →  the figure reaches only this far  →  **FALSE**
+    
+            It is shown on screen under the picker rather than left implicit, because a judge who
+            picks the highest band and is staked the wrong way loses money to a presentation bug. */}
         <label htmlFor="position-outcome">Outcome</label>
         <p className="position-sub" style={{marginTop: 0}}>
-          Will it be above ${questionThreshold ? Number(questionThreshold).toLocaleString('en-US') : '—'} on {questionDay}?
+          Where does {questionDay}&rsquo;s figure land?
         </p>
-        <div className="amount-shortcuts" id="position-outcome">
-          {([true, false] as const).map((v) => (
-            <button
-              key={String(v)} type="button" disabled={busy}
-              className={side === v ? 'active' : undefined}
-              onClick={() => setSide(v)}
-            >
-              {v ? 'Above' : 'Below'}
-            </button>
-          ))}
+        <div id="position-outcome" style={{display: 'grid', gap: 6, marginBottom: 4}}>
+          {bands.map((b) => {
+            const picked = chosenBand === b.threshold;
+            return (
+              <button
+                key={b.threshold} type="button" disabled={busy}
+                className={picked ? 'btn white full' : 'btn dark-outline full'}
+                style={{justifyContent: 'flex-start', gap: 10, fontWeight: 400}}
+                onClick={() => {
+                  setChosenBand(b.threshold);
+                  // ⚠️ Integer compare on the decimal strings — these are 11-digit figures and
+                  // `Number()` starts losing digits before the end of them.
+                  setSide(BigInt(b.threshold.split('.')[0]!) >= BigInt(questionThreshold!.split('.')[0]!));
+                }}
+              >
+                <i className={b.colour} style={{display: 'inline-block', width: 7, height: 7, borderRadius: '50%'}} />
+                Above ${Number(b.threshold).toLocaleString('en-US')}
+                {b.isMarket && <span className="outcome-state" style={{marginLeft: 'auto'}}>settles here</span>}
+              </button>
+            );
+          })}
         </div>
+        {side !== null && (
+          <p className="position-sub">
+            The market settles on <strong>above ${Number(questionThreshold ?? '0').toLocaleString('en-US')}</strong>,
+            so your pick is <strong>{side ? 'TRUE' : 'FALSE'}</strong> on chain.
+          </p>
+        )}
 
         <label htmlFor="position-report">Attach supporting report</label>
         <select
@@ -587,8 +615,9 @@ export function PositionControl({
           <div className="transaction-receipt">
             <b>
               <span>your call</span>
-              <span>{side ? 'Above' : 'Below'} ${questionThreshold ? Number(questionThreshold).toLocaleString('en-US') : '—'}</span>
+              <span>above ${chosenBand ? Number(chosenBand).toLocaleString('en-US') : '—'}</span>
             </b>
+            <b><span>on chain</span><span>{side ? 'TRUE' : 'FALSE'}</span></b>
             <b><span>amount</span><span>{amount} USDC</span></b>
             <b><span>from</span><span>your wallet</span></b>
             <b>
@@ -602,14 +631,14 @@ export function PositionControl({
 
         <button
           className="btn white full" type="button"
-          disabled={busy || invalid !== null || side === null}
+          disabled={busy || invalid !== null || side === null || chosenBand === null}
           onClick={() => void commitAsJudge()}
         >
           {busy
             ? 'Staking…'
             : side === null
-              ? 'Pick above or below'
-              : `Stake ${amount} USDC on ${side ? 'Above' : 'Below'}`}
+              ? 'Pick where it lands'
+              : `Stake ${amount} USDC on ${side ? 'TRUE' : 'FALSE'}`}
         </button>
 
         {account && <p className="balance-line">Connected: {account}</p>}
