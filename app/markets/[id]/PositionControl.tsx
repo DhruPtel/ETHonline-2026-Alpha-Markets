@@ -110,6 +110,8 @@ export function PositionControl({
   standing,
   outcome,
   demo = false,
+  questionThreshold,
+  questionDay,
   closeTimeMs,
   observationEndMs,
 }: {
@@ -134,6 +136,9 @@ export function PositionControl({
    * did — that property is the check `/markets/6` exists to prove.
    */
   demo?: boolean;
+  /** ⚠️ The market's OWN threshold, unrounded — the only band a commit can settle against. */
+  questionThreshold?: string;
+  questionDay?: string;
   closeTimeMs?: number;
   observationEndMs?: number;
 }) {
@@ -520,7 +525,17 @@ export function PositionControl({
           the report you attach is what gets graded when this settles.
         </p>
 
+        {/* ── ⚠️ ONE DECISION, AND IT CARRIES BOTH HALVES ─────────────────────────────────────
+            A judge picks a row, and the row names the threshold **and** the side. There is no
+            second control for "which band": the market's own threshold is the only one a commit
+            can settle against — `commitPrediction` has no threshold parameter, the spec fixes it —
+            so offering a band picker would be offering a choice the contract cannot honour.
+            ⚠️ The number below is the spec's threshold unrounded, so it reads identically to the
+            row marked `this market settles here` in the table. */}
         <label htmlFor="position-outcome">Outcome</label>
+        <p className="position-sub" style={{marginTop: 0}}>
+          Will it be above ${questionThreshold ? Number(questionThreshold).toLocaleString('en-US') : '—'} on {questionDay}?
+        </p>
         <div className="amount-shortcuts" id="position-outcome">
           {([true, false] as const).map((v) => (
             <button
@@ -528,7 +543,7 @@ export function PositionControl({
               className={side === v ? 'active' : undefined}
               onClick={() => setSide(v)}
             >
-              {v ? 'TRUE' : 'FALSE'}
+              {v ? 'Above' : 'Below'}
             </button>
           ))}
         </div>
@@ -570,7 +585,10 @@ export function PositionControl({
 
         {side !== null && !invalid && (
           <div className="transaction-receipt">
-            <b><span>side</span><span>{side ? 'TRUE' : 'FALSE'}</span></b>
+            <b>
+              <span>your call</span>
+              <span>{side ? 'Above' : 'Below'} ${questionThreshold ? Number(questionThreshold).toLocaleString('en-US') : '—'}</span>
+            </b>
             <b><span>amount</span><span>{amount} USDC</span></b>
             <b><span>from</span><span>your wallet</span></b>
             <b>
@@ -590,8 +608,8 @@ export function PositionControl({
           {busy
             ? 'Staking…'
             : side === null
-              ? 'Pick an outcome'
-              : `Stake ${amount} USDC on ${side ? 'TRUE' : 'FALSE'}`}
+              ? 'Pick above or below'
+              : `Stake ${amount} USDC on ${side ? 'Above' : 'Below'}`}
         </button>
 
         {account && <p className="balance-line">Connected: {account}</p>}

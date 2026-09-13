@@ -29,7 +29,7 @@ import {notFound} from 'next/navigation.js';
 import {ethers} from 'ethers';
 import {ProbabilityChart, illustrativeSeries} from '../../components/ProbabilityChart.js';
 import {PositionControl, type AnalystReport} from './PositionControl.js';
-import {participantsFor} from '../demo.js';
+import {bandsFor, participantsFor} from '../demo.js';
 import {isRehearsal, pastPosted} from '../../../src/arc/rehearsal.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
@@ -173,6 +173,9 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const showTruePct = showStaked ? Number((showTrue * 1000n) / showTotal) / 10 : null;
 
   /** ⚠️ Decoration only — see `ProbabilityChart`'s `decorLines`. Seeded so they do not shuffle. */
+  /** ⚠️ Demo only. Exactly one of these is the market's own threshold — see `bandsFor`. */
+  const bands = demo ? bandsFor(id, spec.threshold, showTruePct ?? 50) : [];
+
   const decorLines = demo
     ? [17, 43, 71].map((k) => illustrativeSeries(`${id}/${k}`, ((showTruePct ?? 50) + k) % 90 + 5).trueLine)
     : [];
@@ -358,7 +361,40 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               <span>POOL</span>
               <span>SHARE</span>
             </div>
-            {([[true, showTrue], [false, showFalse]] as const).map(([side, amt]) => {
+            {/* ── ⚠️ BANDS ON A DEMO, THE BINARY PAIR ON EVERYTHING ELSE ──────────────────────
+                Several thresholds so the table reads like a multi-outcome market, **but only one
+                of them settles anything.** The contract has two pools and `commitPrediction` takes
+                a side with no threshold parameter at all — the threshold is fixed in the market's
+                spec and hashed into its `questionId` — so a judge cannot stake against the wrong
+                band even in principle. The other rows say `illustrative` in the column where the
+                live one shows its share, and the chart's asterisk says the same thing again. */}
+            {demo
+              ? bands.map((b) => {
+                  return (
+                    <div key={b.threshold} className={b.isMarket ? 'outcome-row chosen' : 'outcome-row'}>
+                      <div>
+                        <i className={b.isMarket ? 'dot-true' : 'dot-false'} />
+                        <strong>Above ${grouped(b.threshold)}</strong>
+                        {b.isMarket
+                          ? <span className="outcome-state">this market settles here</span>
+                          : <span className="outcome-state">illustrative</span>}
+                      </div>
+                      <b className={b.isMarket ? 'pct-true' : 'pct-false'}>
+                        {b.isMarket ? usdc(showTotal) : b.poolUsdc}
+                      </b>
+                      <span className="outcome-state">
+                        {!b.isMarket
+                          ? `${b.sharePct}%`
+                          : market.voided_at
+                            ? 'refundable'
+                            : market.resolved_at
+                              ? market.outcome ? 'WON' : 'lost'
+                              : showStaked ? `${b.sharePct}%` : '—'}
+                      </span>
+                    </div>
+                  );
+                })
+              : ([[true, showTrue], [false, showFalse]] as const).map(([side, amt]) => {
               const pct = showStaked ? Number((amt * 1000n) / showTotal) / 10 : null;
               return (
                 <div key={String(side)} className={claim?.side === side ? 'outcome-row chosen' : 'outcome-row'}>
@@ -565,6 +601,8 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             standing={standing}
             outcome={market.outcome}
             demo={demo}
+            questionThreshold={spec.threshold}
+            questionDay={spec.observedDay}
             closeTimeMs={market.close_time.getTime()}
             observationEndMs={market.observation_end.getTime()}
           />

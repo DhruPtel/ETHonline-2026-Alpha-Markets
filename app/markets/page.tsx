@@ -40,6 +40,7 @@ import {MarketFilters} from '../components/MarketFilters.js';
 import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityChart.js';
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
 import {analystRecord, recordLine} from '../components/GradeMarker.js';
+import {SeedButton} from './SeedButton.js';
 import {db} from '../../src/store/db.js';
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
@@ -317,6 +318,9 @@ export default async function MarketIndex() {
       <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
         These resolve in minutes because the day they measure has already happened.
       </p>
+      {/* ⚠️ Directly under the one sentence, above the cards it creates — the button is the way in
+          when the section is empty, which is the state a visitor most often finds it in. */}
+      <SeedButton />
       {demos.length > 0 && (
         <div className="prediction-grid" style={{marginTop: 20}}>{demos.map((r) => card(r, 'demo'))}</div>
       )}

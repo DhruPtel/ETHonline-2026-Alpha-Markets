@@ -62,11 +62,16 @@ export const DEMO_SLUG = 'aave-v3-ethereum';
  * one-claim-per-author rule is untouched by committing to it.
  *
  * What stops that looping is this cap and the gas behind it: every creation is a real
- * `createMarket` plus a real `commitPrediction` paid by the analyst, about 0.02 USDC a time. Three
- * open at once is enough to queue a couple of runs and small enough that a stuck tab cannot drain
- * the wallet. The refusal names the cap and when the next slot frees.
+ * `createMarket` plus a real `commitPrediction` paid by the analyst, about 0.02 USDC a time.
+ *
+ * ⚠️ **SIX, RAISED FROM THREE WHEN SEEDING BECAME A BUTTON.** A full seed is the six preset
+ * questions, so a cap of three would have made the button refuse itself halfway through its own
+ * job — and two different caps for two paths is the kind of rule nobody can state. One number:
+ * **at most six demo markets open for staking at once**, which also fixes the most the analyst can
+ * have at risk in open demo markets at about 0.12 USDC. Seeding tops up to it; reset respects it;
+ * both refusals name it and say when the next slot frees.
  */
-export const MAX_OPEN_DEMO_MARKETS = 3;
+export const MAX_OPEN_DEMO_MARKETS = 6;
 
 /** ⚠️ The staking window. Short enough that the judge is not abandoned, long enough to beat Circle's
  *  ~30s to land `createMarket` plus a wallet confirmation dialog. */
@@ -123,4 +128,80 @@ export function illustrativeTrueShare(ps: readonly Participant[]): number {
   const t = ps.filter((p) => p.side).reduce((a, p) => a + Number(p.amountUsdc), 0);
   const all = ps.reduce((a, p) => a + Number(p.amountUsdc), 0);
   return all === 0 ? 50 : Math.round((t / all) * 1000) / 10;
+}
+
+// ─── The bands ───────────────────────────────────────────────────────────────────────────────────
+
+export interface Band {
+  /** ⚠️ A decimal STRING, and the live one is the market's own threshold character for character. */
+  readonly threshold: string;
+  /** ⚠️ True for exactly one band: the one this market's spec names and settlement will read. */
+  readonly isMarket: boolean;
+  /** Illustrative. Never summed into a payout. */
+  readonly poolUsdc: string;
+  readonly sharePct: number;
+}
+
+/**
+ * Thresholds around this market's own, so the outcome table reads like a multi-outcome market.
+ *
+ * ── ⚠️ SETTLEMENT IS STILL BINARY AND ONLY ONE BAND IS REAL ─────────────────────────────────────
+ *
+ * The contract has **two pools**. `commitPrediction(marketId, reportHash, side)` takes a side and
+ * nothing else — there is no threshold parameter, because the threshold is fixed in the market's
+ * spec and hashed into its `questionId`. So a judge cannot stake on the wrong band even in
+ * principle: **the market id determines the threshold, and the only thing they choose is which side
+ * of it.** The other bands are decoration in exactly the sense the chart's extra lines are, and the
+ * table marks them `illustrative` rather than leaving a reader to work it out.
+ *
+ * ⚠️ **The live band is the spec's threshold UNCHANGED — not rounded, not reformatted.** A judge
+ * reading `$24,315,301,463` in the table and `$24,315,301,463` in the position panel is reading the
+ * same number, and any prettifying here would put two different questions on one page.
+ *
+ * ⚠️ **Shares fall as the threshold rises**, because clearing a higher bar is less likely. A set of
+ * random shares would read as noise and invite exactly the "why is the high band winning" question
+ * the decoration is not there to answer.
+ */
+export function bandsFor(
+  chainMarketId: string,
+  marketThreshold: string,
+  /**
+   * ⚠️ The live row's REAL displayed share, so the neighbours can be arranged around it. Generating
+   * band shares independently let the live row land out of order — a lower bar showing a lower
+   * chance of being cleared, which reads as a broken market rather than a decorated one.
+   */
+  liveSharePct: number,
+): readonly Band[] {
+  let s = 2166136261;
+  for (const ch of `alpha-bands/${chainMarketId}`) s = Math.imul(s ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const next = (): number => {
+    s ^= s << 13; s >>>= 0; s ^= s >>> 17; s ^= s << 5; s >>>= 0;
+    return s / 4294967296;
+  };
+
+  const base = BigInt(marketThreshold.split('.')[0] ?? marketThreshold);
+  // ⚠️ Integer maths on the threshold — it is a 11-digit decimal string and `Number()` would start
+  // losing digits well before the end of it.
+  const at = (permille: bigint): string => ((base * permille) / 1000n).toString();
+  const rows: {threshold: string; isMarket: boolean}[] = [
+    {threshold: at(940n), isMarket: false},
+    {threshold: at(980n), isMarket: false},
+    {threshold: marketThreshold, isMarket: true},
+    {threshold: at(1020n), isMarket: false},
+    {threshold: at(1070n), isMarket: false},
+  ];
+  rows.sort((a, b) => (BigInt(a.threshold.split('.')[0]!) < BigInt(b.threshold.split('.')[0]!) ? -1 : 1));
+
+  const liveAt = rows.findIndex((r) => r.isMarket);
+  return rows.map((r, i) => ({
+    ...r,
+    poolUsdc: (Math.floor(next() * 420 + 60) / 100).toFixed(2),
+    // ⚠️ Anchored to the live row and stepped away from it, so a lower threshold always shows a
+    // higher chance of being cleared. Jitter is small enough never to cross a neighbour.
+    sharePct: r.isMarket
+      ? liveSharePct
+      : Math.max(3, Math.min(96, Math.round(
+          (liveSharePct + (liveAt - i) * 17 + (next() * 6 - 3)) * 10,
+        ) / 10)),
+  }));
 }

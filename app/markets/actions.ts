@@ -41,7 +41,7 @@ import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
 import { arcProvider } from '../../src/arc/arc.js';
 import { requiredEnv } from '../../src/config/env.js';
 import { db } from '../../src/store/db.js';
-import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, type Preset } from './demo.js';
+import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, PRESETS, type Preset } from './demo.js';
 
 /** ⚠️ Never throws a raw error at a page — every failure is a sentence a judge can read. */
 export type DemoResult =
@@ -76,6 +76,8 @@ async function createDemoMarket(
   observedDay: string,
   threshold: string,
   comparison: 'above' | 'below',
+  /** ⚠️ The seed staggers; a single create takes the default window. Chain clock, never ours. */
+  explicitCloseTime?: number,
 ): Promise<DemoResult> {
   // ⚠️ The cap, measured against the CHAIN clock rather than ours — `_open` compares
   // `block.timestamp`, and a market our clock thinks is open may already be shut on theirs.
@@ -106,7 +108,7 @@ async function createDemoMarket(
     return {ok: false, why: `No tokenized report carries ${DEMO_SLUG}.${metric}, so the admission check would refuse. Nothing was created.`};
   }
 
-  const closeTime = now + DEMO_STAKING_SECONDS;
+  const closeTime = explicitCloseTime ?? now + DEMO_STAKING_SECONDS;
   // ⚠️ +1s is the contract's minimum. The reveal unlocks at `observationEnd`, so every second added
   // here is a second the judge waits for nothing.
   const observationEnd = closeTime + 1;
@@ -234,4 +236,82 @@ export async function resetDemoMarket(chainMarketId: string): Promise<DemoResult
 
   const spec = JSON.parse(market.spec_json) as {slug: string; metric: string; observedDay: string; threshold: string; comparison: 'above' | 'below'};
   return createDemoMarket(spec.metric as never, spec.observedDay, spec.threshold, spec.comparison);
+}
+
+/** What a judge is told before they press Open, so the cost is never a surprise. */
+export interface SeedPlan {
+  readonly free: number;
+  readonly open: number;
+  readonly cap: number;
+  readonly costUsdc: string;
+  readonly nextFrees: string | null;
+}
+
+/** Free, read-only. ⚠️ Rendered BEFORE the button so nobody presses a spend blind. */
+export async function demoSeedPlan(): Promise<SeedPlan> {
+  const block = await arcProvider().getBlock('latest');
+  const now = block ? block.timestamp : Math.floor(Date.now() / 1000);
+  const rows = await db()<{close_time: Date; observed_day: string}[]>`
+    SELECT close_time, observed_day FROM markets
+     WHERE chain_market_id IS NOT NULL AND resolved_at IS NULL AND voided_at IS NULL`;
+  const open = rows
+    .filter((r) => pastPosted(r.close_time, r.observed_day))
+    .filter((r) => r.close_time.getTime() / 1000 > now)
+    .sort((a, b) => a.close_time.getTime() - b.close_time.getTime());
+  const free = Math.max(0, Math.min(PRESETS.length, MAX_OPEN_DEMO_MARKETS - open.length));
+  return {
+    free, open: open.length, cap: MAX_OPEN_DEMO_MARKETS,
+    costUsdc: (free * 0.02).toFixed(2),
+    nextFrees: open[0] ? open[0].close_time.toISOString().slice(11, 19) : null,
+  };
+}
+
+/**
+ * Open the preset demo questions on chain. ⚠️ **Spends about 0.02 USDC per market.**
+ *
+ * ── ⚠️ IT TOPS UP. IT DOES NOT REPLACE AND IT DOES NOT REFUSE WHILE THERE IS ROOM ──────────────
+ *
+ * **Replace is not available and should not be faked.** A market that is already open cannot be
+ * cancelled — `voidMarket` is permissionless only after `resolveDeadline`, and the judge who staked
+ * on it is entitled to its settlement. Anything calling itself "replace" would either strand those
+ * stakes or quietly leave the old markets running under a name that says it did not.
+ *
+ * **So it fills the free slots and says how many that was.** With the cap at six and three already
+ * open it opens three, not six, and the plan above says so before the press. When the cap is full
+ * it refuses and names the time the earliest one closes.
+ *
+ * ⚠️ **No secret, by design.** What bounds this is the cap and the cost — at most
+ * `MAX_OPEN_DEMO_MARKETS` open at once, about 0.12 USDC of the analyst's money at full stretch, and
+ * each slot self-clears when its market closes. A password here would be the thing that was cut.
+ *
+ * ⚠️ **Staggered closeTimes.** Six markets shutting within seconds of each other would leave a judge
+ * one playable market and five corpses, so each is offset by a full staking window.
+ */
+export async function seedDemoMarkets(): Promise<DemoResult & {opened?: number}> {
+  const plan = await demoSeedPlan();
+  if (plan.free === 0) {
+    return {
+      ok: false,
+      why: `${plan.open} demo markets are already open, which is the cap of ${plan.cap}. Each is a real createMarket and commitPrediction paid by the analyst, so they are not free to spin up.${plan.nextFrees ? ` The next slot frees at ${plan.nextFrees} UTC.` : ''} Play one of the open ones meanwhile.`,
+    };
+  }
+
+  const block = await arcProvider().getBlock('latest');
+  if (!block) return {ok: false, why: 'Could not read the Arc chain clock. Nothing was created.'};
+
+  let opened = 0;
+  let first: string | null = null;
+  const failures: string[] = [];
+  for (const [i, preset] of PRESETS.slice(0, plan.free).entries()) {
+    const closeTime = block.timestamp + DEMO_STAKING_SECONDS * (i + 1);
+    const r = await createDemoMarket(preset.metric, preset.observedDay, preset.threshold, 'above', closeTime);
+    if (r.ok) { opened += 1; first ??= r.chainMarketId; }
+    else failures.push(`${preset.id}: ${r.why}`);
+  }
+
+  if (opened === 0) return {ok: false, why: failures[0] ?? 'Nothing was created.'};
+  return {
+    ok: true, opened, chainMarketId: first!,
+    note: `${opened} demo market${opened === 1 ? '' : 's'} open for staking, closing one at a time.${failures.length ? ` ${failures.length} refused.` : ''}`,
+  };
 }

@@ -277,11 +277,9 @@ async function presets(): Promise<void> {
 /**
  * Put the six preset questions on chain, ready to play. ⚠️ **Spends ~0.02 USDC per market.**
  *
- * ⚠️ **THIS IS WHERE CREATION LIVES, AND THE REASON IS PRESENTATION AS MUCH AS SAFETY.** A real
- * market page has no "create a market" control, so a demo that had one could be told apart at a
- * glance — and the operator-secret field it needed was the ugliest thing on the surface. Moving it
- * to a script makes the page indistinguishable and makes the privilege structural: you have a shell
- * or you do not.
+ * ⚠️ **THE PAGE IS NOW THE PRIMARY PATH — `SeedButton` on `/markets` does this with no secret**,
+ * bounded by the open-market cap and the cost rather than a password. This stays as the operator's
+ * escape hatch: it can be run before a demo day without opening a browser, and it prints a plan.
  *
  * ⚠️ **Staggered closeTimes.** Six markets created in one pass would otherwise all shut within
  * seconds of each other, giving a judge one playable market and five corpses. Each is offset by a
@@ -302,7 +300,7 @@ async function seed(): Promise<void> {
   if (!report) { console.error('\n❌ STOP  no tokenized report to bind against.\n'); process.exit(1); }
 
   console.log(`\n══ seeding ${PRESETS.length} demo markets${SEND ? ' — ⚠️ SPENDING' : ' — plan only'}\n`);
-  console.log(`  ⚠️ the open-market cap (${MAX_OPEN_DEMO_MARKETS}) is not applied to a seed run; it guards the browser path.\n`);
+  console.log(`  ⚠️ the open-market cap is ${MAX_OPEN_DEMO_MARKETS} and is NOT applied to a script run — the page's button tops up to it instead.\n`);
 
   const plans = [];
   for (const [i, preset] of PRESETS.entries()) {

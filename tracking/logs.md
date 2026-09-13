@@ -17091,3 +17091,95 @@ Also: a judge returning to an already-settled market sees no payout figure, beca
 read in-session after Reveal rather than on load. Noted, not built.
 
 `npx next build` after `rm -rf .next` passes. Markets 6, 7, 11 and 12 untouched; `marketCount` 13.
+
+---
+
+## 2026-09-13 — demo market: band rows in the outcome table, and seeding as a button
+
+Two changes. Nothing was staked, seeded or resolved by me — markets 14–19 on chain were seeded by
+the operator between turns; my `--seed` runs were dry-run only and `prepareDemo` writes nothing.
+
+### 1 · Bands — several thresholds, one of them real
+
+The outcome table on a demo market now shows **five thresholds** instead of TRUE/FALSE, so it reads
+like a multi-outcome market and the chart's decorative lines have something behind them. Live on
+market 19:
+
+```
+Above $11,280,000,000   illustrative   0.61    67.7%
+Above $11,760,000,000   illustrative   3.29    51.9%
+Above $12,000,000,000   this market settles here   10.49   35.4%
+Above $12,240,000,000   illustrative   1.12    18.5%
+Above $12,840,000,000   illustrative   2.50     4.3%
+```
+
+⚠️ **Settlement is still binary and only one band can settle anything.** The contract has two pools
+and `commitPrediction(marketId, reportHash, side)` **takes no threshold parameter at all** — the
+threshold is fixed in the market's spec and hashed into its `questionId`. So a judge cannot stake
+against the wrong band even in principle: the market id determines the threshold, and the only thing
+they choose is which side of it. The other rows say `illustrative` in the column where the live one
+shows its share, and the chart's `* settlement is binary — two pools` stays.
+
+⚠️ **The live band is the spec's threshold character for character** — not rounded, not reformatted —
+so the number in the table and the number in the position panel are the same number rather than two
+renderings of one.
+
+⚠️ **Band shares are anchored to the live row's real share, and the first version was wrong.** They
+were generated independently, so the live row could land out of order — a *lower* bar showing a
+*lower* chance of being cleared, which reads as a broken market rather than a decorated one. They now
+step away from the live share in both directions, with jitter too small to cross a neighbour.
+
+### How a judge picks — one decision, and it carries both halves
+
+The panel no longer shows an abstract side picker. It states the question and offers two rows:
+
+```
+Outcome
+Will it be above $12,000,000,000 on 2026-09-11?
+[ Above ]  [ Below ]
+```
+
+One click carries the threshold **and** the side. There is deliberately **no band picker**: offering
+a choice of band would be offering a choice the contract cannot honour. The receipt line reads
+`your call · Above $12,000,000,000` and the button `Stake 0.01 USDC on Above`.
+
+### 2 · Seeding is a button on /markets
+
+`SeedButton` sits directly under the Demo section's one sentence, above the cards it creates —
+which is where it is needed, since an empty section is the state a visitor most often finds. It
+renders a **plan before the press**, read from the chain:
+
+> **Open 4 demo markets** · Costs the analyst about 0.08 USDC · 2 of 6 open now · they close one at a time
+
+⚠️ **No secret, and nothing brings it back.** What bounds it is the cap and the cost: at most six
+demo markets open for staking at once, about 0.02 USDC each, and every slot self-clears when its
+market closes a couple of minutes later.
+
+⚠️ **The cap went from three to six, and that is a decision rather than a tweak.** A full seed is the
+six preset questions, so a cap of three would have made the button refuse itself halfway through its
+own job — and two different caps for two paths is the kind of rule nobody can state. One number now:
+**at most six open at once**, which also fixes the most the analyst can have at risk in open demo
+markets at about 0.12 USDC. Reset respects the same number.
+
+### ⚠️ It tops up. It does not replace, and replace is not available to fake.
+
+An open market **cannot be cancelled** — `voidMarket` is permissionless only after `resolveDeadline`,
+and a judge who staked on it is entitled to its settlement. A button calling itself "replace" would
+either strand those stakes or quietly leave the old markets running under a name that says it did
+not. So it fills the free slots and says how many that was; with the cap at six and two open it opens
+four. When the cap is full it refuses and names the UTC time the earliest one closes.
+
+`scripts/ops/demo-market.ts --seed` stays as the operator's escape hatch — runnable before a demo day
+without a browser, and it still prints a plan. Its header now says the page is the primary path.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes.
+- **`/markets/6` and `/markets/11` render text-identical to the pre-change baseline** after every
+  step. Bands, the threshold-labelled panel and the seed button are all gated on `demo`.
+- Verified against a **live open demo market** for the first time — market 19 shows the five bands,
+  the anchored ladder, and the Above/Below panel with the question above it. Last task could only
+  check settled surfaces.
+
+⚠️ Still unexercised by me: pressing **Above**/**Below** (a wallet signature) and **Reveal answer**.
+Markets 17–19 were open at the time of writing with closes at 03:16:46, 03:19:16 and 03:21:46 UTC.
