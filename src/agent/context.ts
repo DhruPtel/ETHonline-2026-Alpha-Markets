@@ -78,8 +78,32 @@
 // thing the model reads and reasons about, and "you have no track record" is a statement about the
 // analyst that nobody decided to make.
 
+// ── ⚠️ A PAST-POSTED RESULT MUST NOT REACH THE PROMPT EITHER, AND FOR THE SAME REASON ───────────
+//
+// A demo market's staking was open **after** the day it measures, so the answer was public before
+// the position was taken. Telling the planner it was right about that is the identical "learning
+// from nothing" this file already refuses for rehearsals — and worse in one way: the line reads
+// exactly like a genuine hit and the model cannot tell them apart.
+//
+// ⚠️ **THE AUTHOR FILTER IS NOT THE MECHANISM, AND RELYING ON IT WOULD BE A MISTAKE.** PHASE-8 §2.3
+// notes that a judge commits from their own wallet, so `lower(c.author) = lower(analyst)` excludes
+// their claim automatically. **That is a coincidence of one of the three tiers, not a guarantee.**
+// §2.7's tier 3 — "watch it run", the DEFAULT path for a visitor with no wallet — has the ANALYST
+// commit with its own USDC, and the author filter then admits the claim without hesitating.
+// **Market 13 is exactly that shape and proved it: the author is the analyst.** So `pastPosted` is
+// the mechanism and the author filter is an accident that happens to help in one tier.
+//
+// ⚠️ **AND IT RUNS BEFORE THE WINDOW IS TAKEN, WHICH IS THE HALF THAT IS EASY TO GET WRONG.** A
+// bare `WHERE` would have been enough for correctness of membership but not of selection: the
+// ordering is `COALESCE(resolved_at, voided_at) DESC`, and a demo market resolves seconds after it
+// is created, so **a past-posted row sorts to the very top and evicts the oldest genuine forecast
+// from the five.** That is precisely the damage the rehearsal fix measured — a rehearsal both
+// entered the prompt as a hit and pushed a real forecast off the end — arriving a second time by a
+// different route. Both filters therefore run against the bounded `SCAN` page, and `WINDOW` is
+// taken from what survives.
+
 import { createHash } from 'node:crypto';
-import { isRehearsal } from '../arc/rehearsal.js';
+import { isRehearsal, pastPosted } from '../arc/rehearsal.js';
 import { db } from '../store/db.js';
 
 /** How many settled claims reach the prompt. ⚠️ Decided, and the reason is in the header. */
@@ -118,6 +142,9 @@ interface Row {
   /** ⚠️ The two timestamps `isRehearsal()` compares. Not a precomputed flag — one rule, one place. */
   observation_end: Date;
   created_at: Date;
+  /** ⚠️ And the two `pastPosted()` compares. Same rule: the columns travel, never a flag. */
+  close_time: Date;
+  observed_day: string;
 }
 
 /**
@@ -135,7 +162,7 @@ export async function build(analyst: string): Promise<AnalystContext | null> {
   // `scored_at` and must not reorder history.
   const rows = await db()<Row[]>`
     SELECT r.directive, m.spec_json, c.side, s.forecast_correct, r.canonical_json,
-           m.observation_end, m.created_at
+           m.observation_end, m.created_at, m.close_time, m.observed_day
     FROM scores s
     JOIN claims  c ON c.id = s.claim_id
     JOIN markets m ON m.id = s.market_id
@@ -144,10 +171,13 @@ export async function build(analyst: string): Promise<AnalystContext | null> {
     ORDER BY COALESCE(m.resolved_at, m.voided_at) DESC
     LIMIT ${SCAN}`;
 
-  // ⚠️ **Drop rehearsals FIRST, then take the window.** Doing it the other way — which is what the
-  // `LIMIT 5` above used to do — lets a rehearsal both enter the prompt and evict a real forecast.
+  // ⚠️ **Drop rehearsals and past-posted claims FIRST, then take the window.** Doing it the other
+  // way — which is what the `LIMIT 5` above used to do — lets either one both enter the prompt and
+  // evict a real forecast. A demo market resolves seconds after creation, so it sorts to the top of
+  // this ordering and is the most likely thing of all to do the evicting.
   const forecasts = rows
-    .filter((r) => !isRehearsal(r.observation_end, r.created_at))
+    .filter((r) => !isRehearsal(r.observation_end, r.created_at)
+      && !pastPosted(r.close_time, r.observed_day))
     .slice(0, WINDOW);
 
   if (forecasts.length === 0) return null;

@@ -30,6 +30,35 @@
 // `isRehearsal()` — imported, not re-spelled. See `src/arc/rehearsal.ts` for why that file exists and
 // which two call sites still have their own copy.
 //
+// ── ⚠️ AND SO ARE PAST-POSTED GRADES — A SECOND PREDICATE, BECAUSE THE FIRST TWO MISS THEM ──────
+//
+// A demo market's staking was open **after** the day it measures, so the answer was already public
+// when the position was taken. It is not a forecast and must never move the counts.
+//
+// ⚠️ **NEITHER EXISTING TEST CATCHES ONE, AND THAT IS THE WHOLE REASON FOR THIS.**
+// `isRehearsal` compares `observationEnd <= createdAt`, and a demo market's observationEnd is a
+// couple of MINUTES AFTER its createdAt — so the rehearsal arithmetic says *forecast* and waves it
+// through. `settledOnChain` tests for the ABSENCE of chain evidence, and a demo market genuinely
+// settles on chain with a real market id, a real resolve transaction and a working arcscan link —
+// so it reads as a real grade. **Two filters, both passing, on a claim whose answer was published
+// before anyone staked.** Verified rather than assumed: market 13 is exactly that row.
+//
+// ── ⚠️ "test data" AND "demo" ARE DIFFERENT WORDS ON PURPOSE ────────────────────────────────────
+//
+// They are **opposite kinds of absence** and sharing a marker would make one of them a lie.
+//
+//   `test data`  no chain market, no settlement transaction — **there is nothing to follow.**
+//   `demo`       real stake, real transaction, real evidence hash — **everything to follow, and
+//                the question was already answered.**
+//
+// ⚠️ Calling a past-posted grade "test data" would be false in the one direction that costs
+// trust: a reader follows the arcscan link, finds a genuine transaction, and then disbelieves the
+// label everywhere else on the site. Two words, and each is true of exactly what it marks.
+//
+// ⚠️ **`Grade.demo` was RENAMED to `Grade.testData`** when this landed. It meant "no chain
+// evidence" while the new marker word for past-posted is "demo", and one field named for the other
+// category's word is how somebody reads the wrong number off this object.
+//
 // ── ⚠️ ONE BATCHED QUERY OVER THE WHOLE HASH LIST, NEVER A LOOKUP PER CARD ──────────────────────
 //
 // `gradesFor()` takes every hash on the page and returns a map. `app/page.tsx`'s own header warns
@@ -37,7 +66,7 @@
 // would be the thing that page was careful not to do. **This adds one query to a page, not one per
 // card.**
 
-import {isRehearsal} from '../../src/arc/rehearsal.js';
+import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {db} from '../../src/store/db.js';
 
 /** ⚠️ Three counts, and they are never combined into one. */
@@ -46,14 +75,24 @@ export interface Grade {
   readonly wrong: number;
   readonly voided: number;
   /**
-   * ⚠️ How many of these graded claims settled **on chain**, and how many are test data.
+   * ⚠️ How many of the counted claims settled **on chain**, and how many are test data.
    *
    * The split is derived from the **absence of chain evidence**, never from an id prefix — see
-   * `settledOnChain()`. A real grade is one a stranger can follow to a transaction; a demo grade is
-   * one with nothing to follow. `demo + real` always equals `right + wrong + voided`.
+   * `settledOnChain()`. A real grade is one a stranger can follow to a transaction; test data is a
+   * row with nothing to follow. `testData + real` always equals `right + wrong + voided`.
    */
-  readonly demo: number;
+  readonly testData: number;
   readonly real: number;
+  /**
+   * ⚠️ **Past-posted claims, counted separately and deliberately OUTSIDE `right + wrong + voided`.**
+   *
+   * Staking was open during or after the day being measured, so the answer was already published
+   * when the position was taken. Such a claim is real — real stake, real chain evidence — but it is
+   * **not a forecast**, and letting it touch the counts is the silent inflation this field exists to
+   * prevent. It is reported rather than dropped because a judge who played is owed the sight of
+   * their own result; it is excluded rather than counted because it says nothing about judgment.
+   */
+  readonly pastPosted: number;
 }
 
 interface Row {
@@ -61,10 +100,15 @@ interface Row {
   forecast_correct: boolean | null;
   observation_end: Date;
   created_at: Date;
+  /** ⚠️ The two columns `pastPosted()` compares. Not a precomputed flag — one rule, one place. */
+  close_time: Date;
+  observed_day: string;
   chain_market_id: string | null;
   resolve_tx: string | null;
   void_tx: string | null;
 }
+
+const EMPTY: Grade = {right: 0, wrong: 0, voided: 0, testData: 0, real: 0, pastPosted: 0};
 
 /**
  * Did this grade's market actually settle on chain?
@@ -95,7 +139,7 @@ export async function gradesFor(hashes: readonly string[]): Promise<Map<string, 
   // share chain id 8 and a join on it picks whichever the planner returns first.
   const rows = await db()<Row[]>`
     SELECT c.report_hash, s.forecast_correct, m.observation_end, m.created_at,
-           m.chain_market_id, m.resolve_tx, m.void_tx
+           m.close_time, m.observed_day, m.chain_market_id, m.resolve_tx, m.void_tx
       FROM scores s
       JOIN claims  c ON c.id = s.claim_id
       JOIN markets m ON m.id = s.market_id
@@ -106,15 +150,23 @@ export async function gradesFor(hashes: readonly string[]): Promise<Map<string, 
     // ⚠️ The rehearsal filter, applied here rather than in the WHERE clause so there is exactly one
     // spelling of the rule in the codebase. See `src/arc/rehearsal.ts`.
     if (isRehearsal(r.observation_end, r.created_at)) continue;
-    const g = out.get(r.report_hash) ?? {right: 0, wrong: 0, voided: 0, demo: 0, real: 0};
+    const g = out.get(r.report_hash) ?? EMPTY;
+    // ⚠️ **Counted and then skipped, never counted into the columns.** The entry is created so a
+    // report whose ONLY graded claim is past-posted still appears in the map — `verdict()` decides
+    // what that renders, and it renders nothing rather than a zero.
+    if (pastPosted(r.close_time, r.observed_day)) {
+      out.set(r.report_hash, {...g, pastPosted: g.pastPosted + 1});
+      continue;
+    }
     const onChain = settledOnChain(r);
     out.set(r.report_hash, {
+      ...g,
       right: g.right + (r.forecast_correct === true ? 1 : 0),
       wrong: g.wrong + (r.forecast_correct === false ? 1 : 0),
       // ⚠️ Null on a row that exists means VOID — `scoreMarket` writes no row for an unsettled
       // market, so a scored claim has always settled one way or the other.
       voided: g.voided + (r.forecast_correct === null ? 1 : 0),
-      demo: g.demo + (onChain ? 0 : 1),
+      testData: g.testData + (onChain ? 0 : 1),
       real: g.real + (onChain ? 1 : 0),
     });
   }
@@ -134,6 +186,10 @@ export function verdict(grade: Grade | undefined): {tone: Tone; text: string} | 
   if (!grade) return null;
   const {right, wrong, voided} = grade;
   const decided = right + wrong;
+  // ⚠️ **A report backing ONLY past-posted claims renders nothing**, and that is the ungraded rule
+  // working rather than a gap. It has no forecast record; a marker reading "0 of 0" or a lone
+  // "1 demo" would both be a statement about judgment that nothing behind it supports. The judge
+  // still sees their result — on `/analyst`, in its own column, which is where §2.3 put it.
   if (decided + voided === 0) return null;
 
   // Voids never join the counts; when there are any, they are said separately.
@@ -148,9 +204,12 @@ export function verdict(grade: Grade | undefined): {tone: Tone; text: string} | 
   // mixed case is stated rather than rounded to either side — a report backing one real claim and
   // one demo claim is neither wholly one thing nor the other, and saying "test data" would be as
   // wrong as saying nothing.
-  const demo = grade.demo === 0 ? ''
+  const demo = (grade.testData === 0 ? ''
     : grade.real === 0 ? ' · test data'
-      : ` · incl. ${grade.demo} test`;
+      : ` · incl. ${grade.testData} test`)
+    // ⚠️ Its own clause, never folded into the test-data one — see the header on why these are two
+    // words. A card can legitimately carry both: real forecasts, seeded rows and a judge's demo.
+    + (grade.pastPosted > 0 ? ` · ${grade.pastPosted} demo` : '');
 
   // ⚠️ Voids only — grey, and explicitly "no outcome" rather than a score of nothing.
   if (decided === 0) {
@@ -203,19 +262,22 @@ export function GradeMarker({grade}: {grade: Grade | undefined}): React.JSX.Elem
 export async function analystRecord(): Promise<Grade> {
   const rows = await db()<Omit<Row, 'report_hash'>[]>`
     SELECT s.forecast_correct, m.observation_end, m.created_at,
-           m.chain_market_id, m.resolve_tx, m.void_tx
+           m.close_time, m.observed_day, m.chain_market_id, m.resolve_tx, m.void_tx
       FROM scores s
       JOIN markets m ON m.id = s.market_id`;
 
-  let right = 0, wrong = 0, voided = 0, demo = 0, real = 0;
+  let right = 0, wrong = 0, voided = 0, testData = 0, real = 0, past = 0;
   for (const r of rows) {
     if (isRehearsal(r.observation_end, r.created_at)) continue;
+    // ⚠️ **Before the columns are touched, not after.** A past-posted claim never reaches
+    // right/wrong/voided, so no arithmetic downstream can accidentally include it.
+    if (pastPosted(r.close_time, r.observed_day)) { past += 1; continue; }
     if (r.forecast_correct === true) right += 1;
     else if (r.forecast_correct === false) wrong += 1;
     else voided += 1;
-    if (settledOnChain(r)) real += 1; else demo += 1;
+    if (settledOnChain(r)) real += 1; else testData += 1;
   }
-  return {right, wrong, voided, demo, real};
+  return {right, wrong, voided, testData, real, pastPosted: past};
 }
 
 /**
@@ -224,8 +286,13 @@ export async function analystRecord(): Promise<Grade> {
  */
 export function recordLine(g: Grade): string {
   const settled = g.right + g.wrong + g.voided;
-  if (settled === 0) return 'no forecast has settled yet';
+  // ⚠️ The demo clause survives the empty case. A judge who has played and seen nothing else settle
+  // must still find their result named here, and "no forecast has settled yet" on its own would
+  // read as though their claim had vanished rather than been excluded on purpose.
+  const demo = g.pastPosted > 0 ? ` · ${g.pastPosted} demo` : '';
+  if (settled === 0) return `no forecast has settled yet${demo}`;
   return `${settled} settled — ${g.right} right, ${g.wrong} wrong`
     + (g.voided > 0 ? `, ${g.voided} voided` : '')
-    + (g.demo > 0 ? ` · ${g.demo} test data` : '');
+    + (g.testData > 0 ? ` · ${g.testData} test data` : '')
+    + demo;
 }

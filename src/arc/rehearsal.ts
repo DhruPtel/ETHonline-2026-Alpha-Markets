@@ -105,6 +105,38 @@ export function isForecast(observationEnd: Date, createdAt: Date): boolean {
 // a call site, and cannot be faked by a market that did not do it. `spec.ts::demoQuestionCore` is
 // the only way to create one and it refuses anything else; this is the read-side half of that pair.
 
+// ── ⚠️ DOES THIS SPREAD THE WAY THE REHEARSAL RULE DID? YES — MORE SO. HERE IS WHAT STOPS IT ────
+//
+// The rehearsal comparison grew three spellings because `(observation_end <= created_at)` is trivial
+// to inline in a `WHERE` clause, and someone reaching for it was never wrong — both spellings agreed.
+// **`pastPosted` is a worse candidate for the same treatment, not a better one**, and there are now
+// six call sites for it after one day.
+//
+// ⚠️ **THE SQL "EQUIVALENT" IS NOT EQUIVALENT, AND IT FAILS SILENTLY RATHER THAN LOUDLY.** The
+// obvious inline is `close_time > (observed_day || 'T00:00:00Z')::timestamptz` or some cousin of it.
+// That cast is resolved **in the session's TimeZone**, and this comparison is a midnight boundary —
+// so on any connection that is not UTC the rule quietly moves by hours and markets near the boundary
+// flip category. `dayStart()` is explicitly `Date.UTC`. **A wrong answer that looks right is exactly
+// what the rehearsal consolidation was trying to end**, and here the two spellings would not even
+// agree.
+//
+// ⚠️ **And `observed_day`'s CHECK constraint is a SHAPE test, not a calendar one** — 005 declares
+// `observed_day ~ '^\d{4}-\d{2}-\d{2}$'`, which admits `2026-02-30`. `dayStart()` round-trips the
+// date and throws a sentence naming the row; a Postgres cast raises a query error that takes down
+// **every row on the page**, in a query nobody looking at the page would think to suspect.
+//
+// **So: same defence as `isRehearsal`, and one more.** No SQL fragment is exported and callers select
+// the two columns and apply the predicate, so a caller who forgets fails to compile. On top of that,
+// the thing a copier would reach for is not a second spelling of this rule — it is a different rule
+// that agrees most of the time, which is the kind of bug that survives review.
+//
+// ⚠️ **THE KNOWN STRAGGLER, NAMED SO IT IS NOT DISCOVERED AS A MYSTERY.**
+// `app/markets/[id]/page.tsx:73` still carries `(observation_end <= created_at) AS after_the_fact`
+// in SQL — the rehearsal copy this file's header already listed — and it has **no `pastPosted`
+// equivalent at all.** A demo market opened directly at `/markets/<id>` therefore renders as an
+// ordinary forecast with no qualification. That file was outside this task's constraint list and was
+// not edited; it is the first thing Task 5 should take.
+
 /**
  * True when staking was still open at or after the start of the day being measured — so the outcome
  * was already partly or wholly published when the position was taken.

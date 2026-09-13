@@ -147,15 +147,30 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
             >{context.block}</pre>
           </div>
 
-          {record.demo > 0 && (
+          {record.testData > 0 && (
             <p className="market-statline" style={{display: 'block', lineHeight: 1.6, paddingBottom: 0}}>
-              ⚠️ <strong>{record.demo} of the analyst&rsquo;s {record.right + record.wrong + record.voided} graded
+              ⚠️ <strong>{record.testData} of the analyst&rsquo;s {record.right + record.wrong + record.voided} graded
               claims are test data</strong> — settled in the store with no chain market and no
               settlement transaction behind them, to demonstrate this surface before the first real
               grades land. They are in the block above because they are in the record, and the block
               is the record. ⚠️ <strong>The marker cannot be put inside the lines themselves</strong>:
               the digest is over exactly those bytes, so a word added for a reader would change what
               the agent is provably given.
+            </p>
+          )}
+
+          {/* ⚠️ **THE REFUSAL, STATED WHERE IT IS DOING THE WORK.** PHASE-8 §2.3: showing the
+              product decline to learn from a question whose answer was already public is a better
+              demonstration than pretending it did. This renders only once a demo has been graded,
+              so it is never an abstract promise — the number beside it is the claim it excluded. */}
+          {record.pastPosted > 0 && (
+            <p className="market-statline" style={{display: 'block', lineHeight: 1.6, paddingBottom: 0}}>
+              ⚠️ <strong>{record.pastPosted} graded demo claim{record.pastPosted === 1 ? ' is' : 's are'} deliberately
+              NOT in this block.</strong> Those markets took stakes after the day they measure had
+              already ended, so the answer was public before anyone committed. The agent learns from
+              forecasts, not from questions that were already answered — a line saying it had been
+              right about one would read identically to a genuine hit, and the model could not tell
+              them apart. They are excluded here and counted separately in the record above.
             </p>
           )}
 

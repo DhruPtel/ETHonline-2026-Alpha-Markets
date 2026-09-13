@@ -16656,3 +16656,116 @@ Their `resolveDeadline` is **2026-09-15T00:00:00Z**, which leaves at most one mo
 voidable, and the first real grades this project has ever had — both of which settle TRUE on a read
 today — turn into voids that count neither way.** Not investigated here; flagged because it is a
 deadline, not a preference.
+
+---
+
+## 2026-09-13 — PHASE-8 Task 2: pastPosted applied, and market 13 scored without moving the record
+
+**Market 13 is scored `correct=true` and the analyst's record did not change.** That is the whole
+task. The record reads `5 settled — 2 right, 2 wrong, 1 voided · 5 test data · 1 demo` — the same
+five settled claims, the same two right, with the demo named in its own column and counted in none.
+
+### ⚠️ Neither existing filter caught it, and that was verified rather than assumed
+
+A demo market passes **both** tests the codebase already had. `isRehearsal` compares
+`observationEnd <= createdAt`, and market 13's observationEnd is ~100 seconds *after* its createdAt,
+so the rehearsal arithmetic says **forecast**. `settledOnChain` tests for the *absence* of chain
+evidence, and market 13 has a real chain id, a real resolve transaction and a working arcscan link,
+so it says **real**. Two filters, both passing, on a claim whose answer was published two days before
+anyone staked. `pastPosted` is the only thing between that row and the record.
+
+### ⚠️ The counterfactual, measured — it would have skewed the prompt, not just added to it
+
+Run against the same rows with the filter removed:
+
+```
+WITHOUT pastPosted            WITH it
+1. ⚠️ PAST-POSTED  RIGHT       1. forecast  RIGHT
+2. forecast        RIGHT       2. forecast  WRONG
+3. forecast        WRONG       3. forecast  VOID
+4. forecast        VOID        4. forecast  RIGHT
+5. forecast        RIGHT       5. forecast  WRONG
+```
+
+**The demo sorts to line one** — it resolves seconds after creation and the ordering is
+`COALESCE(resolved_at, voided_at) DESC` — **and it evicts exactly one genuine forecast,
+`c/demo-split-miss`, which is a WRONG one.** So the planner's window would have gone from
+2 right / 2 wrong / 1 void to **3 right / 1 wrong / 1 void**: the demo enters as a hit *and* pushes
+out a miss. That is the PHASE-7 rehearsal finding arriving a second time by a different route, and it
+is why the filter runs **before** `.slice(0, WINDOW)` rather than as a bare `WHERE`.
+
+⚠️ **The context digest is unchanged at `15a129628cdc…`** — byte-identical to before market 13 was
+scored. Reports planned against that block still match it, which is the column doing its job.
+
+### ⚠️ The author filter is a coincidence, not the mechanism — and market 13 proves it
+
+PHASE-8 §2.3 notes that a judge commits from their own wallet, so `context.ts`'s
+`lower(c.author) = lower(analyst)` excludes their claim for free. **That is true of one tier out of
+three and must not be relied on.** §2.7's tier 3 — *"watch it run"*, the **default** path for a
+visitor with no wallet — has the analyst commit with its own USDC. **Market 13 is exactly that
+shape: the author IS the analyst, and the author filter did nothing at all.** `pastPosted` is the
+mechanism; the author filter is an accident that happens to help when a judge brings a wallet.
+
+### "test data" and "demo" are different words, deliberately
+
+They are **opposite kinds of absence**, and one marker for both would make one of them a lie:
+
+- `test data` — no chain market, no settlement transaction. **Nothing to follow.**
+- `demo` — real stake, real transaction, real evidence hash. **Everything to follow, and the
+  question was already answered.**
+
+Calling a past-posted grade "test data" fails in the direction that costs trust: a reader follows the
+arcscan link, finds a genuine transaction, and then disbelieves the label everywhere else.
+⚠️ `Grade.demo` was **renamed to `Grade.testData`** in the same change — it meant "no chain evidence"
+while the new marker word for past-posted is "demo", and a field named for the other category's word
+is how somebody reads the wrong number off the object. `tsc` found the one consumer, in `ContextBlock`.
+
+### What each surface says now
+
+| surface | rendered |
+|---|---|
+| `/analyst` counts | `5 settled — 2 right, 2 wrong, 1 voided · 5 test data · 1 demo` |
+| `/analyst` note | `rehearsals excluded · 1 demo not counted` |
+| `/analyst` table | market 13 still listed, badge `RIGHT`, marked `demo · answer was already public` |
+| `/markets` | the same record line, from the same function · `1 demo market not listed yet` |
+| `/` cards | unchanged — `1 of 1 claim correct · test data`, etc. |
+| report page | the claim row carries the demo note; **no grade marker at all** |
+
+⚠️ **A report whose only graded claim is past-posted renders NO marker**, which is the existing
+ungraded rule working rather than a gap — it has no forecast record, and `0 of 0` or a bare `1 demo`
+would each be a statement about judgment with nothing behind it. Confirmed on the live page: market
+13's report returns 200 with the demo note on the claim row and no marker above it.
+
+### ⚠️ Two gaps left open, both named rather than quietly fixed
+
+**`/markets` no longer lists demo markets at all.** They left both buckets because the headings make
+a claim about them: *Forecasts* sits under `THE ANSWER WAS NOT KNOWABLE AT COMMIT TIME`, which is
+flatly false of a demo market, and they are not rehearsals either because something was really staked.
+**Listing one wrongly could not wait; listing it rightly can** — §2.9's third section needs a new
+`kind` on `card()` and its copy written, which is Task 5. The record line names the count meanwhile.
+
+**`app/markets/[id]/page.tsx:73` is untouched and has no `pastPosted` equivalent.** It still carries
+its own SQL copy of the rehearsal rule, so a demo market opened directly at `/markets/13` renders as
+an ordinary forecast with no qualification. That file was outside this task's constraint list. It is
+now written into `rehearsal.ts`'s header as the known straggler and should be Task 5's first move.
+
+### On whether `pastPosted` will spread the way the rehearsal rule did
+
+**Yes, and worse — so the header now says why not to.** The rehearsal comparison spread because
+`(observation_end <= created_at)` inlines trivially and both spellings genuinely agreed. The SQL
+"equivalent" here does **not** agree: `close_time > (observed_day || 'T00:00:00Z')::timestamptz`
+resolves the cast in the **session's TimeZone**, and this rule is a midnight boundary — off UTC it
+moves by hours and markets near the boundary flip category silently. `dayStart()` is explicitly
+`Date.UTC`. And `observed_day`'s CHECK is a shape test that admits `2026-02-30`; `dayStart()` throws
+a sentence naming the row, while a Postgres cast errors the whole query. Same defence as before —
+no exported SQL fragment, callers select the columns — plus the fact that what a copier would reach
+for is a *different rule that agrees most of the time*, which is the kind of bug that survives review.
+
+### Markets 6 and 7 — still unresolved, still unchanged
+
+Checked at the start and end of this work: `resolved=false, voided=false` on chain, pools 1.01 and
+0.01, deadline **2026-09-15T00:00:00Z**. Nothing scheduled has run since yesterday's entry flagged
+it. They are real forecasts and must count; if they resolve, the record moves to
+`7 settled — 4 right, 2 wrong, 1 voided · 5 test data · 1 demo` and `real` goes from 0 to 2.
+
+`npx next build` after `rm -rf .next` passes. No schema change, no contract change.

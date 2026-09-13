@@ -81,7 +81,7 @@ import {ContextBlock} from './ContextBlock.js';
 import {GradeMarker, analystRecord, gradesFor, recordLine, settledOnChain} from '../components/GradeMarker.js';
 import {ArrowUpRight} from '../components/Icons.js';
 import {ANALYSTS} from '../../src/config/analysts.js';
-import {isRehearsal} from '../../src/arc/rehearsal.js';
+import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {fetchJson, MIRROR} from '../../src/tokenize/hedera.js';
 import type {MirrorAccount} from '../../src/tokenize/hedera.js';
 import {list} from '../../src/store/reports.js';
@@ -123,6 +123,9 @@ interface ScoreRow {
   /** ⚠️ The two timestamps, not a precomputed flag — `isRehearsal()` owns the comparison now. */
   observation_end: Date;
   created_at: Date;
+  /** ⚠️ And the two `pastPosted()` owns. Same rule: columns travel, the predicate decides. */
+  close_time: Date;
+  observed_day: string;
   report_hash: string;
   title: string | null;
   directive: string;
@@ -155,7 +158,7 @@ export default async function Analyst() {
            c.chain_claim_id, c.side, c.report_hash,
            m.id AS market_id, m.chain_market_id, m.resolve_tx, m.void_tx,
            COALESCE(m.resolved_at, m.voided_at) AS settled_at,
-           m.observation_end, m.created_at,
+           m.observation_end, m.created_at, m.close_time, m.observed_day,
            r.title, r.directive
       FROM scores s
       JOIN claims  c ON c.id   = s.claim_id
@@ -166,8 +169,13 @@ export default async function Analyst() {
   // ⚠️ Rehearsals are excluded from the RECORD, not from the table — they are still shown, marked,
   // and left out of the counts. Hiding them would make the counts unauditable.
   // ⚠️ `isRehearsal` is imported, not re-spelled in this query. See `src/arc/rehearsal.ts`.
-  const graded = scores.filter((s) => !isRehearsal(s.observation_end, s.created_at));
-  const rehearsed = scores.length - graded.length;
+  // ⚠️ **Two exclusions now, and a past-posted claim is NOT a rehearsal** — its observationEnd is
+  // minutes after its createdAt, so `isRehearsal` waves it through. See `src/arc/rehearsal.ts`.
+  const demos = scores.filter((s) => pastPosted(s.close_time, s.observed_day));
+  const graded = scores.filter(
+    (s) => !isRehearsal(s.observation_end, s.created_at) && !pastPosted(s.close_time, s.observed_day),
+  );
+  const rehearsed = scores.filter((s) => isRehearsal(s.observation_end, s.created_at)).length;
 
   // ⚠️ **The counts come from `analystRecord()`, the same call `/markets` makes**, rather than from
   // the rows above. The two pages contradicted each other while each counted for itself; one
@@ -257,7 +265,10 @@ export default async function Analyst() {
         <span>The record</span>
         {/* ⚠️ One function, both record surfaces, one wording. */}
         <span>{recordLine(record)}</span>
-        <span>rehearsals excluded{rehearsed > 0 ? ` · ${rehearsed} not counted` : ''}</span>
+        <span>
+          rehearsals excluded{rehearsed > 0 ? ` · ${rehearsed} not counted` : ''}
+          {demos.length > 0 ? ` · ${demos.length} demo not counted` : ''}
+        </span>
       </div>
 
       <div className="holdings-panel panel">
@@ -320,6 +331,13 @@ export default async function Analyst() {
                         </span>
                         {isRehearsal(s.observation_end, s.created_at)
                           && <span className="holdings-sub">rehearsal · not counted</span>}
+                        {/* ⚠️ **A DIFFERENT WORD FROM "test data", AND THE ROW BELOW SAYS WHY.**
+                            This claim settled on chain for real money; what disqualifies it is that
+                            staking was open after the day it measures, so the answer was already
+                            published. Calling it test data would be false to anyone who follows the
+                            transaction. */}
+                        {pastPosted(s.close_time, s.observed_day)
+                          && <span className="holdings-sub">demo · answer was already public</span>}
                         {/* ⚠️ **From the absence of chain evidence, not the id prefix.** No chain
                             market id and no settlement transaction means there is nothing a reader
                             could follow — which is what makes it test data. A real grade never

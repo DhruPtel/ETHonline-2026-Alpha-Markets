@@ -41,7 +41,7 @@ import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityCha
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
 import {analystRecord, recordLine} from '../components/GradeMarker.js';
 import {db} from '../../src/store/db.js';
-import {isRehearsal} from '../../src/arc/rehearsal.js';
+import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
 import {ethers} from 'ethers';
 
@@ -65,6 +65,9 @@ interface Row {
   created_at: Date;
   close_time: Date;
   observation_end: Date;
+  /** ⚠️ The column, not `spec.observedDay` parsed out of the JSON beside it — `pastPosted()` takes
+      the stored day, and two ways of reading one date is two answers waiting to differ. */
+  observed_day: string;
   resolved_at: Date | null;
   voided_at: Date | null;
   outcome: boolean | null;
@@ -91,6 +94,7 @@ function standing(r: Row): string {
 export default async function MarketIndex() {
   const rows = await db()<Row[]>`
     SELECT m.id, m.chain_market_id, m.spec_json, m.created_at, m.close_time, m.observation_end,
+           m.observed_day,
            m.resolved_at, m.voided_at, m.outcome,
            c.id AS claim_id, c.side, c.report_hash,
            s.forecast_correct
@@ -111,8 +115,24 @@ export default async function MarketIndex() {
   const all = [...seen.values()];
   const onChain = all.filter((r) => r.chain_market_id);
   const offChain = all.filter((r) => !r.chain_market_id);
-  const forecasts = onChain.filter((r) => !isRehearsal(r.observation_end, r.created_at));
-  const rehearsals = onChain.filter((r) => isRehearsal(r.observation_end, r.created_at));
+  // ⚠️ **PAST-POSTED MARKETS LEAVE BOTH BUCKETS, AND THE HEADINGS ARE WHY.** "Forecasts" sits under
+  // the eyebrow THE ANSWER WAS NOT KNOWABLE AT COMMIT TIME, which is **flatly false** of a demo
+  // market — its staking was open after the day it measures. It is not a rehearsal either: something
+  // was staked on it, by someone, for real. Leaving it in either section would put a true-looking
+  // heading over a false claim, which is worse than not listing it.
+  //
+  // ⚠️ **SO IT IS CURRENTLY NOT LISTED ON THIS PAGE AT ALL, AND THAT IS A KNOWN GAP, NOT A FIX.**
+  // PHASE-8 §2.9 specifies a third `Demo` section with its own copy, and that is Task 5's work — it
+  // needs a new `kind` on `card()` and the section text written. Until then the record line below is
+  // the only place these appear, and it names them. **Listing them wrongly is the one thing that
+  // could not wait; listing them rightly can.**
+  const demos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
+  const forecasts = onChain.filter(
+    (r) => !isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
+  );
+  const rehearsals = onChain.filter(
+    (r) => isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
+  );
 
   // ⚠️ **THE POOLS, FROM THE CONTRACT, BATCHED.** One `eth_call` per on-chain market in parallel —
   // not one page-blocking round trip each. A failed read leaves the key absent, and an absent pool
@@ -262,7 +282,10 @@ export default async function MarketIndex() {
         {/* ⚠️ The same string `/analyst` renders, from the same function, so they cannot word it
             differently either. */}
         <span>{recordLine(record)}</span>
-        <span>rehearsals excluded</span>
+        <span>
+          rehearsals excluded
+          {demos.length > 0 ? ` · ${demos.length} demo market not listed yet` : ''}
+        </span>
       </div>
 
       <div className="section-title">

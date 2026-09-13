@@ -40,6 +40,7 @@
 import {notFound} from 'next/navigation.js';
 import {BuyAndRead} from '../../components/BuyControl.js';
 import {GradeMarker, gradesFor} from '../../components/GradeMarker.js';
+import {pastPosted} from '../../../src/arc/rehearsal.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight} from '../../components/Icons.js';
 import {load} from '../../../src/store/reports.js';
 import {tokenFor} from '../../../src/store/tokens.js';
@@ -93,6 +94,8 @@ interface ClaimRow {
   chain_market_id: string;
   spec_json: string;
   close_time: Date;
+  /** ⚠️ With `close_time`, the pair `pastPosted()` compares. */
+  observed_day: string;
   observation_end: Date;
   resolved_at: Date | null;
   voided_at: Date | null;
@@ -127,7 +130,7 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
   const token = await tokenFor(hash);
   const claims = await db()<ClaimRow[]>`
     SELECT c.chain_claim_id, c.side, c.amount,
-           m.chain_market_id, m.spec_json, m.close_time,
+           m.chain_market_id, m.spec_json, m.close_time, m.observed_day,
            m.observation_end, m.resolved_at, m.voided_at, m.outcome
       FROM claims c JOIN markets m ON m.id = c.market_id
      WHERE c.report_hash = ${hash}
@@ -387,6 +390,18 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
                     Market #{c.chain_market_id} · claim #{c.chain_claim_id} · the analyst committed{' '}
                     {usdc(c.amount)} USDC of its own. {standing(c)}.
                   </p>
+                  {/* ⚠️ **WITHOUT THIS THE PAGE CONTRADICTS ITSELF.** The grade marker above already
+                      excludes a past-posted claim from this report's record; a row down here reading
+                      "Resolved TRUE" with no qualification invites the reader to count it anyway.
+                      Said on the row rather than in the marker, because it is a fact about this
+                      market and not about the report's tally. */}
+                  {pastPosted(c.close_time, c.observed_day) && (
+                    <p>
+                      ⚠️ <strong>Staking was open after {spec.observedDay} had ended</strong>, so the
+                      answer was already published when this position was taken. It is a demo, not a
+                      forecast, and it counts toward no record.
+                    </p>
+                  )}
                   {/* ⚠️ The `reportHash` parameter the contract was called with — the same 64
                       characters printed above, in the form Arc stores them. */}
                   <p>
