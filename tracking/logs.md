@@ -15518,3 +15518,141 @@ the metric-across-deployments shape. Neither is rendered as a zero anywhere.
 behind `main`, the cron that fires at 02:00Z is the old route with no grading, and
 `npx tsx --env-file=.env scripts/ops/score.ts` after it resolves is the fallback — it writes exactly
 the same rows.
+
+---
+
+## 2026-09-13 — Task 2: /analyst, and /holdings absorbed into it
+
+Three files: `app/analyst/page.tsx` (new), `app/components/SiteNav.tsx` (a fourth item),
+`app/holdings/page.tsx` (now a redirect). No `src/` change, no schema change, no new route.
+
+**URL: `/analyst`.** One page, three sections — the record, holdings, reports generated.
+
+### ⚠️ The old /holdings was demo content, so it was removed rather than unlinked
+
+PHASE-7 §3 decided `/holdings` would "keep working as a URL and simply not be linked". **That was
+decided believing the page was real.** It rendered a `HOLDINGS` const of three invented report tokens
+— hashes `3d81e6f09c24ab75`, `9f2c4a7e1b8d3056`, `e4a1b26d70f5c839`, account `0x7a3f…c218`, author
+"Atlas Research", and market claims about Aave revenue and stablecoin growth that no market in this
+project has ever asked.
+
+⚠️ **Unlinking hides a page from navigation; it does not stop it being served.** Leaving it would
+have left fabricated financial content live and reachable, indistinguishable from the real pages
+around it. So the plan is amended: the demo page is gone and `/holdings` is a **308 to `/analyst`**,
+so nothing 404s and an old bookmark lands on the real thing. **This amends PHASE-7 §3** and is the
+kind of choice that belongs in `DECISIONS.md`; it is recorded here because this run was scoped to
+`logs.md`.
+
+`app/api/holdings/route.ts` is untouched and still works — it was always real. It now has no page
+calling it, because `/analyst` reads the store and the chain directly rather than fetching a route
+the same server serves.
+
+### What the nav change does to the header
+
+`.site-header` is `grid-template-columns: 1fr auto 1fr` with the nav as the centre column, so **four
+items fit comfortably at every desktop width** — same markup, same `.active` underline, no new class.
+
+⚠️ **It is tight on a narrow phone, and `globals.css` was out of scope.** Below 760px the nav drops
+to its own centred row at `gap: 45px`. Three items need roughly 265px; four need roughly 365px,
+against about 325px of usable width on a 360px handset. **The gap is the thing to narrow, not the
+labels** — one line, `.site-header nav { gap: 28px }` inside the existing `max-width: 760px` block.
+Reported rather than silently left, and noted in `SiteNav`'s own header.
+
+### The record, and the rules it keeps
+
+One join, **on `markets.id` and never `chain_market_id`** — two market rows share chain id 8, so
+joining on it picks whichever the planner returns first.
+
+⚠️ **Three counts, never a percentage**, in the same *"N settled — R right, W wrong"* shape
+`/markets` already uses. A void links `void_tx`, reads **VOIDED**, and counts in neither column.
+⚠️ **Rehearsals are shown, marked `rehearsal · not counted`, and excluded from the counts** — shown
+rather than hidden, so a reader who counts the rows themselves can see why the totals differ. The
+test is `observation_end <= created_at`, arithmetic and never the name.
+
+⚠️ **This is the third copy of that comparison** — `app/markets/page.tsx` in SQL, `scripts/ops/score.ts`
+in TypeScript, now here in SQL. It should be one helper and **this task could not make it one**: a
+shared helper belongs in `src/`, which was out of scope. The next task that may touch `src/` should
+lift all three.
+
+⚠️ **Trading return renders `—` with "no payout recorded", never `0.00`.** `payouts` has no writer,
+so this is every row, and an analyst that has not collected has not lost. ⚠️ A score whose market
+carries neither transaction reads **"settled, no transaction recorded"** rather than a blank cell —
+that state is a bug in the settlement path and a blank would conceal it.
+
+⚠️ **Grade colour was deliberately NOT invented.** The palette is five neutral colours with no green
+or red; `.dot-true`/`.dot-false` are the only accents and they mean TRUE/FALSE sides, not right and
+wrong. So RIGHT and WRONG carry the word in a plain `.badge`, and VOIDED uses the existing greyed
+`.badge.off`, which already reads as an absence. **The green/red/grey treatment is Task 4's**, and it
+should land on this table and the report cards in one pass so they agree.
+
+### ⚠️ Every arcscan link was verified on the Arc RPC before it shipped
+
+arcscan is a client-routed SPA that serves the same shell for a nonsense path. So all three
+settlement transactions in the store were checked with `eth_getTransactionReceipt`:
+
+```
+m/rehearsal-5e207fcf98b52eb3  resolve_tx 0x5f0a2803…  block 61529025  status 1  to 0x003e7Cb7…
+m/rehearsal-294e0f63b1c9c4b3  void_tx    0x63086eea…  block 61529059  status 1  to 0x003e7Cb7…
+m/rehearsal-a014b3080fa43ec3  resolve_tx 0xe4b274b5…  block 61600977  status 1  to 0x003e7Cb7…
+nonsense 0xabab…abab                                  receipt null — the RPC says it does not exist
+```
+
+The RPC is the check; the link is a convenience.
+
+### The proof — including the table that does not exist yet
+
+**Empty state, which is what is on screen now:** *"No claim has been graded yet"*, with the body
+*"This is not a score of zero — it is the absence of one."* ⚠️ A record of nothing and a record of
+failure must never look alike, and the counts line reads *"no claim has been graded yet"* rather than
+`0 right, 0 wrong`.
+
+⚠️ **The populated table had never rendered, so it was rendered once against temporary fixtures** —
+five `m/verify-analyst-*` markets and claims, graded through the real `scoreMarket()` rather than
+inserted into `scores` by hand, then removed in a `finally`. Precedent: `scripts/demo/score.ts` and
+`scripts/demo/context.ts` both do exactly this. **No chain writes, nothing staked, nothing resolved.**
+It rendered:
+
+```
+The record   4 settled — 2 right, 1 wrong, 1 voided    rehearsals excluded · 1 not counted
+Graded claims   5 rows
+
+RIGHT   rehearsal · not counted   Market #205   TRUE   0.01 USDC   — no payout recorded   [arcscan] resolve
+RIGHT                             Market #204   TRUE   0.01 USDC   — no payout recorded   settled, no transaction recorded
+VOIDED                            Market #203   TRUE   0.01 USDC   — no payout recorded   [arcscan] void
+WRONG                             Market #202   TRUE   0.01 USDC   — no payout recorded   [arcscan] resolve
+RIGHT                             Market #201   TRUE   0.01 USDC   — no payout recorded   [arcscan] resolve
+```
+
+Five rows, four counted, the rehearsal excluded from the totals but visible; the void linking
+`void_tx` and reading *voided*; the missing-transaction case surfaced. Fixtures then removed and the
+store re-checked: `scores 0`, zero `verify-` rows, and markets 6, 7, 11 and 12 still
+`resolved_at null, void_tx null`.
+
+### Counts, confirmed against the store
+
+| section | page says | store says |
+|---|---|---|
+| Holdings | **7 tokens · 4 of 7 still held** (4 this analyst, 3 buyer agent) | `report_tokens` = 7 |
+| Reports generated | **19 reports · 8 of 19 published** | `reports` = 19, `published_at IS NOT NULL` = 8 |
+| Graded claims | **0 rows** — empty state | `scores` = 0 |
+
+Holdings come from `balanceOf` on Hedera per request, not from `report_tokens.transfer_tx` — the
+column records what we last sent, the chain records what is. ⚠️ Both reads failing renders
+**"Unreadable"**, not "Neither account": those are different facts.
+
+`npx next build` after `rm -rf .next` — **passes**. `/analyst` is `ƒ` dynamic, which is the thing
+`/holdings` never was.
+
+### ⚠️ One operational note
+
+The `next dev` server on port 3000 has been running since before these files existed and **serves a
+404 for `/analyst` and the old page for `/holdings`** — its nav picked up the fourth item but it
+never registered the new route directory. Everything above was verified against a fresh production
+build on port 3111, since stopped. **Restart the dev server** and both URLs work.
+
+### After 02:00Z
+
+When markets 6 and 7 resolve and Task 1's sweep grades them, this page stops showing its empty state
+and shows two rows — report `24041ca282…`, side TRUE, 0.01 USDC each, each linking its `resolve_tx`
+on arcscan — and the counts line reads `2 settled — 2 right, 0 wrong, 0 voided` or `0 right, 2 wrong`
+depending on the day. Returned stays `—` on both, because `payouts` still has no writer.
