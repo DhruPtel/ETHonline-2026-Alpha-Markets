@@ -17735,3 +17735,90 @@ fetched for each claim made about them.
 - HashScan returns 404 to non-browser clients, so its links were checked through Mirror Node and
   Sourcify instead.
 - `/markets/13` returned one 500 during the link sweep, then 200 on six retries.
+
+---
+
+## 2026-09-13 — the header's dead "Connect wallet" becomes "Wallets preloaded"
+
+**What changed.** The greyed-out, disabled "Connect wallet" button in the header now reads **Wallets
+preloaded**, and clicking it opens a short note.
+- **It says:** the analyst's wallets are preloaded; the analyst is an agent that signs server-side
+  with its own keys (Hedera for tokenization and x402, a Circle developer-controlled wallet on Arc);
+  to stake your own USDC, connect your wallet on the market's page.
+- **One more line:** the next step, not built, is a connected wallet becoming its own analyst.
+- **Dismissal:** a Close button, Escape, or a click outside.
+
+The note keeps the two truths apart on purpose: the analyst connects nothing, but staking does.
+
+**How.** It is the browser's native popover (`popover` and `popoverTarget`), so `app/layout.tsx`
+stays a server component and no JavaScript ships for it. Only `app/layout.tsx` and `app/globals.css`
+changed. The staking control (`app/markets/[id]/PositionControl.tsx`), `src/` and every route are
+untouched.
+
+**What surprised.**
+- `app/ui/`, named in the brief, no longer exists; the header lives in `app/layout.tsx`.
+- The longer label made the header 2px wider than a 360px phone and pushed the nav off-centre.
+- My first fix did nothing, because the stylesheet's later 760px block also sets `.wallet-button`
+  and won on order. A two-class selector for the under-380px rule fixed it.
+
+### Checks
+
+- `npx next build` after clearing `.next` except the running dev server's `dev/`: passes.
+- Headless Chromium on the production build (`next start` on port 3100, stopped afterwards), at 1440,
+  360, 375 and 390px:
+  - the button reads "Wallets preloaded" and is not disabled;
+  - the note is closed on load and opens on click;
+  - Close, Escape and an outside click each close it;
+  - no horizontal overflow at any width, and at 360px the nav sits at 17–343px, the same as the live
+    site's old header;
+  - zero calls to a stubbed `window.ethereum` from the header;
+  - `/markets/34` still shows **Review this position** and `/markets/38` still shows **Reveal
+    answer** (nothing pressed);
+  - no console errors.
+
+---
+
+## 2026-09-13 — the wallet note's words, rewritten
+
+**Text only.** The note now leads with "Preloaded wallets." and says why they are preloaded: so the
+demo works whatever a judge has set up. The second paragraph says a stake uses your own wallet,
+connected on the market's page, because that is where the on-chain position is yours. The "next
+step, not built" line is gone. The header comment in `app/layout.tsx` was corrected to match; it now
+points to the README for multi-tenant. The trigger, layout and open/close behaviour are unchanged.
+
+⚠️ `globals.css` still carries `.wallet-note .muted`, which nothing uses now. It was left alone
+because this task was the header component only.
+
+### Checks
+
+- `npx next build` after clearing `.next` except the running dev server's `dev/`: passes.
+- Headless Chromium on the production build, at 1440, 360, 375 and 390px:
+  - the note reads the new copy;
+  - it opens on click and closes on Close, Escape and an outside click;
+  - the card grew from 242px to 257px tall;
+  - no horizontal overflow, no wallet calls from the header, no console errors.
+
+---
+
+## 2026-09-13 — orientation for connect-wallet planning (read-only)
+
+**What.** A fresh session read the code before planning a visitor using their own wallet to tokenize
+on Hedera and to commit a report on Arc. Nothing was built and nothing was spent. The only writes
+were this entry, the `.next` build output, and the migrate run. The goal was a map: where the
+analyst's identity is defined, what checks it, which surfaces assume it, and what signs where.
+
+**Checks.** `npx next build` passed after clearing `.next`. `scripts/ops/migrate.ts` passed and
+changed no data.
+
+**What surprised.**
+- **Migrate can change data.** `009`'s `UPDATE` would list again any tokenized report created before
+  its cutoff that `unpublish.ts` has since unlisted. A read-only query first matched zero rows, so
+  this run was clean, but the risk stays.
+- **Every guard refuses a second author's action.** A visitor tokenizing or committing someone
+  else's report is exactly what the admission check (`admission.ts`), `market.ts` guard 4 and
+  `ats.ts` refuse. So every such flow fights them by design.
+- **Some record surfaces do not filter by author.** `/analyst` and `GradeMarker` count every claim.
+  Today only `pastPosted` keeps the two browser-wallet claims (demo markets 32 and 33) out of the
+  analyst's record.
+- **The two market-8 rows share one contract address**, so any lookup by chain id plus contract
+  address returns both.

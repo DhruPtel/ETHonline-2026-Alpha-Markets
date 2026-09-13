@@ -24,14 +24,30 @@ export const metadata: Metadata = {
  * icon in them to every visitor. Isolating it in `SiteNav` ships **three links and a pathname
  * read** instead, and leaves the rest of the header — and the whole footer — on the server.
  *
- * ⚠️ **The wallet button stays and is MARKED `.inert`; the Demo toggle beside it is CUT.** The
- * distinction is the project's own: mark what a reviewer would think we forgot, cut what the system
- * forbids. A wallet connection is a coherent capability this build has not made — so it is shown,
- * inert, and labelled. A "Demo" switch is not an unbuilt feature: everything on this site is a real
+ * ⚠️ **The header's wallet button says the analyst's wallets are preloaded, and it is NOT a connect
+ * button.** It was a greyed-out "Connect wallet", which read as broken. Two things are true and the
+ * note keeps them apart:
+ *
+ *   · **The analyst connects nothing.** It is an agent and signs server-side from its own keys —
+ *     `HEDERA_SELLER_KEY` for tokenization and x402, a Circle developer-controlled wallet on Arc. A
+ *     visitor pressing a button to connect a wallet would not be an agent acting on its own.
+ *   · **Staking does connect a wallet**, on the market page (`markets/[id]/PositionControl.tsx`),
+ *     where a person signs from MetaMask with their own USDC. So the note must not say that nothing
+ *     connects anywhere.
+ *
+ * The note also says why they are preloaded: so the demo works whatever a visitor has set up.
+ * Multi-tenant, a connected wallet becoming its own analyst, is not mentioned here; the root README
+ * lists it under "What is not built".
+ *
+ * ⚠️ **A native popover (`popover` + `popoverTarget`), so this stays a server component.** No client
+ * JS ships for it: the browser opens it, and closes it on Escape, an outside click or the Close
+ * button. It sits in the top layer, so `.site-header`'s `backdrop-filter` does not trap its fixed
+ * position. Every nav link is a full page load, so it never survives a navigation open.
+ *
+ * ⚠️ **The Demo toggle the reference drew beside it is CUT.** Everything on this site is a real
  * receipt against a live network, and a control offering to make it fake asserts the opposite of
- * the product's whole claim. ⚠️ Its two `.demo-toggle` rules in `globals.css` are now orphan and
- * are deliberately left there — commit 2 established that a rule with no consumer today is not
- * evidence of a rule with no consumer.
+ * the product's whole claim. Its two `.demo-toggle` rules in `globals.css` are orphan and are
+ * deliberately left there.
  *
  * ⚠️ **Plain `<a href>`, never `next/link`** — `app/components/SiteNav.tsx` carries the full reason.
  */
@@ -52,9 +68,24 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
           <SiteNav />
 
           <div className="header-actions">
-            <button className="btn primary wallet-button inert" type="button" aria-disabled="true">
-              <Wallet size={15} /> Connect wallet
+            <button className="btn primary wallet-button" type="button" popoverTarget="wallet-note">
+              <Wallet size={15} /> Wallets preloaded
             </button>
+            <div id="wallet-note" className="wallet-note" popover="auto" aria-labelledby="wallet-note-title">
+              <p>
+                <strong id="wallet-note-title">Preloaded wallets.</strong>
+                The analyst signs server-side from its own keys — Hedera testnet for tokenization and
+                x402 payments, a Circle developer-controlled wallet for Arc. Preloaded so the demo
+                works whatever a judge has set up.
+              </p>
+              <p>
+                Staking on a market uses your own wallet, connected on that market&apos;s page. That is
+                where the on-chain position is yours.
+              </p>
+              <button className="text-link" type="button" popoverTarget="wallet-note" popoverTargetAction="hide">
+                Close
+              </button>
+            </div>
           </div>
         </header>
 

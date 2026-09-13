@@ -317,6 +317,30 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .demo-toggle { display: flex; gap: 10px; align-items: center; font-size: 13px; }
 .wallet-button { min-height: 37px; padding: 8px 15px; font-size: 13px; }
 
+/* The wallet note — a native popover opened by .wallet-button (app/layout.tsx). It renders in the top
+   layer, so it is positioned against the viewport, just below the sticky header's right edge. The
+   card treatment is .report-card's: paper, the pale rule, the same soft shadow. */
+.wallet-note {
+  position: fixed; inset: 78px 34px auto auto; margin: 0;
+  width: min(330px, calc(100vw - 32px));
+  background: var(--paper); color: var(--ink);
+  border: 1px solid #dce5ed; border-radius: 8px; padding: 16px 18px 14px;
+  box-shadow: 0 10px 30px #3a536312;
+  font-size: 13px; line-height: 1.55;
+}
+.wallet-note strong { display: block; font-weight: 500; margin-bottom: 6px; }
+.wallet-note p + p { margin-top: 7px; }
+.wallet-note .muted { font-size: 12px; }
+.wallet-note .text-link { display: block; margin: 12px 0 0 auto; font-size: 12px; }
+@media (max-width: 1250px) { .wallet-note { right: 22px; } }
+@media (max-width: 760px) { .wallet-note { top: 114px; right: 16px; } }
+/* "Wallets preloaded" is three characters longer than the "Connect wallet" it replaced. Beside the
+   brand on a 360px phone that pushed the header 2px wide and shifted the nav row off-centre, so
+   below 380px the button gives back the width: a point smaller, 2px less padding each side.
+   ⚠️ Two classes, not one: the 760px block further down sets `.wallet-button` and comes later in
+   the file, so a single-class rule here loses to it at every phone width. */
+@media (max-width: 380px) { .header-actions .wallet-button { font-size: 10px; padding: 7px 8px; } }
+
 .site-footer {
   margin: 0 32px; padding: 25px 0; display: flex; justify-content: space-between;
   border-top: 1px solid #e0e6ec; font-size: 12px; color: #82909c; gap: 20px;
@@ -1003,8 +1027,8 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 /* ---------------------------------------------------------------------------
    INERT
    One treatment, defined once, for every control that is present in the design
-   but will not be wired in this front end: the wallet button, the demo menu,
-   the chart range buttons. Carries no handler; pair it with aria-disabled or a
+   but will not be wired in this front end: the demo menu, the chart range
+   buttons. (The header's wallet button left this list: it now opens a note.) Carries no handler; pair it with aria-disabled or a
    disabled attribute on the element itself.
    ------------------------------------------------------------------------ */
 .inert { opacity: .55; cursor: default; pointer-events: none; }
