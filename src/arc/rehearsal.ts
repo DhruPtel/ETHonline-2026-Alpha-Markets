@@ -33,21 +33,33 @@
 // with a `.filter()` on the same handful. If `scores` ever grows to where that matters, the answer is
 // an indexed generated column, not a second copy of the comparison.
 //
-// ── ⚠️ WHAT STILL HAS ITS OWN COPY, STATED SO THE NEXT TASK CAN FINISH THE JOB ──────────────────
+// ── WHO IMPORTS THIS, AND THE ONE PLACE THAT STILL DOES NOT ─────────────────────────────────────
 //
-// Two call sites were **out of this task's file list** and still compute the comparison themselves:
+// Converted, so there is one spelling of the rule behind all of them:
 //
-//   `app/markets/page.tsx`      `(m.observation_end <= m.created_at) AS after_the_fact` in SQL
-//   `scripts/ops/score.ts`      `observationEnd.getTime() <= createdAt.getTime()`
+//   `app/markets/page.tsx`          the forecasts / rehearsals split and the record
+//   `app/analyst/page.tsx`          the graded table and its counts
+//   `app/components/GradeMarker.tsx` the marker on cards, the analyst list and `/report/[hash]`
+//   `scripts/ops/score.ts`          the printed REHEARSAL label and the record totals
+//   `src/agent/context.ts`          ⚠️ the planning prompt — see below
 //
-// Both agree with this file today. **Neither is wrong; both are a second place to change.** They
-// should be converted to import from here the next time either file is open for other reasons.
+// ⚠️ **ONE STILL CARRIES ITS OWN COPY, AND IT WAS NOT ON ANYBODY'S LIST:**
 //
-// ⚠️ **`src/agent/context.ts` applies no rehearsal filter at all**, which PHASE-7 §4.3 says it must —
-// a planner told it was right about a question whose answer was already known is learning from
-// nothing. That is a gap rather than a duplicate spelling, it is latent today because the three
-// settled rehearsals carry no claims, and it is recorded here because this is now the file that
-// would fix it.
+//   `app/markets/[id]/page.tsx:73`  `(observation_end <= created_at) AS after_the_fact` in SQL
+//
+// It was found by grepping for the comparison after the consolidation rather than by trusting the
+// list of known call sites — **the list said two and the repository said three.** It agrees with
+// this file today and it already selects both columns, so converting it is the same two-line change
+// the other SQL caller took. It was outside the file list of the task that did this consolidation,
+// so it is recorded here rather than edited in passing.
+//
+// ── ⚠️ THE `context.ts` CASE WAS A MISSING FILTER, NOT A DUPLICATE SPELLING ─────────────────────
+//
+// `agent/context.ts` applied **no rehearsal filter at all**, which PHASE-7 §4.3 requires. It now
+// imports `isRehearsal` and — the part that matters — **filters before taking its window**, because
+// the old `ORDER BY … LIMIT 5` let a graded rehearsal both enter the planning prompt as a hit and
+// evict a real forecast from the five. Both halves were reproduced against fixtures before the fix
+// and are gone after it.
 
 /**
  * True when the market's observation window had already closed by the time it was created — so the

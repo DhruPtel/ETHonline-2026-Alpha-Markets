@@ -31,10 +31,12 @@
 // **A market created over a day that had already closed is not a forecast**, because the answer was
 // knowable at commit time. The test is arithmetic and never a name: `observationEnd <= createdAt`.
 // ⚠️ A stored market whose id literally contains "rehearsal" can still be a forecast by that
-// arithmetic, which is exactly why the name is not the test. `app/markets/page.tsx` already computes
-// this same comparison for its own split; this is the second place it appears and Task 2's
-// `/analyst` page is the third, which is one more than is comfortable — **the moment a fourth caller
-// needs it, it should become a helper rather than a fourth copy.**
+// arithmetic, which is exactly why the name is not the test.
+//
+// ⚠️ **THE COMPARISON NO LONGER LIVES HERE.** It is `isRehearsal()` in `src/arc/rehearsal.ts`, which
+// is now the single spelling shared by this script, `app/markets/page.tsx`, `/analyst`, the report
+// marker and `agent/context.ts`. What lives here is still the *policy* — see below — because where a
+// rehearsal is excluded is a decision each surface makes, while what a rehearsal IS is not.
 //
 // ⚠️ **Rehearsals are still SCORED.** `scoreSettled()` is reconciliation from scratch and a function
 // that silently skips rows is worse than one that writes them — a skipped row is invisible, a
@@ -56,6 +58,7 @@
 
 import { ethers } from 'ethers';
 import { scoreMarket, scoreSettled, type Score } from '../../src/arc/score.js';
+import { isRehearsal } from '../../src/arc/rehearsal.js';
 import { claimsFor, close, marketById, type Market } from '../../src/store/markets.js';
 import { db } from '../../src/store/db.js';
 
@@ -70,8 +73,10 @@ const ONLY = flag('market');
 /** ⚠️ Matches `app/markets/page.tsx`'s own helper. 18-dp, because that is what this USDC is. */
 const usdc = (wei: string): string => ethers.formatUnits(BigInt(wei), 18);
 
-/** ⚠️ The rehearsal test, and it is arithmetic. See the header — the name is never the test. */
-const afterTheFact = (m: Market): boolean => m.observationEnd.getTime() <= m.createdAt.getTime();
+/** ⚠️ The rehearsal test. **Imported, not re-spelled** — `src/arc/rehearsal.ts` is the one place it
+ *  lives, and it is arithmetic rather than a name. This was a local arrow function until the rule was
+ *  consolidated; same comparison, same results. */
+const afterTheFact = (m: Market): boolean => isRehearsal(m.observationEnd, m.createdAt);
 
 const short = (s: string, n = 18): string => (s.length > n ? `${s.slice(0, n)}…` : s);
 

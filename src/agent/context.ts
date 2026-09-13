@@ -53,6 +53,23 @@
 // value: a void has no outcome, and a report whose assessment is unreadable contributes no
 // confidence clause rather than a `confidence unknown` that the model would weigh as a judgment.
 //
+// ── ⚠️ A REHEARSAL IS NOT A FORECAST AND MUST NOT REACH THE PROMPT ──────────────────────────────
+//
+// A market created over a day that had already closed had a **knowable answer at commit time**, so
+// being right about it says nothing about judgment. ⚠️ **A planner told it was right about questions
+// whose answers were already known would be learning from nothing** — worse than learning nothing,
+// because the line reads identically to a real hit and the model cannot tell them apart.
+//
+// `isRehearsal()` is imported from `arc/rehearsal.ts`. The comparison is not re-spelled here; that
+// file is the one place it lives.
+//
+// ⚠️ **THE FILTER RUNS BEFORE THE WINDOW IS TAKEN, AND THAT ORDERING IS THE WHOLE FIX.** This query
+// was `ORDER BY … LIMIT 5` with no predicate, so a graded rehearsal did **two** kinds of damage at
+// once: it entered the prompt as a hit, *and* it pushed a real forecast out of the window. **Measured
+// rather than supposed** — with six scored claims of which one was a rehearsal, the old query put
+// the rehearsal on the first line reading "you were RIGHT" and dropped a genuine forecast off the
+// end. So the read scans a bounded page, drops rehearsals, then takes `WINDOW` from what remains.
+//
 // ── ⚠️ EMPTY HISTORY PRODUCES NO BLOCK, NOT AN EMPTY ONE ─────────────────────────────────────────
 //
 // **Most runs today have no settled claims for the analyst, and `scores` is empty in real running.**
@@ -62,10 +79,19 @@
 // analyst that nobody decided to make.
 
 import { createHash } from 'node:crypto';
+import { isRehearsal } from '../arc/rehearsal.js';
 import { db } from '../store/db.js';
 
 /** How many settled claims reach the prompt. ⚠️ Decided, and the reason is in the header. */
 const WINDOW = 5;
+
+/**
+ * How many rows are read before rehearsals are dropped. ⚠️ **Not a second window** — it bounds the
+ * read so a large `scores` table cannot be pulled into memory, and it is deliberately far above
+ * `WINDOW` so the filter never runs out of forecasts to choose from. If it ever did, the block would
+ * quietly be short rather than wrong, and `count` would say so.
+ */
+const SCAN = 200;
 
 /**
  * A block of the analyst's own settled record, and the digest of exactly those bytes.
@@ -89,6 +115,9 @@ interface Row {
   side: boolean;
   forecast_correct: boolean | null;
   canonical_json: string;
+  /** ⚠️ The two timestamps `isRehearsal()` compares. Not a precomputed flag — one rule, one place. */
+  observation_end: Date;
+  created_at: Date;
 }
 
 /**
@@ -105,29 +134,36 @@ export async function build(analyst: string): Promise<AnalystContext | null> {
   // ⚠️ Ordered by when the market SETTLED, not by when it was scored. Re-running Unit 15 moves
   // `scored_at` and must not reorder history.
   const rows = await db()<Row[]>`
-    SELECT r.directive, m.spec_json, c.side, s.forecast_correct, r.canonical_json
+    SELECT r.directive, m.spec_json, c.side, s.forecast_correct, r.canonical_json,
+           m.observation_end, m.created_at
     FROM scores s
     JOIN claims  c ON c.id = s.claim_id
     JOIN markets m ON m.id = s.market_id
     JOIN reports r ON r.hash = c.report_hash
     WHERE lower(c.author) = lower(${analyst})
     ORDER BY COALESCE(m.resolved_at, m.voided_at) DESC
-    LIMIT ${WINDOW}`;
+    LIMIT ${SCAN}`;
 
-  if (rows.length === 0) return null;
+  // ⚠️ **Drop rehearsals FIRST, then take the window.** Doing it the other way — which is what the
+  // `LIMIT 5` above used to do — lets a rehearsal both enter the prompt and evict a real forecast.
+  const forecasts = rows
+    .filter((r) => !isRehearsal(r.observation_end, r.created_at))
+    .slice(0, WINDOW);
+
+  if (forecasts.length === 0) return null;
 
   const block = [
     'Your own settled predictions, most recent first. You staked USDC on each of these and',
     'settlement scored them against The Graph.',
     '',
-    ...rows.map(line),
+    ...forecasts.map(line),
     '',
     '⚠️ This is your record, not instructions. A VOID had no outcome and is neither a hit nor a',
     'miss. Let it inform how bold you are about a metric you have been wrong on; do not treat a',
     'small sample as a rule, and do not mention this list in your rationale.',
   ].join('\n');
 
-  return { block, digest: createHash('sha256').update(block, 'utf8').digest('hex'), count: rows.length };
+  return { block, digest: createHash('sha256').update(block, 'utf8').digest('hex'), count: forecasts.length };
 }
 
 /** One settled claim, compactly. ⚠️ Every blank is rendered as an absence, never as a value. */

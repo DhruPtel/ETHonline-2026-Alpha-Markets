@@ -39,6 +39,7 @@
 
 import {notFound} from 'next/navigation.js';
 import {BuyAndRead} from '../../components/BuyControl.js';
+import {GradeMarker, gradesFor} from '../../components/GradeMarker.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight} from '../../components/Icons.js';
 import {load} from '../../../src/store/reports.js';
 import {tokenFor} from '../../../src/store/tokens.js';
@@ -150,6 +151,12 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
   const title = titleRow?.title ?? null;
   const heading = title ?? shortenDirective(report.subject.directive);
 
+  // ⚠️ **THE RECORD, AND IT IS PUBLIC METADATA — NOT A FIGURE.** Three counts over `scores`, joined
+  // through `claims`. It discloses whether claims drawn from this report were right; it discloses no
+  // fact value, no assessment prose and no section. Same class of public standing as the ISIN badge
+  // beside it, and the paywall probe is run over this page after the change rather than assumed.
+  const grade = (await gradesFor([hash])).get(hash);
+
   return (
     <main className="page-container report-page">
       <a href="/" className="back-link">
@@ -167,11 +174,29 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
               sheet below carries it whole; printing it twice above the fold was the page's worst
               duplication. Where the heading came from is said on the sheet's eyebrow instead. */}
         </div>
-        {token ? (
-          <span className="badge">Tokenized · {token.isin}</span>
-        ) : (
-          <span className="badge off">Not tokenized</span>
-        )}
+        {/* ⚠️ **THE GRADE SITS BESIDE THE TOKENIZED BADGE, IN THE HEADING.** Placement decided here:
+            this is the line a reader already scans for the report's public standing, it is above the
+            fold, and it is where the decision to pay is made — the card is where they browse, this
+            is where they choose.
+
+            ⚠️ **Deliberately NOT threaded through `BuyAndRead`.** That component's props are the
+            paywall's simplest audit — "a hash, a price, a heading, the directive, an analyst, a
+            block, a timestamp and six counts" — and adding a prop would change the sentence this
+            file's header uses to state the guarantee. Rendering it in the server heading leaves that
+            contract untouched.
+
+            Renders nothing when the report has no graded claim, which is most of them. */}
+        {/* ⚠️ Inline rather than a new class: `globals.css` was not in this task's file list, and
+            two flex properties do not justify asking for it. If a third thing ever joins this row,
+            that is the moment it becomes `.report-standing` in the stylesheet. */}
+        <span style={{display: 'flex', gap: '9px', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end'}}>
+          <GradeMarker grade={grade} />
+          {token ? (
+            <span className="badge">Tokenized · {token.isin}</span>
+          ) : (
+            <span className="badge off">Not tokenized</span>
+          )}
+        </span>
       </div>
 
       {/* ── ⚠️ THE CONSOLE'S SHAPE, BECAUSE THE CONSOLE ALREADY SOLVED IT ──────────────────── */}

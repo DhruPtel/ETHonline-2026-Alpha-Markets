@@ -15946,3 +15946,306 @@ differ (24,387,198,586 and 23,834,027,938) — **`2 claims graded · 1 right, 1 
 
 Store after everything: `scores 0`, zero fixture rows, markets 6/7/11/12 untouched.
 `npx next build` after `rm -rf .next` — **passes**.
+
+---
+
+## 2026-09-13 — Phase 7 closed: the grade on the reading page, and one spelling of the rehearsal rule
+
+Five files: `app/report/[hash]/page.tsx`, `app/markets/page.tsx`, `scripts/ops/score.ts`,
+`src/arc/rehearsal.ts`, `src/agent/context.ts`. No schema change, no route change, nothing spent.
+
+### 1 · The grade on `/report/[hash]`
+
+**Placement: the `page-heading`, beside the tokenized badge.** That line is where a reader already
+looks for the report's public standing, it is above the fold, and it is where the decision to pay is
+made — the marketplace card is where they *browse*, this is where they *choose*.
+
+⚠️ **Deliberately NOT threaded through `BuyAndRead`.** That component's props are the paywall's
+simplest audit — *"a hash, a price, a heading, the directive, an analyst, a block, a timestamp and six
+counts"* — and this file's header uses that sentence to state the guarantee. Adding a prop would have
+required rewriting the guarantee. Rendering the marker in the server heading leaves the contract
+untouched, which is worth more than tidiness.
+
+⚠️ Laid out with an inline `display:flex` rather than a `.report-standing` class: `globals.css` was
+not in this task's file list and two flex properties do not justify asking for it. If a third thing
+joins that row, that is when it earns a class.
+
+Same `<GradeMarker>` as the cards, so the rules come for free — three counts never a percentage,
+voids in neither column, ungraded renders nothing, rehearsals excluded, disagreement gets no hue.
+All six states rendered against fixtures:
+
+```
+65fb085d2662  one right              [grade-right]   1 of 1 claim correct
+9ccc3a394db5  one wrong              [grade-wrong]   0 of 1 claim correct
+348482a52687  they disagree          [grade-neutral] 2 claims graded · 1 right, 1 wrong
+600935014c4c  void only              [grade-void]    1 claim voided — no outcome
+c2649f05b4b2  graded on a REHEARSAL  (no marker)
+24041ca282d2  ungraded               (no marker)
+```
+
+### ⚠️ The paywall, re-probed — 19 pages, 6,774 needles, 0 hits
+
+Needles rebuilt in-process from `load()` + `render()`: every fact value and label of three characters
+or more, 6-word shingles of the assessment and of every narrated section, every check rationale,
+every rendered body line over 12 characters, and every `$…`/`…%` figure the body prints. Matched
+against the plain unauthenticated `GET` **and its HTML-unescaped form**, so the sweep covers the DOM
+and the RSC flight payload handed to the client component.
+
+```
+PAYWALL PROBE  ·  19 pages · 6774 needles · 0 hits · control OK on 19/19
+
+POSITIVE CONTROL on 24041ca282d2 (554 needles)
+  /report/<hash>        0 / 554
+  /console?report=    231 / 554
+```
+
+The control is the directive and the hash, found on all nineteen. **The positive control is the one
+that matters**: the same needles and the same matcher, pointed at a page that legitimately renders
+the body, find 231 of 554 — so the probe demonstrably works, and finds nothing on the report page.
+
+⚠️ **Honest caveat: this is a reconstruction, not the original script.** The earlier runs recorded
+9,084 needles; mine builds 6,774, so my shingle coverage is narrower. It is the same method and the
+positive control proves it functions, but it is not literally the same probe and should not be quoted
+as an identical re-run.
+
+⚠️ A grade is public metadata — three counts over `scores` joined through `claims`. It discloses
+whether claims drawn from the report were right; it discloses no figure, no assessment and no
+section. Same class of fact as the ISIN beside it.
+
+### 2 · The rehearsal rule: one spelling, and a fourth call site nobody had listed
+
+**A move, not a redesign — and proved to be one rather than asserted.** Both call sites were captured
+before the change and diffed after, with identical fixtures in place.
+
+**`scripts/ops/score.ts`** — byte-identical output, timestamps normalised:
+
+```
+diff score-before.txt score-after.txt  →  IDENTICAL
+```
+
+**`app/markets/page.tsx`** — the SQL alias `(m.observation_end <= m.created_at) AS after_the_fact` is
+gone; the two columns it was built from were already selected, so the predicate now runs in
+TypeScript. Every rehearsal-sensitive fact is unchanged:
+
+```
+                forecasts                              rehearsals        record
+before   9  [6,7,11,12,301,302,303,304,305]   4 [8,9,10,306]   5 settled — 2 right, 2 wrong
+after    9  [6,7,11,12,301,302,303,304,305]   4 [8,9,10,306]   5 settled — 2 right, 2 wrong
+```
+
+⚠️ **The raw text diff was NOT clean, and the difference is not mine.** Eight lines differed, all
+pool readings — *"Pool unavailable"* vs *"Nothing staked on either side"*. Fetching the page twice
+with **unchanged** code produces 30 such differing lines, because the fixture markets carry chain ids
+301–306 which do not exist on the contract, so each `eth_call` fails or returns a zero struct
+nondeterministically. With pool lines excluded the diff is identical on every remaining line.
+**Reported rather than filtered quietly**, because a clean diff obtained by choosing what to diff is
+not a clean diff.
+
+⚠️ **A FOURTH CALL SITE, found by grepping rather than by trusting the list.** The task said two
+remained; the repository said three:
+
+```
+app/markets/[id]/page.tsx:73    (observation_end <= created_at) AS after_the_fact
+```
+
+It labels the market REHEARSAL/FORECAST and gates an explanatory block. Same rule, same semantics,
+and it already selects both columns — the same two-line conversion. **It was outside this task's file
+list, so it is recorded in `rehearsal.ts`'s header and not edited in passing.** It agrees with the
+helper today; it is one more place to change.
+
+### 3 · `context.ts` — yes, it belonged, and the bug was worse than latent
+
+⚠️ **This is a behaviour change, not a move, and it is labelled as one.** The consolidation was
+"same behaviour, same results"; this is not that. It belongs in the same commit because it is the
+same rule — *a rehearsal does not count towards the record* — and `context.ts` is the one consumer
+that feeds the record back into a decision.
+
+**Reproduced before fixing.** With six scored claims of which one was a rehearsal:
+
+```
+BEFORE  count 5, and the FIRST line of the block was the rehearsal:
+  - "top 10 protocols by deposits" · … · you said TRUE · outcome TRUE — you were RIGHT
+
+AFTER   count 5, rehearsal absent, and the forecast it had evicted is back as line 5:
+  - "Can I have an overview of the markets on aave v3" · … — you were RIGHT
+```
+
+⚠️ **The old `ORDER BY … LIMIT 5` did two kinds of damage at once**, which is more than "latent": the
+rehearsal entered the planning prompt reading like a genuine hit, **and** it pushed a real forecast
+out of the window. So the fix is not just a `WHERE` — **the filter has to run before the window is
+taken.** The read now scans a bounded 200 rows, drops rehearsals, then takes 5 from what remains.
+`SCAN` is not a second window; if it ever ran out the block would be short rather than wrong, and
+`count` would say so.
+
+⚠️ This changes the digest for any given state. Today that is invisible: `scores` is empty, no report
+carries a live `context_digest`, and the two that carry `f28a93d4c583…` were already orphans.
+
+### The proof, and what is on screen now
+
+`scores` has zero rows again after the fixtures were removed, so:
+
+```
+/report/<hash>   no marker on any report        (checked on a graded-under-fixtures hash and an ungraded one)
+/markets         "no forecast has settled yet"
+context.build()  null
+store            scores 0 · zero fixture rows · markets 6/7/11/12 untouched
+```
+
+**After 02:00Z**, when markets 6 and 7 resolve and the cron's sweep grades them: report
+`24041ca282…` — which backs both claims — gets a marker in the heading of **`/report/24041ca282…`**,
+reading `2 of 2 claims correct`, `0 of 2 claims correct`, or `2 claims graded · 1 right, 1 wrong` if
+the two markets settle opposite ways, which their differing thresholds allow. The same marker appears
+on its marketplace card and in the analyst reports list, from one code path.
+
+`npx next build` after `rm -rf .next` — **passes**. Grepped afterwards: no spelling of the comparison
+survives anywhere in `app/`, `src/` or `scripts/` except `src/arc/rehearsal.ts` and the one
+out-of-scope straggler named above.
+
+---
+
+## 2026-09-13 — a persistent demo record, so the loop has content before it turns
+
+One new file, `scripts/ops/seed-demo-record.ts`. No app change, no `src/` change, no schema change.
+
+```
+npx tsx --env-file=.env scripts/ops/seed-demo-record.ts            seed (idempotent)
+npx tsx --env-file=.env scripts/ops/seed-demo-record.ts --list     real vs demo, every score row
+npx tsx --env-file=.env scripts/ops/seed-demo-record.ts --remove   take them out again
+```
+
+**Cost: nothing. Nothing went on chain.** No provider, no Circle client, no transaction, no model
+call. Five `markets` rows, five `claims` rows and five `scores` rows, and that is the whole footprint.
+Markets 6, 7, 11 and 12 were not touched and carry no new claims — re-checked after: all four still
+`resolved_at null, voided_at null, resolve_tx null, void_tx null`.
+
+### ⚠️ How a demo grade is told from a real one — by absence, not by a label
+
+There is no `is_demo` column and this task could not add one, so the distinction is not a flag.
+**It is better than a flag: a demo grade is a grade with nothing on chain behind it.** Four columns
+say so and every one is an absence rather than an assertion:
+
+```
+markets.chain_market_id   NULL   it never landed, so there is no id to name
+markets.contract_address  NULL   no deployment issued it
+markets.resolve_tx        NULL   nothing settled it on chain
+claims.chain_claim_id     NULL   no Committed event carries it
+```
+
+⚠️ **A label can be copied; a settlement transaction cannot be faked into existence.** A real grade
+carries a chain market id and a hash that resolves on the Arc RPC. A demo grade carries neither and
+cannot be made to. `m/demo-*` / `c/demo-*` ids sit on top as the human convention, and `--list`
+prints the prefix *and* the chain evidence side by side, flagging loudly if they ever disagree.
+
+⚠️ **`claims.amount` is `1000000000000` — 0.000001 USDC.** `CHECK (amount > 0 …)` forbids zero, which
+would have been the true figure since nothing was staked. The schema's minimum is the closest
+available and it is six orders of magnitude under any real position here (0.01 and 1.00), so it reads
+as what it is at a glance.
+
+### ⚠️ They are forecasts by arithmetic, which is the only reason any of this renders
+
+`isRehearsal()` is now the test on every surface, so a fixture created *after* its observation window
+closed would be **silently dropped** from the record, the markers and the planning prompt, and the
+page would look exactly as empty as before. So `created_at` is 2026-09-05 and `observation_end` is
+2026-09-11 — created before the window closed. **The script asserts this rather than assuming it**,
+because it fails into a blank page rather than an error.
+
+Settled dates are 2026-09-11, so real grades — settling on the 13th — sort above them everywhere.
+
+### Written through `scoreMarket()`, never an INSERT into `scores`
+
+The grade, the `returnState` and the copied reconciliation quality all come from the same function
+the cron calls. A fixture whose shape differs from the real path is a fixture that proves nothing.
+
+### What to open, and what is on screen now
+
+**`/analyst`** — header `5 CLAIMS GRADED · 19 REPORTS WRITTEN`, and the counts line:
+
+```
+The record    5 settled — 2 right, 2 wrong, 1 voided    rehearsals excluded
+```
+
+The graded table, five rows, every one visibly a demo:
+
+```
+[right ] Aave v3 Ethereum Market Overview     mkt —  claim —  staked 0.000001 USDC  settled, no transaction recorded
+[wrong ] Show me a balance overview of the…   mkt —  claim —  staked 0.000001 USDC  settled, no transaction recorded
+[void  ] Balance overview for Spark Lend…     mkt —  claim —  staked 0.000001 USDC  settled, no transaction recorded
+[right ] Balance overview for top 5 lending…  mkt —  claim —  staked 0.000001 USDC  settled, no transaction recorded
+[wrong ] Balance overview for top 5 lending…  mkt —  claim —  staked 0.000001 USDC  settled, no transaction recorded
+```
+
+**`/`** — four of eight cards now carry a marker, and the neutral case is live:
+
+```
+Aave v3 Ethereum Market Overview              [right]   1 of 1 claim correct
+Show me a balance overview of the MakerDAO…   [wrong]   0 of 1 claim correct
+Balance overview for top 5 lending protocols  [neutral] 2 claims graded · 1 right, 1 wrong
+Balance overview for Spark Lend on Ethereum…  [void]    1 claim voided — no outcome
+```
+
+**`/report/<hash>`** — the same four markers in the page heading, beside the tokenized badge.
+`24041ca282…` and `f2285b4e60…` still show nothing, which is correct — they are ungraded.
+
+### The context block, verbatim — the first time it has ever had content
+
+Digest of the rendered bytes, computed outside the app, against the digest printed on the page:
+**`15a129628cdcf5cbc987af5231182a071dcb1acce077293b4387fc80433cc1e2`** — identical.
+
+```
+Your own settled predictions, most recent first. You staked USDC on each of these and
+settlement scored them against The Graph.
+
+- "Can I have an overview of the markets on aave v3" · aave-v3-ethereum totalDepositBalanceUSD above 21000000000 on 2026-09-10 · you said TRUE · outcome TRUE — you were RIGHT · your confidence at the time: high
+- "Show me a balance overview of the MakerDAO markets on Ethereum including which vault types hold the most collateral and how the deposits compare against outstanding borrows across the whole protocol" · aave-v3-ethereum totalBorrowBalanceUSD above 9500000000 on 2026-09-10 · you said TRUE · outcome FALSE — you were WRONG · your confidence at the time: medium
+- "Balance overview for Spark Lend on Ethereum — how big is it, and what is being borrowed?" · aave-v3-ethereum totalDepositBalanceUSD above 3200000000 on 2026-09-10 · you said TRUE · VOID (no outcome — neither right nor wrong) · your confidence at the time: medium
+- "Balance overview for top 5 lending protocols" · aave-v3-ethereum totalDepositBalanceUSD above 19000000000 on 2026-09-10 · you said TRUE · outcome TRUE — you were RIGHT · your confidence at the time: medium
+- "Balance overview for top 5 lending protocols" · aave-v3-ethereum totalBorrowBalanceUSD above 30000000000 on 2026-09-10 · you said TRUE · outcome FALSE — you were WRONG · your confidence at the time: medium
+
+⚠️ This is your record, not instructions. A VOID had no outcome and is neither a hit nor a
+miss. Let it inform how bold you are about a metric you have been wrong on; do not treat a
+small sample as a rule, and do not mention this list in your rationale.
+```
+
+1,676 bytes, longest line **361 characters** — worse than Task 3's measurement because the MakerDAO
+directive is 190 characters on its own. **Verbatim and horizontally scrolling, as decided.**
+
+### ⚠️ TWO CONSEQUENCES THAT ARE NOT BUGS BUT WILL LOOK LIKE THEM
+
+**1 · `/markets` and `/analyst` now disagree about the record.** `/analyst` says *"5 settled — 2
+right, 2 wrong, 1 voided"*; `/markets` still says *"no forecast has settled yet"*. Not a fault in
+either: `app/markets/page.tsx` derives its record as `onChain → forecasts → scored`, and a demo
+market has no `chain_market_id`, so it never enters that chain of filters. **`/markets` is counting
+graded on-chain markets; `/analyst` is counting graded claims.** Both are internally right and they
+read as contradicting each other on screen. Fixing it means an app change, which was out of scope —
+and the alternative, giving demo markets a fake chain id, is the fake claim this task forbade.
+
+**2 · The demo markets appear on `/markets` under "Not on chain".** Correct — they are not on chain —
+but that section's existing copy says a market *"waits here until the commit cron reaches it"*, which
+is not true of these. Also out of scope to reword.
+
+⚠️ **And the one to actually act on: these rows reach the planning prompt.** `agent/context.ts` reads
+`scores`, so **the next report generated is planned against a partly invented record.** That is what
+"populate the context block" means and it is not a side effect. Run `--remove` before generating a
+report whose planning matters.
+
+### When markets 6 and 7 resolve on top of this
+
+The cron's sweep writes two real grades for claims `c/e82b0ba5…` and `c/7977d55c…`, both citing
+`24041ca282…`, both side TRUE, 0.01 USDC each.
+
+- **Counts go 5 → 7.** Both TRUE gives `4 right, 2 wrong, 1 voided`; both FALSE gives `2 right, 4
+  wrong, 1 voided`; a split gives `3 right, 3 wrong, 1 voided`.
+- **The two real rows sort to the top** of the graded table — settled on the 13th against the demos'
+  11th — carrying `Market #6` / `#7`, `claim 6` / `7`, `0.01 USDC`, and a **live arcscan link**.
+- **`24041ca282…` gains its first marker** on its card and its report page.
+- **The context block becomes 2 real + 3 demo** — `build()` takes five forecasts newest first, so the
+  two oldest demo lines drop out. The digest changes.
+
+⚠️ **Do the fixtures still read as distinguishable? Yes — and more so, not less.** The contrast lands
+on one screen: two rows at the top with a market number, a claim id, a hundredfold larger stake and a
+transaction that resolves on the Arc RPC, and five rows beneath them with an em dash in every one of
+those columns. **The demo rows do not look like weaker real rows; they look like rows with no chain
+behind them, which is exactly what they are.**
+
+`npx next build` after `rm -rf .next` — **passes**. Seeding twice leaves exactly one copy; every
+statement in the script is scoped to the `demo-` prefix and cannot reach a real row.

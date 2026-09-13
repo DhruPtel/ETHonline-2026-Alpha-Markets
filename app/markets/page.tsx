@@ -4,10 +4,13 @@
 //
 //   **one SQL join** over `markets`, `claims`, `reports` and `scores` — not a query per card;
 //   **the dedupe** that keeps the row carrying a claim when a market joins more than one;
-//   **`after_the_fact = observation_end <= created_at`** — a rehearsal is told apart by ARITHMETIC,
-//     never by a naming convention. ⚠️ That matters here and is not theoretical: a stored market
-//     whose id literally contains the word "rehearsal" is, by that arithmetic, a **forecast**. The
-//     id string is not evidence;
+//   **the rehearsal test** — a rehearsal is told apart by ARITHMETIC, never by a naming convention.
+//     ⚠️ That matters here and is not theoretical: a stored market whose id literally contains the
+//     word "rehearsal" is, by that arithmetic, a **forecast**. The id string is not evidence.
+//     ⚠️ **The comparison itself now lives in `src/arc/rehearsal.ts` and is imported.** It had grown
+//     three spellings across this file, `scripts/ops/score.ts` and the analyst page; this one used
+//     to be the SQL alias `(m.observation_end <= m.created_at) AS after_the_fact`. Same rule, same
+//     results — the two timestamps are selected and the predicate is applied here;
 //   **one batched `eth_call` per on-chain market** for the pools, run with `Promise.all`;
 //   **`standing()`**, the five states a market can be in;
 //   **the forecasts / rehearsals split**, and the analyst's record excluding rehearsals.
@@ -37,6 +40,7 @@ import {MarketFilters} from '../components/MarketFilters.js';
 import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityChart.js';
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
 import {db} from '../../src/store/db.js';
+import {isRehearsal} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
 import {ethers} from 'ethers';
 
@@ -63,7 +67,6 @@ interface Row {
   resolved_at: Date | null;
   voided_at: Date | null;
   outcome: boolean | null;
-  after_the_fact: boolean;
   claim_id: string | null;
   side: boolean | null;
   report_hash: string | null;
@@ -88,7 +91,6 @@ export default async function MarketIndex() {
   const rows = await db()<Row[]>`
     SELECT m.id, m.chain_market_id, m.spec_json, m.created_at, m.close_time, m.observation_end,
            m.resolved_at, m.voided_at, m.outcome,
-           (m.observation_end <= m.created_at) AS after_the_fact,
            c.id AS claim_id, c.side, c.report_hash,
            s.forecast_correct
       FROM markets m
@@ -108,8 +110,8 @@ export default async function MarketIndex() {
   const all = [...seen.values()];
   const onChain = all.filter((r) => r.chain_market_id);
   const offChain = all.filter((r) => !r.chain_market_id);
-  const forecasts = onChain.filter((r) => !r.after_the_fact);
-  const rehearsals = onChain.filter((r) => r.after_the_fact);
+  const forecasts = onChain.filter((r) => !isRehearsal(r.observation_end, r.created_at));
+  const rehearsals = onChain.filter((r) => isRehearsal(r.observation_end, r.created_at));
 
   // ⚠️ **THE POOLS, FROM THE CONTRACT, BATCHED.** One `eth_call` per on-chain market in parallel —
   // not one page-blocking round trip each. A failed read leaves the key absent, and an absent pool
