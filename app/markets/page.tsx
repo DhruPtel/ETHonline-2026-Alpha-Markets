@@ -125,7 +125,32 @@ export default async function MarketIndex() {
   // ⚠️ **THEY GET THEIR OWN SECTION, WITH ITS OWN CLAIM ABOUT THEM.** Task 2 removed them from both
   // buckets and left them unlisted, which was honest but incomplete — the record line named a count
   // with nothing to click. The Demo section below is where that resolves.
-  const demos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
+  // ── ⚠️ WHAT "DELETE" MEANS FOR A DEMO MARKET, SINCE IT CANNOT MEAN DELETE ────────────────────
+  //
+  // **Nothing can be removed from the chain.** A market on Arc is permanent, its claim and stakes
+  // with it, and `voidMarket` only ever marks one settled — it does not erase it. So the honest
+  // options were: leave a growing backlog on screen, void the old ones (which spends, needs each
+  // `resolveDeadline` passed, and still leaves the cards there), or **stop listing the ones that are
+  // finished with**. This takes the third.
+  //
+  // ⚠️ **HIDDEN FROM THIS LIST, NOT DELETED, AND STILL REACHABLE.** Every one of them keeps its
+  // `/markets/<id>` page, its row in the store, its claim, its grade on `/analyst` and its
+  // transactions on arcscan. The record line above still counts them. **Only the index stops
+  // showing them**, so the section reads as a thing to play rather than a pile of finished games.
+  //
+  // The rule: everything still open for staking, plus the single most recently settled one so a
+  // judge who just revealed can still see what they did. `allDemos` keeps the true count for the
+  // line that names it.
+  const allDemos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
+  const demoOpen = allDemos.filter(
+    (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
+  );
+  const demoRecent = allDemos
+    .filter((r) => !demoOpen.includes(r))
+    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
+    .slice(0, 1);
+  const demos = [...demoOpen, ...demoRecent];
+  const demoHidden = allDemos.length - demos.length;
   const forecasts = onChain.filter(
     (r) => !isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
   );
@@ -169,9 +194,7 @@ export default async function MarketIndex() {
   // **graded claims**, which is what a grade is a property of — see its own header.
   // ⚠️ Open for STAKING, not merely unsettled — the cap `createDemoMarket` enforces is about markets
   // a judge could still commit to, and a header counting settled ones would contradict its refusal.
-  const openDemoCount = demos.filter(
-    (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
-  ).length;
+  const openDemoCount = demoOpen.length;
 
   const record = await analystRecord();
 
@@ -293,7 +316,10 @@ export default async function MarketIndex() {
         <span>{recordLine(record)}</span>
         <span>
           rehearsals excluded
-          {demos.length > 0 ? ` · ${demos.length} demo` : ''}
+          {/* ⚠️ "markets", explicitly. `recordLine` beside this says `· N demo` about graded CLAIMS,
+              and the two numbers are different things — 13 markets, 3 of them graded. Two bare
+              "demo" counts on one line read as one number contradicting itself. */}
+          {allDemos.length > 0 ? ` · ${allDemos.length} demo markets` : ''}
         </span>
       </div>
 
@@ -317,6 +343,15 @@ export default async function MarketIndex() {
           page read like a disclaimer instead of a market. */}
       <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
         These resolve in minutes because the day they measure has already happened.
+        {demoHidden > 0 && (
+          <>
+            {' '}
+            <span className="holdings-sub">
+              {demoHidden} finished {demoHidden === 1 ? 'one is' : 'ones are'} not listed — they stay
+              on chain and at their own pages.
+            </span>
+          </>
+        )}
       </p>
       {/* ⚠️ Directly under the one sentence, above the cards it creates — the button is the way in
           when the section is empty, which is the state a visitor most often finds it in. */}

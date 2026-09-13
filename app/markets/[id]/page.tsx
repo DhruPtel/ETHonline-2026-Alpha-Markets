@@ -63,6 +63,18 @@ const usdc = (wei: bigint): string => ethers.formatUnits(wei, 18);
 const when = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 const grouped = (dec: string) => Number(dec).toLocaleString('en-US');
 
+/**
+ * Group an observed figure **without `Number()`**. ⚠️ A settlement figure is a 20-plus-digit decimal
+ * string and a double holds about 15 — `grouped()` above renders `24,560,910,569.102` for a value
+ * whose remaining 20 digits are exactly what the evidence hash was taken over. Thresholds are short
+ * enough that `grouped` is safe for them; this one is not, so it is done on the string.
+ */
+function exact(dec: string): string {
+  const [whole, frac] = dec.split('.');
+  const g = whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return frac ? `${g}.${frac}` : g;
+}
+
 export default async function MarketDetail({params}: {params: Promise<{id: string}>}) {
   const {id} = await params;
   // ⚠️ **A CHAIN MARKET ID IS AN INTEGER.** The design's slugs (`lending-2027`) addressed markets
@@ -188,6 +200,25 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
     values: illustrativeSeries(`${id}/band/${b.threshold}`, b.sharePct).trueLine,
     className: `line-band-${BAND_KEYS[i]}`,
   }));
+
+  // ── ⚠️ THE SETTLEMENT READ, OFF THE STORED ROW AND NEVER RE-QUERIED ──────────────────────────
+  //
+  // `recordSettlement()` wrote these bytes **before** anything went on chain, and `evidenceHash` is
+  // the SHA-256 over exactly them — that ordering is why `resolve`'s 32 bytes commit to something
+  // that exists. **Re-querying The Graph to fill this panel would show a different read** (a later
+  // block, a later timestamp, possibly a different figure after a reindex) sitting under a hash that
+  // was taken over the first one. What is displayed here is what the chain committed to.
+  //
+  // ⚠️ `raw` is parsed, never re-serialised. It is the canonical JSON the hash was taken over and a
+  // round trip through `JSON.stringify` would not reproduce it.
+  const [proofRow] = demo
+    ? await db()<{evidence_hash: string; raw: string; observed_value: string | null; outcome: boolean | null; block: string; meta_block_time: Date}[]>`
+        SELECT evidence_hash, raw, observed_value, outcome, block, meta_block_time
+          FROM settlement_evidence WHERE market_id = ${market.id}`
+    : [];
+  const proof = proofRow
+    ? {...proofRow, record: JSON.parse(proofRow.raw) as {deployment: string; document: string | null; block: number; rowCount: number | null; fetchedAt: string}}
+    : null;
 
   const recorded = await db()<{staker: string; amount: string; side: boolean; tx_hash: string}[]>`
     SELECT staker, amount, side, tx_hash FROM stakes WHERE market_id = ${market.id} ORDER BY seq`;
@@ -619,6 +650,69 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             closeTimeMs={market.close_time.getTime()}
             observationEndMs={market.observation_end.getTime()}
           />
+
+          {/* ── ⚠️ THE PRODUCT'S ACTUAL CLAIM, SHOWN RATHER THAN ANNOUNCED ────────────────────
+              Settlement re-reads The Graph instead of somebody deciding. A reveal that printed only
+              an outcome proves none of that, so the read that produced it is on the page: the
+              deployment it came from, the day, the figure, the block and when. Same fields the
+              console's Query Evidence block carries, from the row the hash was taken over. */}
+          {proof && (
+            <div className="arc-evidence">
+              <span className="eyebrow">THE GRAPH / SETTLEMENT READ</span>
+              <dl>
+                <dt>Subgraph</dt>
+                <dd>{spec.slug}</dd>
+                {/* ⚠️ The IPFS gateway, not The Graph's explorer — the explorer does not render a
+                    deployment hash. Checked before shipping: this URL returns 200 for the hash these
+                    markets actually carry. */}
+                <dt>Deployment</dt>
+                <dd>
+                  {proof.record.deployment.startsWith('Qm') ? (
+                    <a
+                      href={`https://api.thegraph.com/ipfs/api/v0/cat?arg=${proof.record.deployment}`}
+                      target="_blank" rel="noreferrer"
+                      title="The subgraph manifest this deployment hash resolves to — opens in a new tab"
+                    >
+                      {proof.record.deployment.slice(0, 18)}… <ArrowUpRight size={11} />
+                    </a>
+                  ) : proof.record.deployment}
+                </dd>
+                <dt>Day read</dt>
+                <dd>{spec.observedDay} UTC</dd>
+                <dt>Figure</dt>
+                <dd style={{overflowWrap: 'anywhere'}}>
+                  {proof.observed_value === null ? 'no observation' : `$${exact(proof.observed_value)}`}
+                </dd>
+                {/* ⚠️ An Ethereum mainnet block — the subgraph indexes mainnet, so this is where the
+                    figure was read, not anything on Arc. */}
+                <dt>Block</dt>
+                <dd>
+                  <a
+                    href={`https://etherscan.io/block/${proof.record.block}`}
+                    target="_blank" rel="noreferrer"
+                    title="This block on Etherscan — compare its timestamp with Retrieved below. Opens in a new tab"
+                  >
+                    {proof.record.block.toLocaleString('en-US')} <ArrowUpRight size={11} />
+                  </a>
+                </dd>
+                <dt>Records</dt>
+                <dd>{proof.record.rowCount ?? '—'}</dd>
+                {/* ⚠️ The CHAIN's clock, off `_meta`, not ours. The freshness rule compares this
+                    against the day's end plus an hour, which is what stops a day being settled
+                    before it finished. */}
+                <dt>Indexed to</dt>
+                <dd>{proof.meta_block_time.toISOString().slice(0, 19).replace('T', ' ')} UTC</dd>
+                <dt>Retrieved</dt>
+                <dd>{proof.record.fetchedAt.slice(0, 19).replace('T', ' ')} UTC</dd>
+                <dt>Evidence hash</dt>
+                <dd style={{overflowWrap: 'anywhere'}}>{proof.evidence_hash}</dd>
+              </dl>
+              <p className="position-sub" style={{marginTop: 10}}>
+                ⚠️ These are the bytes the resolve transaction committed to — read before the outcome
+                went on chain, not after. The hash above is <code>sha256</code> over them.
+              </p>
+            </div>
+          )}
 
           <div className="arc-evidence">
             <span className="eyebrow">ARC / ONCHAIN EVIDENCE</span>

@@ -17266,3 +17266,126 @@ same room.
 `closeTime` by the time this was finished (latest close 03:21:46Z, checked at 03:26:02Z), so they all
 render the reveal state instead. The picker compiles and type-checks but its first real render will
 be the operator's. Market 14 is already resolved — revealed by the operator, not by me.
+
+---
+
+## 2026-09-13 — demo markets: unstuck panel, one market per press, a shorter list, and the Graph proof
+
+Four fixes. Nothing staked, seeded or resolved by me.
+
+### 1 · The position panel scrolls away
+
+`.position-panel` carried `position: sticky; top: 96px`, so it followed the reader down the whole
+page — past the chart, five outcome rows, Supporting research, the resolution criteria and a ten-row
+Stakes table, none of which it has anything to do with. **Removed rather than tuned**, for forecasts
+and demos alike. `align-items: start` on the grid already stops it stretching, so nothing else about
+where it sits changed. The column went 380px → 410px, since five band rows with a dot, a threshold
+and a marker were wrapping.
+
+### 2 · One market per press
+
+`seedDemoMarkets` opened every free slot at once — six markets staggered a few minutes apart — and
+the section filled with cards nobody was playing. **One press now opens one market.** `nextPreset()`
+rotates the question (first preset with no market yet, then the least recently used), so pressing
+three times gives three different questions rather than the same one three times.
+
+**The button sits under the Demo section's one sentence, above the cards**, and names what it is
+about to open before it opens it: *Start a demo market · Next: deposits above $23,000,000,000 ·
+about 0.02 USDC · 2 of 6 open*. That is **0.02 USDC per market**, the analyst's own, for a
+`createMarket` plus its `commitPrediction`.
+
+### 3 · ⚠️ "Delete" cannot mean delete, so it means stop listing them
+
+**Nothing can be removed from the chain.** A market on Arc is permanent, its claim and stakes with
+it, and `voidMarket` only marks one settled — it does not erase it. The options were: leave a growing
+backlog on screen, void the old ones (which spends, needs each `resolveDeadline` passed, and *still*
+leaves the cards there), or stop listing the ones that are finished with.
+
+**The third.** The Demo section now shows everything still open for staking plus **the single most
+recently settled one**, so a judge who just revealed can still see what they did. Everything older is
+not listed, and the section says so: *"10 finished ones are not listed — they stay on chain and at
+their own pages."*
+
+⚠️ **Hidden, not deleted, and still reachable**: every one keeps its `/markets/<id>` page, its store
+row, its claim, its grade on `/analyst` and its transactions on arcscan. Markets 6, 7, 11 and 12 were
+never in scope — the filter is `pastPosted`, which is false for all four.
+
+⚠️ **Caught while checking: two different "demo" counts had landed on one line** — `· 3 demo` from
+`recordLine` (graded *claims*) beside `· 13 demo` from the section note (*markets*). One line reading
+as a number contradicting itself. The note now says `13 demo markets`.
+
+### 4 · The settlement read, on the page
+
+A reveal that announces an outcome proves nothing; the whole claim of this product is that settlement
+**re-reads The Graph** rather than someone deciding. The market page now carries a
+`THE GRAPH / SETTLEMENT READ` block beside the on-chain one, with the same fields the console's Query
+Evidence block carries:
+
+```
+Subgraph       aave-v3-ethereum
+Deployment     QmcXE5QVcBcvcaJddP…  ↗
+Day read       2026-09-11 UTC
+Figure         $24,560,910,569.10204672277959491555068
+Block          25,965,405  ↗
+Records        1
+Indexed to     2026-09-13 02:05:23 UTC
+Retrieved      2026-09-13 02:05:34 UTC
+Evidence hash  42c3576905e3593e…
+```
+
+⚠️ **Read from the stored row, never re-queried.** `recordSettlement()` wrote those bytes *before*
+anything went on chain and `evidenceHash` is the SHA-256 over exactly them. A fresh query would show
+a different read — later block, later timestamp, possibly a different figure after a reindex — under
+a hash taken over the first one. `raw` is parsed and never re-serialised, since a round trip through
+`JSON.stringify` would not reproduce the canonical bytes.
+
+⚠️ **The figure is formatted with string maths, not `Number()`.** The first version used the page's
+`grouped()` helper and rendered `$24,560,910,569.102` — a double holds about 15 digits and this value
+has 34. The twenty digits it dropped are part of what the evidence hash was taken over.
+
+⚠️ **Both links checked before shipping.** The IPFS manifest
+(`api.thegraph.com/ipfs/api/v0/cat?arg=Qm…`) returns **200** for the hash these markets actually
+carry. Etherscan returns **403 to curl** — but it 403s its own root and `/block/1` as well, so that
+is blanket bot protection and says nothing about the path; it is the same URL the console already
+ships. Better evidence that the block is real: 25,965,405 at 02:05:23Z sits ~2,280 blocks after the
+console's separately verified block 25,963,125 at 18:27:47Z — **~12s per block, Ethereum's cadence.**
+
+The panel is server-rendered from the stored row and the reveal calls `router.refresh()`, so there is
+one implementation and a reload shows the same thing.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes.
+- `/markets/6` and `/markets/11` render **text-identical** to the long-standing baseline.
+- ⚠️ **`rm -rf .next` kills a running `next dev`** — it took two silent failures (curl returning
+  nothing, diffs reporting every line removed) before that was the obvious cause. Restarted and
+  re-verified. Worth knowing before the next build/serve cycle.
+
+---
+
+## 2026-09-13 — demo market: the countdown no longer breaks hydration
+
+The demo panel's "Staking closes in M:SS" read `Date.now()` during render, so whenever the browser
+hydrated in a different second from the server render, React threw a hydration mismatch and
+regenerated the whole page segment on the client, position panel included. **It now starts with no
+clock**: the server and the hydrating render both print the fixed close time (`Staking closes at
+03:53:03 UTC`) and an effect starts the countdown after mount. It was the only time-dependent render
+in any client component on the page, and real markets never render the countdown, so they were never
+affected.
+
+⚠️ **Surprise: it is intermittent.** Before the fix, a fast local load hydrated inside the same second
+and logged nothing; with 1.5s of emulated latency it failed every time. No demo market was open, so
+verification ran `next dev` and headless Chromium (Playwright's cached binary driven over CDP, no
+package added) with both clocks shifted back so market 29 rendered its countdown. Nothing was
+pressed, staked, seeded or resolved.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes. `migrate.ts` — nine migrations, every statement
+  skipped, PASS.
+- **Before**, `/markets/29` with latency: `Hydration failed … this tree will be regenerated on the
+  client`, at `<p className="position-disclaimer"> <Clock> +26 -31`.
+- **After**: `/markets/29` open (with and without latency), 16 closed, 13 resolved, 11 and 6 — no
+  exceptions and no console errors; the countdown still ticks (9:22 → 9:19). A probe confirmed both
+  `console.error` and `reportError` were being captured, so a clean run is not a blind one.
+- ⚠️ **Wallet speed not measured** — headless Chromium has no wallet extension.

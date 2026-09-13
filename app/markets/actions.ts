@@ -245,6 +245,8 @@ export interface SeedPlan {
   readonly cap: number;
   readonly costUsdc: string;
   readonly nextFrees: string | null;
+  /** The question the next press would open, so the button can name it. */
+  readonly nextLabel: string | null;
 }
 
 /** Free, read-only. ⚠️ Rendered BEFORE the button so nobody presses a spend blind. */
@@ -258,27 +260,59 @@ export async function demoSeedPlan(): Promise<SeedPlan> {
     .filter((r) => pastPosted(r.close_time, r.observed_day))
     .filter((r) => r.close_time.getTime() / 1000 > now)
     .sort((a, b) => a.close_time.getTime() - b.close_time.getTime());
-  const free = Math.max(0, Math.min(PRESETS.length, MAX_OPEN_DEMO_MARKETS - open.length));
+  const free = Math.max(0, MAX_OPEN_DEMO_MARKETS - open.length);
+  const next = await nextPreset();
   return {
     free, open: open.length, cap: MAX_OPEN_DEMO_MARKETS,
-    costUsdc: (free * 0.02).toFixed(2),
+    // ⚠️ ONE market per press, so the cost quoted is one market's.
+    costUsdc: '0.02',
     nextFrees: open[0] ? open[0].close_time.toISOString().slice(11, 19) : null,
+    nextLabel: next ? `${LABEL[next.metric] ?? next.metric} above $${Number(next.threshold).toLocaleString('en-US')}` : null,
   };
+}
+
+const LABEL: Readonly<Record<string, string>> = {
+  totalDepositBalanceUSD: 'deposits',
+  totalBorrowBalanceUSD: 'borrows',
+  dailyDepositUSD: 'daily deposits',
+  dailyBorrowUSD: 'daily borrows',
+};
+
+/**
+ * Which question to open next. ⚠️ **Rotates rather than restarting at the top**, so a judge pressing
+ * three times gets three different questions instead of the same one three times.
+ *
+ * The rule is simply the first preset with no market on chain for it yet; once all six have been
+ * used it takes the one whose most recent market is oldest. Both are cheap reads and neither needs a
+ * column to remember anything.
+ */
+async function nextPreset(): Promise<Preset | null> {
+  const rows = await db()<{observed_day: string; threshold: string; created_at: Date}[]>`
+    SELECT observed_day, (spec_json::json->>'threshold') AS threshold, created_at
+      FROM markets WHERE chain_market_id IS NOT NULL ORDER BY created_at DESC`;
+  const lastUsed = new Map<string, number>();
+  for (const r of rows) {
+    const key = `${r.observed_day}/${r.threshold}`;
+    if (!lastUsed.has(key)) lastUsed.set(key, r.created_at.getTime());
+  }
+  const unused = PRESETS.find((p) => !lastUsed.has(`${p.observedDay}/${p.threshold}`));
+  if (unused) return unused;
+  return [...PRESETS].sort(
+    (a, b) => (lastUsed.get(`${a.observedDay}/${a.threshold}`) ?? 0) - (lastUsed.get(`${b.observedDay}/${b.threshold}`) ?? 0),
+  )[0] ?? null;
 }
 
 /**
  * Open the preset demo questions on chain. ⚠️ **Spends about 0.02 USDC per market.**
  *
- * ── ⚠️ IT TOPS UP. IT DOES NOT REPLACE AND IT DOES NOT REFUSE WHILE THERE IS ROOM ──────────────
+ * ── ⚠️ ONE MARKET PER PRESS ────────────────────────────────────────────────────────────────────
  *
- * **Replace is not available and should not be faked.** A market that is already open cannot be
- * cancelled — `voidMarket` is permissionless only after `resolveDeadline`, and the judge who staked
- * on it is entitled to its settlement. Anything calling itself "replace" would either strand those
- * stakes or quietly leave the old markets running under a name that says it did not.
+ * It used to open every free slot at once — six markets staggered a few minutes apart — and the
+ * section filled with cards nobody was playing: several already settled, several waiting, none of
+ * them obviously the one to start. **A backlog reads as clutter rather than as a thing to play.**
  *
- * **So it fills the free slots and says how many that was.** With the cap at six and three already
- * open it opens three, not six, and the plan above says so before the press. When the cap is full
- * it refuses and names the time the earliest one closes.
+ * So one press opens one market and the judge plays it before opening another. `nextPreset()`
+ * rotates the question, so pressing three times gives three different questions.
  *
  * ⚠️ **No secret, by design.** What bounds this is the cap and the cost — at most
  * `MAX_OPEN_DEMO_MARKETS` open at once, about 0.12 USDC of the analyst's money at full stretch, and
@@ -292,26 +326,12 @@ export async function seedDemoMarkets(): Promise<DemoResult & {opened?: number}>
   if (plan.free === 0) {
     return {
       ok: false,
-      why: `${plan.open} demo markets are already open, which is the cap of ${plan.cap}. Each is a real createMarket and commitPrediction paid by the analyst, so they are not free to spin up.${plan.nextFrees ? ` The next slot frees at ${plan.nextFrees} UTC.` : ''} Play one of the open ones meanwhile.`,
+      why: `${plan.open} demo markets are already open, which is the cap of ${plan.cap}.${plan.nextFrees ? ` The next slot frees at ${plan.nextFrees} UTC.` : ''} Play one of them first.`,
     };
   }
+  const preset = await nextPreset();
+  if (!preset) return {ok: false, why: 'No preset question is configured.'};
 
-  const block = await arcProvider().getBlock('latest');
-  if (!block) return {ok: false, why: 'Could not read the Arc chain clock. Nothing was created.'};
-
-  let opened = 0;
-  let first: string | null = null;
-  const failures: string[] = [];
-  for (const [i, preset] of PRESETS.slice(0, plan.free).entries()) {
-    const closeTime = block.timestamp + DEMO_STAKING_SECONDS * (i + 1);
-    const r = await createDemoMarket(preset.metric, preset.observedDay, preset.threshold, 'above', closeTime);
-    if (r.ok) { opened += 1; first ??= r.chainMarketId; }
-    else failures.push(`${preset.id}: ${r.why}`);
-  }
-
-  if (opened === 0) return {ok: false, why: failures[0] ?? 'Nothing was created.'};
-  return {
-    ok: true, opened, chainMarketId: first!,
-    note: `${opened} demo market${opened === 1 ? '' : 's'} open for staking, closing one at a time.${failures.length ? ` ${failures.length} refused.` : ''}`,
-  };
+  const r = await createDemoMarket(preset.metric, preset.observedDay, preset.threshold, 'above');
+  return r.ok ? {...r, opened: 1} : r;
 }

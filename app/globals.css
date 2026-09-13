@@ -745,7 +745,9 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .back-link { display: inline-flex; align-items: center; gap: 9px; color: #70808e; font-size: 13px; margin-bottom: 24px; }
 .back-link:hover { color: var(--ink); }
 .market-detail { padding-top: 26px; }
-.market-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 25px; align-items: start; }
+/* ⚠️ 380px → 410px: the panel now holds five band rows, each with a dot, a threshold and a marker,
+   and they were wrapping. The main column keeps `minmax(0, 1fr)` so it absorbs the difference. */
+.market-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 410px; gap: 25px; align-items: start; }
 .market-main { min-width: 0; }
 .market-title { margin: 5px 0 26px; }
 .market-title h1 { font-size: 42px; line-height: 1.1; letter-spacing: -.03em; margin: 12px 0; }
@@ -813,7 +815,14 @@ td { padding: 8px; vertical-align: middle; white-space: nowrap; }
 .resolution-rules p { font-size: 13px; line-height: 1.7; color: #7c8994; margin-top: 15px; }
 
 /* -- the dark "Your position" panel --------------------------------------- */
-.position-panel { padding: 26px; position: sticky; top: 96px; min-width: 0; }
+/* ⚠️ **NOT STICKY, AND THAT IS THE FIX RATHER THAN A TUNING.** It was `position: sticky; top: 96px`,
+   so the panel followed the reader down the whole page — past the chart, the outcome rows,
+   Supporting research, the resolution criteria and a ten-row Stakes table, none of which it has
+   anything to do with. A demo market's page is long enough that it hung there for most of the
+   scroll. Plain flow lets it scroll away once the reader is past it.
+   ⚠️ `align-items: start` on the grid already stops it stretching to the main column's height, so
+   removing the sticky changes nothing else about where it sits. */
+.position-panel { padding: 26px; min-width: 0; }
 .position-panel > h2 { font-size: 32px; letter-spacing: -.02em; }
 .position-panel > p { font-size: 13px; color: #b6b8bd; margin-top: 6px; }
 .position-panel > label { font-size: 13px; display: block; margin: 24px 0 9px; }

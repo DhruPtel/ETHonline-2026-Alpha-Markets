@@ -13,10 +13,10 @@
 //   · **the plan** — the count and the cost are read from the chain and rendered *before* the
 //     button, so a press is never blind.
 //
-// ⚠️ **It tops up rather than replacing.** An open market cannot be cancelled — `voidMarket` is
-// permissionless only after `resolveDeadline`, and a judge who staked is entitled to settlement — so
-// a button calling itself "replace" would either strand those stakes or quietly lie. It fills the
-// free slots and says how many that was.
+// ⚠️ **ONE MARKET PER PRESS.** It used to open every free slot at once, and the section filled with
+// cards nobody was playing — several settled, several waiting, none of them obviously the one to
+// start. A backlog reads as clutter rather than as a thing to play. The next question is named on
+// the button's own line so a judge knows what they are about to open before they open it.
 
 import {useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation.js';
@@ -61,13 +61,13 @@ export function SeedButton() {
             ? 'Checking…'
             : plan.free === 0
               ? `${plan.open} already open`
-              : `Open ${plan.free} demo market${plan.free === 1 ? '' : 's'}`}
+              : 'Start a demo market'}
       </button>
       {plan && (
         <span className="holdings-sub" style={{marginLeft: 10}}>
           {plan.free === 0
             ? `That is the cap of ${plan.cap}.${plan.nextFrees ? ` The next frees at ${plan.nextFrees} UTC.` : ''} Play one of them.`
-            : `Costs the analyst about ${plan.costUsdc} USDC · ${plan.open} of ${plan.cap} open now · they close one at a time`}
+            : `${plan.nextLabel ? `Next: ${plan.nextLabel} · ` : ''}about ${plan.costUsdc} USDC · ${plan.open} of ${plan.cap} open`}
         </span>
       )}
       {stop && <span className="holdings-sub" style={{display: 'block', marginTop: 8}}>⚠️ {stop}</span>}

@@ -42,6 +42,7 @@
 // confirmation**, showing the amount in the wallet's own words before anything is signed.
 
 import {useEffect, useState} from 'react';
+import {useRouter} from 'next/navigation.js';
 import {resetDemoMarket, revealDemoMarket} from '../actions.js';
 import {ArrowUpRight, Check, Clock, Lock} from '../../components/Icons.js';
 
@@ -158,6 +159,7 @@ export function PositionControl({
   const [stop, setStop] = useState<{message: string; kind: string} | null>(null);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState('');
+  const router = useRouter();
   const [account, setAccount] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [done, setDone] = useState<{what: 'committed' | 'staked'; id: string; arcscan: string | null} | null>(null);
@@ -169,13 +171,18 @@ export function PositionControl({
   const [revealing, setRevealing] = useState(false);
   const [revealed, setRevealed] = useState<string | null>(null);
   const [payout, setPayout] = useState<bigint | null>(null);
-  const [tick, setTick] = useState(0);
+  // ⚠️ **NULL UNTIL MOUNTED, AND THAT IS THE HYDRATION FIX.** The countdown used to read `Date.now()`
+  // during render, so the server's "closes in 0:19" met the browser's "0:18" a second later, React
+  // threw a hydration mismatch and regenerated the whole page segment on the client — the wallet
+  // control with it. A clock cannot be server-rendered correctly, so it is not: the server and the
+  // hydrating render both see `null` and print the fixed close time, and the effect starts the clock.
+  const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     if (!demo) return undefined;
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [demo]);
-  void tick;
 
   const max = BigInt(maxStakeWei);
   const wei = toWei(amount);
@@ -393,6 +400,10 @@ export function PositionControl({
       const r = await revealDemoMarket(chainMarketId);
       if (!r.ok) { setStop({message: r.why, kind: 'refused'}); return; }
       setRevealed(r.note);
+      // ⚠️ Re-renders the page so the settlement read appears beside the outcome. The evidence panel
+      // is server-rendered from the stored row rather than passed back through this action, so there
+      // is exactly one place that reads it and a reload shows the same thing.
+      router.refresh();
       if (account) {
         // ⚠️ `payoutOf(uint256,address)` — the real pool. The only figure here that is not illustrative.
         const data = '0x16df4910'
@@ -513,7 +524,10 @@ export function PositionControl({
   // real market the side is either the analyst's (`decideSide` picks it) or the claim's (JOIN reads
   // it off), so there has never been anything for a visitor to choose.
   if (demo) {
-    const closesIn = closeTimeMs ? Math.max(0, Math.ceil((closeTimeMs - Date.now()) / 1000)) : 0;
+    // ⚠️ `null` on the server and on the hydrating render — see `now` above. `closesAt` is UTC off a
+    // stored timestamp, so it is the same string on both sides of hydration.
+    const closesIn = now !== null && closeTimeMs ? Math.max(0, Math.ceil((closeTimeMs - now) / 1000)) : null;
+    const closesAt = closeTimeMs ? `at ${new Date(closeTimeMs).toISOString().slice(11, 19)} UTC` : 'soon';
     // ⚠️ Illustrative, from the DISPLAYED pool, and marked — the same treatment the chart carries.
     // The only real money figure on this page is `payoutOf`, read after settlement.
     const win = side === true ? pools.t : pools.f;
@@ -650,7 +664,8 @@ export function PositionControl({
         )}
 
         <p className="position-disclaimer">
-          <Clock size={13} /> Staking closes in {Math.floor(closesIn / 60)}:{String(closesIn % 60).padStart(2, '0')},
+          <Clock size={13} /> Staking closes{' '}
+          {closesIn === null ? closesAt : `in ${Math.floor(closesIn / 60)}:${String(closesIn % 60).padStart(2, '0')}`},
           then <strong>Reveal answer</strong> settles it against the day&rsquo;s real snapshot.
           {' '}* Pool and payout above are illustrative; the settled figure is read from the contract.
         </p>
