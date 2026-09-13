@@ -15371,3 +15371,150 @@ The plan's two pieces are right and the file split is right. What the survey add
   `.vercel/repo.json` links project `et-honline-2026-alpha-markets`, but if the deployment is behind
   `main` then the cron caller Task 1 adds does not exist in the build that fires at 02:00Z, and the
   manual script is the only mechanism tonight.
+
+---
+
+## 2026-09-13 — Task 1: scoring runs
+
+Two files. `app/api/cron/resolve/route.ts` grades after it settles, and `scripts/ops/score.ts` runs
+the same sweep by hand. **No changes to `score.ts`, `resolve.ts` or `settle.ts`**, no schema change,
+nothing resolved by hand, nothing spent.
+
+### What the cron now does
+
+`scoreSettled()` runs after the resolve pass, in `grade()`, which **cannot throw** — every path
+returns a value. The response gains one field:
+
+```
+scoring: { status: 'graded',   claims: 2 }
+scoring: { status: 'deferred', detail: '…budget…' }
+scoring: { status: 'failed',   detail: '<message> — ⚠️ the settlements above still landed…' }
+```
+
+⚠️ **A scoring failure leaves `ok: true` and a `summary` that still reports what settled.** That is
+deliberate and matches what `ok` has always meant on this route — the run completed; a resolve error
+also leaves `ok: true` with `summary.errors > 0`. The resolve is the irreversible on-chain act and
+the grade is derived from it, so a scoring bug must not surface as a 500 that reads like the
+settlement failed. Both facts land in one response because an operator reads this once, at 02:00Z.
+
+⚠️ **`claims` is claims GRADED, not rows changed.** `record()` is idempotent, so a run over
+already-graded claims reports the same count while writing nothing. The count answers *how much was
+reconciled*, never *how much moved* — stated on the type so nobody reads it as a delta.
+
+### ⚠️ The hole that made grading run on the quiet path too
+
+The plan said "after its resolve pass". Doing only that strands a failure permanently:
+
+> Market 6 resolves on the 13th and the grade fails. On the 14th `marketsAwaitingResolve` returns
+> nothing — market 6 is settled now, so it is never outstanding again — and an early return that
+> skipped grading would never retry it.
+
+So **every path through the function grades**, including `outstanding.length === 0`. `scoreSettled()`
+is reconciliation from scratch with no cursor, which is exactly what makes the quiet path a repair
+rather than a waste. Grading is also budget-guarded like the resolve loop: if the resolve pass has
+spent the 45s budget, grading is `deferred` rather than risking the 60s ceiling killing the function
+before it can report the settlements that *did* happen.
+
+### Where the rehearsal rule went
+
+**`scripts/ops/score.ts`**, as a **record filter and never a scoring skip.** The test is arithmetic —
+`observationEnd <= createdAt` — and never the name, because a stored market whose id contains
+"rehearsal" can still be a forecast by that arithmetic. Rehearsals are **scored** (a silently skipped
+row is invisible; a written-and-excluded row is checkable) and excluded **when a record is totalled**,
+with *"rehearsals excluded"* printed beside the counts rather than applied silently.
+
+⚠️ This is the **second** copy of that comparison — `app/markets/page.tsx` has the first, Task 2's
+`/analyst` will be the third. The header says plainly that a fourth caller should make it a helper
+instead of a fourth copy.
+
+### `--dry-run` lists rows, not values, and the header says why
+
+It prints which `(market, claim)` pairs would be graded and whether each already has a row — and
+**not what the grades would be.** Previewing a grade means deriving forecast accuracy outside
+`scoreMarket()`, and `score.ts`'s header is explicit that two paths to one number is how they stop
+agreeing: a preview could disagree with the run that followed it and nobody could say which was the
+grade. The preview answers *how much work is outstanding*, which is what a dry run is for here.
+
+### The proof
+
+**Nothing real has settled, so the sweep correctly writes nothing.** The four settled markets are
+rehearsals 8, 8-reconcile, 9 and 10, which carry **zero claims between them**:
+
+```
+  4 settled markets in the store:
+    m/rehearsal-5e207fcf98b52eb3    chain   8  resolved TRUE   REHEARSAL  0 claims
+    m/rehearsal-reconcile-8         chain   8  resolved TRUE   REHEARSAL  0 claims
+    m/rehearsal-294e0f63b1c9c4b3    chain   9  voided    REHEARSAL  0 claims
+    m/rehearsal-a014b3080fa43ec3    chain  10  resolved FALSE  REHEARSAL  0 claims
+
+  graded 0 claims:
+    none — every settled market carries zero claims, so there is nothing to grade.
+    ⚠️ Not a failure. `scoreSettled()` wrote no row because no row was owed.
+```
+
+⚠️ **Two runs of that are identical, and that proves nothing about idempotency** — zero rows written
+twice is zero rows either way, and a proof that passes for the wrong reason is the trap this phase
+has paid for repeatedly. So idempotency was checked where rows actually exist, by running the
+existing Unit 15 proof, which seeds fixtures, scores, re-scores and removes them:
+
+```
+══ Phase 2 · idempotent on (market_id, claim_id)
+  ✅ five rows after the first run   5
+  ✅ still five rows, not ten   5
+  ✅ ⚠️ scored_at did not move — the second run changed nothing
+```
+
+Also confirmed there: a **void scores `null`, not `false`**; a wrong forecast that was refunded reads
+`returned 0.01`, not a loss; and an uncollected payout reads **NULL, never 0**. My two callers add no
+writes of their own — both wrap `scoreSettled()` and otherwise only read — so they inherit that
+idempotency rather than needing their own.
+
+⚠️ **One ❌ in that run, and it is a stale expectation rather than a regression.** Its final
+assertion reads *"the real store is untouched — 1 stake, 2 claims, 0 scores"* and got
+`{"stakes":5,"claims":4,"scores":0}`. Markets 11 and 12 were created and staked since that assertion
+was written. **`scores: 0` — the part that matters — is right**, and every fixture row was removed.
+`scripts/demo/score.ts` is outside this task's files so it was left alone; the stale numbers are
+worth a one-line fix in whatever touches it next.
+
+⚠️ **The route change was NOT exercised end to end, deliberately.** Hitting `/api/cron/resolve` would
+resolve markets 6 and 7 — it spends, and this task says the cron resolves, not me. What is proven:
+it compiles under `next build`, `grade()` returns on every path so it cannot throw, and it is called
+on both response paths. What is not proven until 02:00Z: the live response.
+
+Store after everything: `scores 0`, zero fixture rows, and markets 6, 7, 11 and 12 still
+`resolved_at null, voided_at null, resolve_tx null, void_tx null`.
+
+`npx next build` after `rm -rf .next` — **passes**, TypeScript clean, 23 routes.
+
+### ⚠️ What to expect at 02:00Z on 2026-09-13, in about two hours
+
+`marketsAwaitingResolve` will return markets **6**, **7** and the never-landed
+`m/9e1469c4fa950754e2791734` (the route's own guard skips that third one). Markets 6 and 7 are past
+`observationEnd` plus the 3600s freshness margin by then, so `settle()` reads the 2026-09-12 day,
+`prepare()` plans, and `resolveMarket()` spends. Then `grade()` sweeps.
+
+Both claims are side **TRUE**, 0.01 USDC, on report `24041ca282…`, and both markets are **forecasts**
+by the arithmetic. So if the day settles TRUE, `scripts/ops/score.ts` should then print:
+
+```
+  graded 2 claims:
+    c/e82b0ba5f20bb8958dfe  RIGHT  staked 0.01  returned — (no-payout-recorded)  quality —  WROTE
+    c/7977d55c804a794b8819  RIGHT  staked 0.01  returned — (no-payout-recorded)  quality —  WROTE
+
+  ── the analyst's record
+     2 settled — 2 right, 0 wrong, 0 voided
+     rehearsals excluded
+```
+
+If it settles FALSE, the same two rows read `WRONG` and the record reads `0 right, 2 wrong`. If the
+subgraph never publishes the day and they void past 2026-09-15, they read `VOID` and the record reads
+`0 right, 0 wrong, 2 voided` — ⚠️ **not two losses.**
+
+⚠️ **`returned —` and `quality —` are correct, not missing.** `payouts` has no writer, so trading
+return is null for every claim; `verdict.call` is null on every stored report because they are all
+the metric-across-deployments shape. Neither is rendered as a zero anywhere.
+
+⚠️ **This only happens if the deployed Vercel build carries this commit.** If the deployment is
+behind `main`, the cron that fires at 02:00Z is the old route with no grading, and
+`npx tsx --env-file=.env scripts/ops/score.ts` after it resolves is the fallback — it writes exactly
+the same rows.

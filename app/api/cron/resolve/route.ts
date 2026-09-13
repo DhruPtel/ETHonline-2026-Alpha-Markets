@@ -82,11 +82,38 @@
 // the hole Unit 9 built that action for. **So the failure mode of running out of clock is a late
 // landmark, never a lost settlement.** Bounding that wait belongs to `resolve.ts`, which this unit
 // may not modify.
+//
+// ── ⚠️ GRADING RUNS HERE, AND IT MAY NEVER FAIL A SETTLEMENT ─────────────────────────────────────
+//
+// Nothing called `scoreSettled()` before this, so a market could resolve on chain and no grade was
+// ever written — and `agent/context.ts`, which tells the next report how the last ones did, reads
+// that table and had never had a row. **This route is where the loop closes**, because it is the
+// only place that knows a market just settled.
+//
+// ⚠️ **In its own `try`, after the resolve pass, and its failure is REPORTED rather than thrown.**
+// The resolve is the irreversible on-chain act; the grade is derived from it. A scoring bug must not
+// turn a settled market into a 500 that reads like the settlement failed. It surfaces as
+// `scoring.status: 'failed'` beside a `summary` that still says what settled — **both facts in one
+// response**, which is the only way an operator reading this once at 02:00Z can tell them apart.
+//
+// ⚠️ **AND IT RUNS ON THE NOTHING-OUTSTANDING PATH TOO, which is not an ornament.** Suppose the
+// grade fails on the day market 6 resolves. Tomorrow `marketsAwaitingResolve` returns nothing —
+// market 6 is settled now — so an early return that skipped grading would strand that failure
+// forever, and the cheapest possible bug would cost the record permanently. `scoreSettled()` is
+// reconciliation from scratch with no cursor, so running it on the quiet path is what makes a missed
+// grade self-heal on the next run. **Every path through this function grades.**
+//
+// ⚠️ **Budget-guarded for the same reason the resolve loop is.** Grading is database-only and fast,
+// but if the resolve pass has already spent its budget, starting it risks the 60-second ceiling
+// killing the function before it can answer — and then the operator sees a timeout instead of the
+// settlements that did happen. Deferred grading is reported and picked up by the next run; a
+// swallowed response is not.
 
 import { NextResponse } from 'next/server.js';
 import type { NextRequest } from 'next/server.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { prepare, resolveMarket, voidMarket } from '../../../../src/arc/resolve.js';
+import { scoreSettled } from '../../../../src/arc/score.js';
 import { recordSettlement, settle } from '../../../../src/arc/settle.js';
 import { validateSpec, type MarketSpec } from '../../../../src/arc/spec.js';
 import { marketsAwaitingResolve } from '../../../../src/store/outstanding.js';
@@ -120,6 +147,39 @@ interface Result {
   readonly detail?: string;
 }
 
+/**
+ * ⚠️ **`claims` is claims GRADED, not rows changed.** `scoreSettled()` returns every claim it
+ * examined and `record()` is idempotent, so a run over already-graded claims reports the same count
+ * while writing nothing. The count answers *how much was reconciled*, never *how much moved*.
+ */
+type Scoring =
+  | { readonly status: 'graded'; readonly claims: number }
+  | { readonly status: 'deferred'; readonly detail: string }
+  | { readonly status: 'failed'; readonly detail: string };
+
+/**
+ * Grade every settled market. ⚠️ **Cannot throw** — see the header. A failure here is a fact in the
+ * response beside the settlements, never an exception that buries them.
+ */
+async function grade(started: number): Promise<Scoring> {
+  if (Date.now() - started > BUDGET_MS) {
+    return {
+      status: 'deferred',
+      detail: 'the resolve pass used this invocation\'s budget. `scoreSettled()` is reconciliation '
+        + 'from scratch, so the next run grades what settled today.',
+    };
+  }
+  try {
+    return { status: 'graded', claims: (await scoreSettled()).length };
+  } catch (e) {
+    return {
+      status: 'failed',
+      detail: `${(e as Error).message} — ⚠️ the settlements above still landed on chain and are `
+        + 'recorded. Only the derived grade is missing, and the next run rewrites it from scratch.',
+    };
+  }
+}
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const started = Date.now();
 
@@ -139,9 +199,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   // ⚠️ **Nothing outstanding is the normal case and is not an error** — it is every day but two, and
   // it is Saturday's rehearsal of this exact path with no money at stake.
   if (outstanding.length === 0) {
+    // ⚠️ **Grades anyway.** A grade that failed on the day a market settled would never be retried
+    // if this path skipped it — the market is settled by then, so it is never outstanding again.
     return NextResponse.json({
       ok: true, asOf: asOf.toISOString(), outstanding: 0, results: [],
       summary: { resolved: 0, voided: 0, reconciled: 0, skipped: 0, refused: 0, deferred: 0, errors: 0 },
+      scoring: await grade(started),
       note: 'no market is past its observation end and still unsettled.',
       ms: Date.now() - started,
     });
@@ -241,8 +304,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     errors: count('error'),
   };
 
+  // ⚠️ **After every settlement and outside the loop.** One sweep grades everything that has ever
+  // settled, so a market this run resolved and a market an earlier run resolved without grading are
+  // the same case. A void scores `forecast_correct = null` in `score.ts` — neither right nor wrong —
+  // and nothing here overrides that.
+  const scoring = await grade(started);
+
   return NextResponse.json({
-    ok: true, asOf: asOf.toISOString(), outstanding: outstanding.length, summary, results,
+    ok: true, asOf: asOf.toISOString(), outstanding: outstanding.length, summary, scoring, results,
     ms: Date.now() - started,
   });
 }
