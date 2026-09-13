@@ -77,6 +77,7 @@
 // first. `scores.market_id` is a foreign key to `markets.id` and that is what every join below uses.
 
 import {ethers} from 'ethers';
+import {ContextBlock} from './ContextBlock.js';
 import {ArrowUpRight} from '../components/Icons.js';
 import {ANALYSTS} from '../../src/config/analysts.js';
 import {fetchJson, MIRROR} from '../../src/tokenize/hedera.js';
@@ -361,6 +362,12 @@ export default async function Analyst() {
           </div>
         )}
       </div>
+
+      {/* ── The record, turned into a prompt ─────────────────────────────────────────────────────
+          ⚠️ Directly beneath the grades it is built from, so a reader can look up from the block to
+          the rows it describes. `context.build()` reads `scores`, which is what the table above
+          renders — one record, one source, two views of it. */}
+      <ContextBlock analyst={analyst.arcAddress} />
 
       {/* ── Holdings ─────────────────────────────────────────────────────────────────────────── */}
       <div className="holdings-panel panel">

@@ -15656,3 +15656,140 @@ When markets 6 and 7 resolve and Task 1's sweep grades them, this page stops sho
 and shows two rows — report `24041ca282…`, side TRUE, 0.01 USDC each, each linking its `resolve_tx`
 on arcscan — and the counts line reads `2 settled — 2 right, 0 wrong, 0 voided` or `0 right, 2 wrong`
 depending on the day. Returned stays `—` on both, because `payouts` still has no writer.
+
+---
+
+## 2026-09-13 — Task 3: the planning context, shown as bytes
+
+One new file, `app/analyst/ContextBlock.tsx`, and four lines wiring it into `app/analyst/page.tsx`
+directly beneath the graded claims. No `src/` change, no schema change, no route change.
+
+**URL: `/analyst`** — the section is called **Planning context**.
+
+### Where it went, and why not the console
+
+**`/analyst`, beside the record it is built from.** This block *is* the record turned into a prompt,
+so the grades and the text they produce sit on one page and a reader can look up from the block to
+the rows it describes. `context.build()` reads `scores`, which is exactly what the table above it
+renders — one record, one source, two views.
+
+**Rejected: the console.** Three reasons, the first fatal on its own:
+
+- ⚠️ **The NDJSON stream does not carry the block.** It is built server-side inside
+  `/api/console/generate` and never emitted, so putting it there means **changing a route** — which
+  this task was told not to do.
+- The console's Atlas panel already has a **Query Evidence** block. A second evidence block beside it
+  competes with the one that is already there.
+- The console is where a report gets *written*. This is about what was known *before* it was.
+
+### ⚠️ The open question PHASE-7 named: is it legible verbatim? **No, and it ships verbatim anyway.**
+
+Rendered with five graded claims, the block is **1,647 bytes over 12 lines, and the longest line is
+254 characters.** It does not fit a page column and it needs horizontal scrolling. That is a real
+legibility cost and it is being reported rather than fixed, because **every available fix breaks the
+thing the section exists to prove:**
+
+- **Reformatting or re-wrapping** changes the bytes, and the digest is over exactly those bytes.
+- ⚠️ **Soft-wrapping (`pre-wrap`) was considered and rejected.** It would not change a byte and would
+  read far better — but it hides where the real newlines are, and on a section whose entire claim is
+  *these are the bytes*, a reader cannot tell a soft wrap from a hard one.
+
+So: `white-space: pre`, `var(--font-mono)` at 12px, inside the existing `.table-scroll` (which is
+`overflow-x: auto` and nothing else). **The scroll bar is the honest cost and the header says so.**
+
+⚠️ The length is the *directive's* fault, not the format's — each line embeds the full directive, and
+this analyst's is 78 characters on its own. A shorter directive would produce a comfortable block
+with no code change.
+
+### ⚠️ The digest proof — three values, byte-for-byte
+
+The section prints the digest beside the block. To check that the block **on screen** is the block
+**the agent read**, the rendered HTML was fetched over HTTP, the `<pre>` extracted, HTML-unescaped,
+and hashed outside the app:
+
+```
+build().digest                : 6fb448d1e3c29f9ac2cea5e7d995e9321a33e9d0d1c1abaf72d290f79c6a80c9
+sha256(build().block)         : 6fb448d1e3c29f9ac2cea5e7d995e9321a33e9d0d1c1abaf72d290f79c6a80c9
+sha256(bytes served in <pre>) : 6fb448d1e3c29f9ac2cea5e7d995e9321a33e9d0d1c1abaf72d290f79c6a80c9
+digest printed on the page    : 6fb448d1e3c29f9ac2cea5e7d995e9321a33e9d0d1c1abaf72d290f79c6a80c9
+
+served bytes === build().block : true
+```
+
+All four agree and the strings are identical, not merely equal-hashing. ⚠️ **The `<pre>` has the
+string as its sole child on purpose** so no JSX whitespace can reach the rendered text, and a leading
+newline after `<pre>` — which HTML parsers silently eat — cannot occur.
+
+⚠️ This was measured against **temporary fixtures**, since `scores` is empty: five
+`m/verify-analyst-*` markets graded through the real `scoreMarket()`, rendered once, then removed in
+a `finally`. No chain writes, nothing staked, nothing resolved, no report generated. Store re-checked
+after: `scores 0`, zero fixture rows, markets 6/7/11/12 untouched.
+
+### What it reads right now, with scores empty
+
+`build()` returns **null**, so the section shows the badge `no block` and:
+
+> **Nothing is added to the planning prompt**
+> The analyst has no graded claims, so `build()` returns nothing and the system prompt is
+> byte-for-byte what it would be if this feature did not exist. It is not an empty section in the
+> prompt — there is no section. The first graded claim creates one.
+
+⚠️ **The "not model training" note is rendered above the block, not in a footnote** — no weights, no
+fine-tuning, no gradient, no dataset; text in a prompt, rebuilt each request, gone when it ends.
+Placed there because *"the agent learns from its record"* is exactly the sentence a reader completes
+for themselves if nobody stops them.
+
+### ⚠️ Two reports carry a digest with no block behind it, and the page says so
+
+`0fb5b9a8df13…` and `48057f007392…` carry `f28a93d4c583…`, written by `scripts/demo/context.ts`,
+whose fixture rows were deleted in its own cleanup — that script blanks the column for **one** report
+and evidently ran twice. **It cannot be reproduced from the current `scores` table and the page does
+not pretend it can**: those rows render under *"Planned with a different record"* with the Block
+column reading **"not reproducible"**.
+
+⚠️ The copy distinguishes two things that look alike and are not. **An older digest that no longer
+matches is the column working** — the block changes every time a claim is graded, so a report planned
+earlier legitimately hashes to something else. **A digest whose block was deleted is not that.** The
+empty-state and populated-state wordings differ for this reason; the first draft said *"not the
+digest of the block above"* while no block was on the page, which was fixed.
+
+### ⚠️ A gap found while proving it: `context.ts` does not exclude rehearsals
+
+With five fixtures graded — four forecasts and one rehearsal — `build()` returned **count 5** and the
+rehearsal's line is in the block. **PHASE-7 §4.3 says the context block especially must exclude
+rehearsals**, on the grounds that a planner told it was right about a question whose answer was
+already known would be learning from nothing. `context.ts` has no `observation_end > created_at`
+predicate and applies no such filter.
+
+⚠️ **This is latent, not live.** The three settled rehearsals carry zero claims, so nothing reaches
+the block today, and markets 6 and 7 are both forecasts. But the next rehearsal that carries a claim
+would enter the planning prompt as though it were a forecast. `src/` was out of scope for this task —
+recorded rather than worked around.
+
+### After markets 6 and 7 resolve
+
+The section stops showing its empty state and shows a block with **two lines**, one per claim — both
+on report `24041ca282…`, both `you said TRUE`, both `your confidence at the time: high`:
+
+```
+- "Balance overview for Aave v3 on Ethereum — how big is it, and what's inside it?" · aave-v3-ethereum totalDepositBalanceUSD above 24387198586 on 2026-09-12 · you said TRUE · outcome … · your confidence at the time: high
+- "Balance overview for Aave v3 on Ethereum — how big is it, and what's inside it?" · aave-v3-ethereum totalDepositBalanceUSD above 23834027938 on 2026-09-12 · you said TRUE · outcome … · your confidence at the time: high
+```
+
+**221 characters per line** — so the same horizontal scroll, over four lines of prose and two of
+record. Legible in the sense that every word is readable; uncomfortable in the sense that no line
+fits the column. The digest beneath will be the sha256 of those exact bytes, and it will **not** match
+`f28a93d4c583…` — correctly, because those two reports were not planned with this record.
+
+⚠️ **No report will appear under "Planned with this exact text" until a report is generated after the
+grades land.** The block exists from the moment scoring runs; a report carrying its digest exists
+only once someone generates one. That section is empty until then, and that is the true state rather
+than a fault.
+
+`npx next build` after `rm -rf .next` — **passes**, `/analyst` still `ƒ` dynamic.
+
+### One thing noticed, not mine
+
+`stakes` gained a row during this run: **0.01 USDC on market 12 from `0x683eE842…` at
+2026-09-13T00:33:40Z**, staked from the browser. Nothing in this task stakes, and no fixture touches
+that table — recorded so it is not mistaken for residue later.
