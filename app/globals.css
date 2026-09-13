@@ -33,6 +33,34 @@
   --charcoal: #211c1c;  /* CHARCOAL — every dark panel and the edit toolbar   */
   --black:    #000000;  /* BLACK    — used only inside shadow alphas (#0001)  */
 
+  /* ── Verdict colours — the only hues added to the five above ─────────────
+     ⚠️ ADDING TO THE PALETTE IS A REAL CHANGE, so it is two hues and no more.
+     A grade is the one thing on this site that a reader must take in without
+     reading, and the neutrals cannot carry it: right and wrong rendered in
+     #64717d are the same chip with different letters.
+
+     They are DESATURATED ON PURPOSE — a signal green and a signal red on a
+     page of greys would look like a different product, like an alert rather
+     than a record. These sit at roughly the weight of the two accents the
+     design already has (.dot-true #526bd8, .dot-false #d18a3c): present, not
+     loud. Think ledger ink, not traffic light.
+
+     ⚠️ NOT REUSING #526bd8 / #d18a3c, though they are the obvious candidates:
+     those mean the TRUE and FALSE sides of a market, and a claim can be RIGHT
+     on the FALSE side. One pair of colours cannot mean two things on the same
+     page without teaching a reader the wrong thing.
+
+     Four values for two hues, because .report-card-info is charcoal and the
+     analyst table is white — the same trick .badge already does for dark
+     panels. ⚠️ COLOUR IS NEVER THE ONLY SIGNAL: every marker states its counts
+     in words, so it survives being unreadable as colour. */
+  --verdict-right:      #376b4b;  /* on light: 5.5:1 on its tint            */
+  --verdict-right-tint: #e8f1ec;
+  --verdict-wrong:      #9c463f;  /* on light: 5.4:1 on its tint            */
+  --verdict-wrong-tint: #f6eae9;
+  --verdict-right-dark: #93c3a7;  /* the same hues lifted for charcoal      */
+  --verdict-wrong-dark: #dd9a92;
+
   /* Type roles. System families only — nothing is downloaded. The design's
      own faces were metric clones of Times and Helvetica, so those lead the
      serif and sans stacks and the rendered proportions are unchanged. */
@@ -134,6 +162,31 @@ textarea { resize: vertical; }
    it does not reach the source panel. Muted rather than alarming: a deployment with no indexers is
    a fact about availability, not an error anyone here caused. */
 .badge.off { background: #f2eeea; color: #9b8e83; }
+
+/* ── Grade markers. Same .badge geometry; only two colour values change. ─────
+   ⚠️ .grade-neutral and .grade-void inherit .badge's own greys deliberately —
+   a report that was right about one market and wrong about another is NOT
+   half-green, and a void is an absence rather than a middling score. Only the
+   unanimous cases get a hue. */
+.badge.grade-right { background: var(--verdict-right-tint); color: var(--verdict-right); }
+.badge.grade-wrong { background: var(--verdict-wrong-tint); color: var(--verdict-wrong); }
+/* ⚠️ The same warm grey family as .badge.off, DARKENED. .badge.off is #9b8e83, which is 2.76:1 on
+   its own ground — under AA, and the one pre-existing value this marker could not simply inherit
+   while the other two grades sit at 5.3:1. A void is the state a reader is most likely to
+   misread, so it is the last place to be hard to read. .badge.off itself is left alone: it is used
+   elsewhere for "not tokenized" and "not listed", and restyling those was not this task's to do. */
+.badge.grade-void  { background: #f2eeea; color: #6a6056; }
+
+/* The charcoal card half. Translucent white ground, hue lifted to read on it —
+   the pattern .dark-panel .badge and .report-card-buttons .badge already use. */
+.report-card-info .badge.grade-right { background: #ffffff14; color: var(--verdict-right-dark); }
+.report-card-info .badge.grade-wrong { background: #ffffff14; color: var(--verdict-wrong-dark); }
+.report-card-info .badge.grade-neutral,
+.report-card-info .badge.grade-void { background: #ffffff14; color: #b9c0c7; }
+
+/* On a card the marker is its own line under the byline, not squeezed beside it. */
+.report-card-grade { display: block; margin-top: 10px; }
+.report-card-grade .badge { font-size: 10px; white-space: normal; }
 
 .field, .choice {
   width: 100%; min-height: 42px;

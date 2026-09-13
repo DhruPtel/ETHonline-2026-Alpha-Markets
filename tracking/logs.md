@@ -15793,3 +15793,156 @@ than a fault.
 `stakes` gained a row during this run: **0.01 USDC on market 12 from `0x683eE842…` at
 2026-09-13T00:33:40Z**, staked from the browser. Nothing in this task stakes, and no fixture touches
 that table — recorded so it is not mistaken for residue later.
+
+---
+
+## 2026-09-13 — Task 4: the grade on report cards, and two colours added to the palette
+
+Five files: `src/arc/rehearsal.ts` (new), `app/components/GradeMarker.tsx` (new), `app/globals.css`,
+`app/page.tsx`, `app/analyst/page.tsx`. No schema change, no route change.
+
+**URLs: `/` and `/analyst`.**
+
+### ⚠️ The rehearsal rule was lifted — as a predicate, not a SQL fragment
+
+**`src/arc/rehearsal.ts`**, exporting `isRehearsal(observationEnd, createdAt)` and `isForecast(…)`.
+
+⚠️ **Not `src/domain/`**, which its own README declares is about report *identity* — "one file, and
+it decides the identity of everything else". A market-timing predicate has no business there.
+`src/arc/` owns market semantics and the file sits beside `score.ts`, whose output it filters.
+
+⚠️ **The obvious lift — exporting the SQL expression as a string — was tried and rejected.** A raw
+fragment has to reach a parameterised query through `sql.unsafe`, which is a footgun this codebase
+avoids everywhere else, and it would still leave the TypeScript callers with a second spelling. So
+**SQL callers select the two columns and apply the predicate**, and a caller who forgets it fails to
+compile rather than silently counting a rehearsal. This does not move filtering into a loop over a
+big result set: every caller was already fetching the rows it renders.
+
+**Converted:** `app/analyst/page.tsx` (its `AS after_the_fact` is gone) and the new marker.
+⚠️ **Not converted, because they were outside this task's file list** — named in the new file's
+header so the next task can finish it:
+
+```
+app/markets/page.tsx    (m.observation_end <= m.created_at) AS after_the_fact
+scripts/ops/score.ts    observationEnd.getTime() <= createdAt.getTime()
+```
+
+Both agree with the helper today. Neither is wrong; both are a second place to change.
+
+### The colour: two hues, four values
+
+⚠️ **Adding to a five-colour palette is a real change, so it is two hues and no more.** A grade is
+the one thing on this site a reader must take in without reading, and the neutrals cannot carry it —
+right and wrong in `#64717d` are the same chip with different letters.
+
+```
+--verdict-right      #376b4b   deep muted green      on --verdict-right-tint #e8f1ec
+--verdict-wrong      #9c463f   deep muted terracotta on --verdict-wrong-tint #f6eae9
+--verdict-right-dark #93c3a7   the same hues lifted for the charcoal card half
+--verdict-wrong-dark #dd9a92
+```
+
+⚠️ **Deliberately desaturated.** A signal green and a signal red on a page of greys would read as an
+*alert*, not a record — a different product. These sit at roughly the weight of the two accents the
+design already has. Ledger ink, not traffic light.
+
+⚠️ **`#526bd8` / `#d18a3c` were NOT reused, though they are the obvious candidates.** Those mean the
+TRUE and FALSE *sides* of a market, and **a claim can be RIGHT on the FALSE side.** One pair cannot
+mean two things on the same page without teaching a reader the wrong thing.
+
+**Four values for two hues** because `.report-card-info` is charcoal and the analyst table is white —
+the same trick `.badge` already does for dark panels. Geometry is untouched: same padding, radius and
+size as every other chip.
+
+**How it stays legible without shouting**, measured rather than asserted:
+
+```
+light  RIGHT  #376b4b on #e8f1ec   5.41:1  AA
+light  WRONG  #9c463f on #f6eae9   5.31:1  AA
+light  VOID   #6a6056 on #f2eeea   5.32:1  AA
+dark   RIGHT  #93c3a7 on #322e2e   6.77:1  AA
+dark   WRONG  #dd9a92 on #322e2e   5.82:1  AA
+(for comparison, the existing .badge #64717d on #eaf0f5 is 4.35:1)
+```
+
+⚠️ **The void grey had to be darkened.** `.badge.off` is `#9b8e83`, which measures **2.76:1** — under
+AA, and the one pre-existing value the marker could not inherit while the other two grades sit above
+5:1. A void is the state a reader is most likely to misread, so it is the last place to be hard to
+read. `.badge.off` itself was left alone — it is used for "not tokenized" and "not listed" elsewhere
+and restyling those was not this task's to do.
+
+⚠️ **Colour is never the only signal.** Every marker states its counts in words, so it survives being
+unreadable as colour — which matters, because green/red is the worst possible pair for the one reader
+in twelve who cannot tell them apart.
+
+⚠️ **The disagreement case gets NO hue.** A report right about one market and wrong about another is
+not half-green; it inherits `.badge`'s own grey. Only the unanimous cases are coloured.
+
+### The five states, rendered
+
+Fixtures across six markets and five published reports, graded through the real `scoreMarket()`, then
+removed. **No chain writes, nothing staked, nothing resolved, no report generated.**
+
+```
+Balance overview for Aave v3 on Ethereum…     (no marker)                                     ungraded
+Aave v3 Ethereum Market Overview              [grade-right]   1 of 1 claim correct            one right
+Show me a balance overview of the MakerDAO…   [grade-wrong]   0 of 1 claim correct            one wrong
+Balance overview for top 5 lending protocols  [grade-neutral] 2 claims graded · 1 right, 1 wrong   they disagree
+Balance overview for Spark Lend on Ethereum…  [grade-void]    1 claim voided — no outcome     void only
+top 10 protocols by deposits                  (no marker)                                     ⚠️ graded RIGHT on a REHEARSAL
+```
+
+⚠️ **The last line is the rehearsal exclusion proving itself.** `c2649f05…` has a score row reading
+RIGHT and still shows nothing, because the market's `observationEnd <= createdAt`. **Excluded by
+arithmetic, not by the word "rehearsal" appearing anywhere.**
+
+⚠️ **Four of eight cards have no marker and that is the common case.** Not a grey zero, not a dash,
+not the word "ungraded" — nothing. Absence of a grade is not a bad grade, and `verdict()` returns
+`null` so a caller physically cannot render a zero.
+
+**The analyst page agrees with the cards**, which was the point of doing both in one task:
+
+```
+The record   5 settled — 2 right, 2 wrong, 1 voided     rehearsals excluded · 1 not counted
+
+Graded table   [grade-right] RIGHT  rehearsal · not counted   … [grade-void] VOIDED  … [grade-wrong] WRONG
+Reports list   same markers, same strings, same classes as the marketplace cards
+```
+
+Served CSS checked directly for all six custom properties and both the base and `.report-card-info`
+scoped rules — the colours are really reaching the page, not merely present in the source.
+
+### ⚠️ Does the reading page get it? It should — and it is one line I did not write
+
+**`/report/[hash]` is where the argument is strongest.** A buyer deciding whether to pay is the person
+this marker exists for, and that is the page where they decide; the marketplace card is where they
+*browse*. A grade on the card and nothing on the page they land on is the wrong way round.
+
+**I did not build it.** `app/report/[hash]/page.tsx` is not in this task's file list, and CLAUDE.md
+says to say so and wait rather than write an uninvited file. It is genuinely small — `gradesFor([hash])`,
+one `<GradeMarker>`, and a decision about where in that layout it sits. **Say the word and it is a
+five-line change.**
+
+### Query cost
+
+⚠️ **One more batched query per page, never a lookup per card.** `gradesFor(hashes)` takes the whole
+hash list and returns a map, in the spirit of the `tokensFor(hashes)` and claims join `/` already
+batches — a fan-out here is exactly what that page's own header warns against. A hash with no graded
+claim is **absent from the map** rather than present with zeroes, so the ungraded rule is enforced by
+the data rather than by a condition somebody has to remember to write.
+
+### What you see now, and after 02:00Z
+
+**Now:** `scores` has zero rows, so **no marker renders anywhere** — checked on both pages after the
+fixtures were removed. `/` and `/analyst` look exactly as they did before this task. That is correct
+and is the state most reports will stay in.
+
+**After markets 6 and 7 resolve:** both claims cite report `24041ca282…`, both side TRUE, and both
+markets are forecasts. So that one report gets a marker on its marketplace card and in the analyst
+reports list reading either **`2 of 2 claims correct`** in the green, or **`0 of 2 claims correct`** in
+the terracotta, or — if the two markets settle opposite ways, which they can, since their thresholds
+differ (24,387,198,586 and 23,834,027,938) — **`2 claims graded · 1 right, 1 wrong`** in neutral grey.
+⚠️ That last one is the case the marker was designed around, and it is genuinely reachable tonight.
+
+Store after everything: `scores 0`, zero fixture rows, markets 6/7/11/12 untouched.
+`npx next build` after `rm -rf .next` — **passes**.

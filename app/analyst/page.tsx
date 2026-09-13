@@ -78,8 +78,10 @@
 
 import {ethers} from 'ethers';
 import {ContextBlock} from './ContextBlock.js';
+import {GradeMarker, gradesFor} from '../components/GradeMarker.js';
 import {ArrowUpRight} from '../components/Icons.js';
 import {ANALYSTS} from '../../src/config/analysts.js';
+import {isRehearsal} from '../../src/arc/rehearsal.js';
 import {fetchJson, MIRROR} from '../../src/tokenize/hedera.js';
 import type {MirrorAccount} from '../../src/tokenize/hedera.js';
 import {list} from '../../src/store/reports.js';
@@ -118,7 +120,9 @@ interface ScoreRow {
   settled_at: Date | null;
   resolve_tx: string | null;
   void_tx: string | null;
-  after_the_fact: boolean;
+  /** ⚠️ The two timestamps, not a precomputed flag — `isRehearsal()` owns the comparison now. */
+  observation_end: Date;
+  created_at: Date;
   report_hash: string;
   title: string | null;
   directive: string;
@@ -151,7 +155,7 @@ export default async function Analyst() {
            c.chain_claim_id, c.side, c.report_hash,
            m.id AS market_id, m.chain_market_id, m.resolve_tx, m.void_tx,
            COALESCE(m.resolved_at, m.voided_at) AS settled_at,
-           (m.observation_end <= m.created_at) AS after_the_fact,
+           m.observation_end, m.created_at,
            r.title, r.directive
       FROM scores s
       JOIN claims  c ON c.id   = s.claim_id
@@ -161,7 +165,8 @@ export default async function Analyst() {
 
   // ⚠️ Rehearsals are excluded from the RECORD, not from the table — they are still shown, marked,
   // and left out of the counts. Hiding them would make the counts unauditable.
-  const graded = scores.filter((s) => !s.after_the_fact);
+  // ⚠️ `isRehearsal` is imported, not re-spelled in this query. See `src/arc/rehearsal.ts`.
+  const graded = scores.filter((s) => !isRehearsal(s.observation_end, s.created_at));
   const right = graded.filter((s) => s.forecast_correct === true).length;
   const wrong = graded.filter((s) => s.forecast_correct === false).length;
   const voided = graded.filter((s) => s.forecast_correct === null).length;
@@ -210,6 +215,9 @@ export default async function Analyst() {
   const reports = await list(500);
   const tokens = await tokensFor(reports.map((r) => r.hash));
   const published = reports.filter((r) => r.publishedAt !== null).length;
+
+  // ⚠️ The same batched call `/` makes, over this page's hash list. One query, not one per row.
+  const grades = await gradesFor(reports.map((r) => r.hash));
 
   /** The settlement transaction for one score, and which one it is. */
   const settlement = (s: ScoreRow): {label: string; tx: string} | null =>
@@ -298,16 +306,20 @@ export default async function Analyst() {
                   return (
                     <tr key={s.claim_id}>
                       <td>
-                        {/* ⚠️ VOIDED is `.badge.off` — the existing greyed variant, which reads as
-                            an absence. RIGHT and WRONG carry the word and no colour: the palette
-                            has five neutral colours and no green or red, and inventing a pair here
-                            would be inventing a look. The green/red/grey treatment is Task 4's,
-                            and it should land on this table and the report cards together. */}
-                        <span className={s.forecast_correct === null ? 'badge off' : 'badge'}>
+                        {/* ⚠️ **THE SAME TWO HUES THE CARDS USE**, so a grade means one thing on
+                            this site. `--verdict-right` / `--verdict-wrong` on their tints; VOIDED
+                            stays grey and reads as an absence rather than a middling score. The
+                            word carries the meaning on its own — colour is never the only signal. */}
+                        <span
+                          className={`badge grade-${
+                            s.forecast_correct === null ? 'void' : s.forecast_correct ? 'right' : 'wrong'
+                          }`}
+                        >
                           {s.forecast_correct === null ? 'VOIDED'
                             : s.forecast_correct ? 'RIGHT' : 'WRONG'}
                         </span>
-                        {s.after_the_fact && <span className="holdings-sub">rehearsal · not counted</span>}
+                        {isRehearsal(s.observation_end, s.created_at)
+                          && <span className="holdings-sub">rehearsal · not counted</span>}
                       </td>
                       <td>
                         <a href={`/report/${s.report_hash}`}>
@@ -472,6 +484,7 @@ export default async function Analyst() {
               <thead>
                 <tr>
                   <th>Report</th>
+                  <th>Record</th>
                   <th>Generated</th>
                   <th>Tokenized</th>
                   <th>Published</th>
@@ -488,6 +501,9 @@ export default async function Analyst() {
                           <span className="holdings-sub">{r.hash.slice(0, 16)}…</span>
                         </a>
                       </td>
+                      {/* ⚠️ Empty for an ungraded report — not a dash, not a zero. Most rows are
+                          empty here and that is the point: an absent grade is not a bad one. */}
+                      <td><GradeMarker grade={grades.get(r.hash)} /></td>
                       <td>{r.createdAt.toISOString().slice(0, 10)}</td>
                       {/* ⚠️ A tokenized report and an untokenized one must not look alike — the
                           second is not a faded version of the first. */}

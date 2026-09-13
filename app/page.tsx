@@ -1,5 +1,6 @@
 import {MarketplaceFilters} from './components/MarketplaceFilters.js';
 import {MiniDocument} from './components/MiniDocument.js';
+import {GradeMarker, gradesFor} from './components/GradeMarker.js';
 import {ArrowRight, ArrowUpRight} from './components/Icons.js';
 import {list, listPublished} from '../src/store/reports.js';
 import {tokensFor} from '../src/store/tokens.js';
@@ -66,6 +67,12 @@ export default async function ReportMarketplace() {
   }
 
   const tokenized = reports.filter((r) => tokens.has(r.hash)).length;
+
+  // ⚠️ **ONE MORE BATCHED QUERY OVER THE SAME HASH LIST**, in the spirit of the two above — not a
+  // lookup per card. A hash with no graded claim is simply absent from the map and its card gets no
+  // marker at all, which is the ungraded rule enforced by the data rather than by a condition
+  // somebody has to remember to write.
+  const grades = await gradesFor(hashes);
 
   return (
     <main className="marketplace-page page-container">
@@ -164,6 +171,14 @@ export default async function ReportMarketplace() {
                   </strong>
                 </div>
                 <p>By {report.analyst.slice(0, 18)}…</p>
+
+                {/* ⚠️ **THE RECORD, WHERE THE BUYING DECISION IS MADE.** Renders nothing when the
+                    report has no graded claim — which is most of them, and an absent grade is not a
+                    bad one. Three counts, never a percentage; a void counts in neither column and is
+                    stated separately; rehearsals are excluded by arithmetic in `gradesFor`. */}
+                <span className="report-card-grade">
+                  <GradeMarker grade={grades.get(report.hash)} />
+                </span>
 
                 <div className="report-card-buttons">
                   <a href={`/report/${report.hash}`} className="btn white">
