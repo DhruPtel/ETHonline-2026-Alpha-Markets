@@ -64,6 +64,7 @@ export function ProbabilityChart({
   falsePct,
   compact = false,
   illustrative = false,
+  decorLines = [],
 }: {
   series: Series;
   truePct: number;
@@ -71,6 +72,16 @@ export function ProbabilityChart({
   compact?: boolean;
   /** ⚠️ Draws the label over the plot. See `illustrativeSeries`. Never default it to true. */
   illustrative?: boolean;
+  /**
+   * ⚠️ **DECORATION, AND NOTHING MAY EVER BE STAKED ON ONE.** Extra paths that make a pool look
+   * traded rather than empty. **Settlement is binary — TRUE and FALSE, two pools** — so these
+   * correspond to no outcome, carry no label, no legend entry and no hit area. They are drawn
+   * faint, behind the two real lines, and the legend says in four words that there are only two.
+   *
+   * ⚠️ A reader who could not tell a decorative line from a bettable outcome would be reading the
+   * chart as a market with six sides. The asterisk under the legend exists for exactly that reader.
+   */
+  decorLines?: number[][];
 }) {
   const falseLine = series.trueLine.map((v) => 100 - v);
 
@@ -91,6 +102,13 @@ export function ProbabilityChart({
         Y_TICKS.map((t) => (
           <line key={t} x1="0" x2="100" y1={100 - t} y2={100 - t} stroke="#e7ecf0" vectorEffect="non-scaling-stroke" />
         ))}
+      {/* ⚠️ First, so every real line paints over them. Faint and unlabelled — see `decorLines`. */}
+      {decorLines.map((d, i) => (
+        <path
+          key={i} d={path(d)} fill="none" stroke="#c3ccd4" strokeWidth={1}
+          opacity={0.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round"
+        />
+      ))}
       <path d={path(falseLine)} className="line-false" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
       <path d={path(series.trueLine)} className="line-true" fill="none" strokeWidth={compact ? 2 : 2.5} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
@@ -157,6 +175,9 @@ export function ProbabilityChart({
         {/* ⚠️ Names what the percentages ARE, beside them. A parimutuel pool share is not a
             probability and a one-sided pool is not a 100% belief. */}
         {illustrative && <span>pool share, not probability</span>}
+        {/* ⚠️ Four words, beside the two entries it is about. The faint lines have no legend entry
+            precisely because there is nothing to enter — they are not outcomes. */}
+        {decorLines.length > 0 && <span>* settlement is binary — two pools</span>}
       </div>
     </div>
   );

@@ -2,21 +2,16 @@
 
 // The two things the demo surface can make happen on chain.
 //
-// ── ⚠️ ONE SPENDS THE ANALYST'S MONEY FROM A PAGE. IT IS GATED. ─────────────────────────────────
+// ── ⚠️ NOTHING HERE CREATES A MARKET FROM A QUESTION LIST, AND THAT IS THE POINT ───────────────
 //
-// `startDemoMarket` calls `createMarket` and `commitPrediction` through the analyst's Circle wallet
-// — about 0.02 USDC of gas and stake per press. `tracking/DECISIONS.md` (2026-09-12) says exactly
-// what puts the console lock back: *"the console being linked from the nav on a deployment a
-// stranger can reach"*, because its buttons spend. **A demo button on `/markets` is that situation
-// by another door**, so it takes the same `CONSOLE_SECRET` the console routes were built around.
+// **A real market page has no "create a market" button, so the demo must not either.** Seeding the
+// preset markets lives in `scripts/ops/demo-market.ts --seed`, where it is operator-only by being a
+// script rather than by asking a visitor for a password. That removed the `CONSOLE_SECRET` field,
+// which was the one thing on the surface that could not be mistaken for a real market.
 //
-// ⚠️ **The secret is compared AFTER `requiredEnv`, deliberately** — the ordering `lock.ts` chose so
-// the lock is testable from outside. A missing env var throws its own error; a wrong secret is a
-// refusal. The two are never the same message.
-//
-// ⚠️ **`NEXT_PUBLIC_` would defeat this entirely.** That prefix inlines a value into the client
-// bundle at build time and serves it to every visitor. The secret exists in the environment and in
-// the operator's head, and the two meet in this call's arguments.
+// ⚠️ **Both exports below still SPEND**, and both are ungated, so both are bounded by checks
+// instead. `createDemoMarket` is deliberately **not exported**: an unrestricted "make me a market"
+// reachable from a browser is exactly what should not exist here.
 //
 // ── ⚠️ THE OTHER ONE IS UNGATED, AND HERE IS WHY THAT IS SAFE ───────────────────────────────────
 //
@@ -46,7 +41,7 @@ import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
 import { arcProvider } from '../../src/arc/arc.js';
 import { requiredEnv } from '../../src/config/env.js';
 import { db } from '../../src/store/db.js';
-import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, presetById } from './demo.js';
+import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, type Preset } from './demo.js';
 
 /** ⚠️ Never throws a raw error at a page — every failure is a sentence a judge can read. */
 export type DemoResult =
@@ -64,15 +59,24 @@ const ANALYST_STAKE = ethers.parseUnits('0.01', 18).toString();
  * analyst's own claim is what there is to settle and grade, so the loop closes with no signature and
  * no funds from the judge. A judge who does have a wallet commits their own claim alongside it.
  */
-export async function startDemoMarket(presetId: string, secret: string): Promise<DemoResult> {
-  const expected = requiredEnv('CONSOLE_SECRET', 'The demo surface spends; see app/api/console/lock.ts.');
-  if (secret !== expected) {
-    return {ok: false, why: 'That is not the operator secret. Creating a market spends the analyst\'s USDC, so this button is locked — see tracking/DECISIONS.md 2026-09-12.'};
-  }
-
-  const preset = presetById(presetId);
-  if (!preset) return {ok: false, why: `No preset question "${presetId}".`};
-
+/**
+ * Create a demo market for one question and commit the analyst's claim to it.
+ *
+ * ⚠️ **The analyst commits as well as creates, and that is what makes the no-wallet path work.** A
+ * visitor with no wallet still has a real position to settle and grade — the loop closes with no
+ * signature and no funds of theirs. A judge who does have a wallet commits their own claim beside it,
+ * which is why the detail page must cope with a market carrying two.
+ *
+ * ⚠️ **Not exported.** A `'use server'` module exports only things a browser may call, and an
+ * unrestricted "make me a market" is exactly what should not be one. The two callers above each
+ * bound it in their own way.
+ */
+async function createDemoMarket(
+  metric: Preset['metric'],
+  observedDay: string,
+  threshold: string,
+  comparison: 'above' | 'below',
+): Promise<DemoResult> {
   // ⚠️ The cap, measured against the CHAIN clock rather than ours — `_open` compares
   // `block.timestamp`, and a market our clock thinks is open may already be shut on theirs.
   const block = await arcProvider().getBlock('latest');
@@ -90,37 +94,33 @@ export async function startDemoMarket(presetId: string, secret: string): Promise
     const frees = open[0]!.close_time.toISOString().slice(11, 19);
     return {
       ok: false,
-      why: `${open.length} demo markets are already open for staking, which is the cap. Each one is a real createMarket and commitPrediction paid by the analyst, so they are not free to spin up. The next slot frees at ${frees} UTC when the earliest closes — play one of the open ones meanwhile.`,
+      why: `${open.length} demo markets are already open for staking, which is the cap. Each one is a real createMarket and commitPrediction paid by the analyst, so they are not free to spin up. The next slot frees at ${frees} UTC — play one of the open ones meanwhile.`,
     };
   }
 
   const [report] = await db()<{hash: string}[]>`
     SELECT r.hash FROM reports r JOIN report_tokens rt ON rt.report_hash = r.hash
-     WHERE r.canonical_json LIKE ${`%${DEMO_SLUG}.${preset.metric}%`}
+     WHERE r.canonical_json LIKE ${`%${DEMO_SLUG}.${metric}%`}
      ORDER BY r.created_at LIMIT 1`;
   if (!report) {
-    return {ok: false, why: `No tokenized report carries ${DEMO_SLUG}.${preset.metric}, so the admission check would refuse. Nothing was created.`};
+    return {ok: false, why: `No tokenized report carries ${DEMO_SLUG}.${metric}, so the admission check would refuse. Nothing was created.`};
   }
 
   const closeTime = now + DEMO_STAKING_SECONDS;
-  // ⚠️ +1s is the contract's minimum and the shape `drive-market.ts` proved. The reveal unlocks at
-  // `observationEnd`, so every second added here is a second the judge waits for nothing.
+  // ⚠️ +1s is the contract's minimum. The reveal unlocks at `observationEnd`, so every second added
+  // here is a second the judge waits for nothing.
   const observationEnd = closeTime + 1;
 
   try {
     const plan = await prepareDemo({
       reportHash: report.hash,
-      spec: {
-        slug: DEMO_SLUG, metric: preset.metric, comparison: 'above',
-        threshold: preset.threshold, observedDay: preset.observedDay,
-      },
+      spec: {slug: DEMO_SLUG, metric, comparison, threshold, observedDay},
       closeTime, observationEnd,
       resolveDeadline: observationEnd + DEMO_RETIREMENT_SECONDS,
       amount: ANALYST_STAKE,
     });
     const made = await create(plan);
-    // ⚠️ If this throws the market still exists and is stakeable; the claim is what is missing. The
-    // message says so rather than implying nothing happened.
+    // ⚠️ If this throws the market still exists and is stakeable; the claim is what is missing.
     await commit(plan, made.chainMarketId);
     return {
       ok: true, chainMarketId: made.chainMarketId,
@@ -188,4 +188,50 @@ export async function revealDemoMarket(chainMarketId: string): Promise<DemoResul
     const why = e instanceof ResolveRefused ? e.message : (e as Error).message;
     return {ok: false, why};
   }
+}
+
+/**
+ * Play the same question again on a fresh market. ⚠️ **Spends ~0.02 USDC of the analyst's money.**
+ *
+ * ── ⚠️ WHY A RESET IS NEEDED AT ALL, AND WHY IT IS NOT A LOOPHOLE ──────────────────────────────
+ *
+ * `claimIdOf[marketId][msg.sender] != 0` reverts `AlreadyCommitted`, and `claims` carries a UNIQUE
+ * on `(market_id, author)`. **One claim per author per market, enforced twice.** So "do it again"
+ * cannot mean re-staking this market, and should not: the answer is on screen now.
+ *
+ * A new market about the same question with a later `closeTime` is a **different market**, and
+ * committing to it leaves the contract's rule exactly as written. Nothing is circumvented.
+ *
+ * ── ⚠️ IT IS UNGATED, SO IT IS BOUNDED INSTEAD ─────────────────────────────────────────────────
+ *
+ * Four things hold it in, and they are checks rather than a password:
+ *
+ *   · **Past-posted only.** A forecast can never be replayed through here, at any id.
+ *   · **Settled only.** There is nothing to reset about a market still taking stakes, and refusing
+ *     it stops this becoming a way to mint markets in a loop.
+ *   · **It reuses the existing market's own spec**, so it cannot mint an arbitrary question — only
+ *     another copy of one that already exists.
+ *   · **The open-market cap**, which is what a judge pressing repeatedly actually hits.
+ */
+export async function resetDemoMarket(chainMarketId: string): Promise<DemoResult> {
+  if (!/^\d+$/.test(chainMarketId)) return {ok: false, why: 'Not a market id.'};
+
+  const [market] = await db()<{
+    spec_json: string; close_time: Date; observed_day: string;
+    resolved_at: Date | null; voided_at: Date | null;
+  }[]>`
+    SELECT spec_json, close_time, observed_day, resolved_at, voided_at FROM markets
+     WHERE chain_market_id = ${chainMarketId}
+       AND contract_address = ${requiredEnv('ARC_MARKET_ADDRESS')}`;
+  if (!market) return {ok: false, why: `No market ${chainMarketId} on the deployed contract.`};
+
+  if (!pastPosted(market.close_time, market.observed_day)) {
+    return {ok: false, why: `Market ${chainMarketId} is a forecast, not a demo. Forecasts are not replayed — the whole point of one is that it was made before the day it measures.`};
+  }
+  if (!market.resolved_at && !market.voided_at) {
+    return {ok: false, why: 'This market has not settled yet, so there is nothing to play again. Reveal it first.'};
+  }
+
+  const spec = JSON.parse(market.spec_json) as {slug: string; metric: string; observedDay: string; threshold: string; comparison: 'above' | 'below'};
+  return createDemoMarket(spec.metric as never, spec.observedDay, spec.threshold, spec.comparison);
 }

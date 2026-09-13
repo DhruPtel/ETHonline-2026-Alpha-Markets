@@ -40,7 +40,6 @@ import {MarketFilters} from '../components/MarketFilters.js';
 import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityChart.js';
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
 import {analystRecord, recordLine} from '../components/GradeMarker.js';
-import {DemoStarter} from './DemoStarter.js';
 import {db} from '../../src/store/db.js';
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
@@ -167,7 +166,7 @@ export default async function MarketIndex() {
   // and it therefore said *"no forecast has settled yet"* while `/analyst` said *"5 settled"*. Two
   // pages answering one question differently is worse than either answer. `analystRecord()` counts
   // **graded claims**, which is what a grade is a property of — see its own header.
-  // ⚠️ Open for STAKING, not merely unsettled — the cap `startDemoMarket` enforces is about markets
+  // ⚠️ Open for STAKING, not merely unsettled — the cap `createDemoMarket` enforces is about markets
   // a judge could still commit to, and a header counting settled ones would contradict its refusal.
   const openDemoCount = demos.filter(
     (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
@@ -312,16 +311,12 @@ export default async function MarketIndex() {
         <h2>Demo</h2>
         <span className="eyebrow">STAKING WAS OPEN AFTER THE DAY BEING MEASURED</span>
       </div>
+      {/* ⚠️ ONE SENTENCE. The mechanism that keeps these out of the record lives in the data path
+          — `context.ts` and `GradeMarker` — so it does not need saying here, and saying it made the
+          page read like a disclaimer instead of a market. */}
       <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
-        These exist so a visitor can run the settlement loop in minutes rather than waiting a day.
-        Staking opened <strong>after</strong> the day each one measures had already ended, so the
-        answer was published before anyone could commit. ⚠️ <strong>None is a forecast and none counts
-        towards the record</strong> — and none reaches the agent&rsquo;s planning prompt either. What
-        keeps them out is <code>pastPosted</code>, arithmetic over each market&rsquo;s own timestamps;
-        it is <em>not</em> that a judge&rsquo;s claim is theirs, because the analyst commits on these
-        too and the author filter does nothing.
+        These resolve in minutes because the day they measure has already happened.
       </p>
-      <DemoStarter openCount={openDemoCount} />
       {demos.length > 0 && (
         <div className="prediction-grid" style={{marginTop: 20}}>{demos.map((r) => card(r, 'demo'))}</div>
       )}

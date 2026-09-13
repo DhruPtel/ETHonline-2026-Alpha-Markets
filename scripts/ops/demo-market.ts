@@ -1,6 +1,8 @@
 // PHASE-8 Task 1 — the demo market: create one, list them, retire the abandoned.
 //
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --presets          ← free, checks the pins
+//   npx tsx --env-file=.env scripts/ops/demo-market.ts --seed             ← plan only, free
+//   npx tsx --env-file=.env scripts/ops/demo-market.ts --seed --send      ← ⚠️ SPENDS, six markets
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --list             ← free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create           ← plan only, free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --create --send    ← ⚠️ SPENDS
@@ -43,7 +45,7 @@ import { pastPosted } from '../../src/arc/rehearsal.js';
 import { ResolveRefused, prepare as planSettlement, voidMarket } from '../../src/arc/resolve.js';
 import { recordSettlement, settle } from '../../src/arc/settle.js';
 import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
-import { DEMO_SLUG, PRESETS } from '../../app/markets/demo.js';
+import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, PRESETS } from '../../app/markets/demo.js';
 import { close } from '../../src/store/markets.js';
 import { db } from '../../src/store/db.js';
 
@@ -272,10 +274,75 @@ async function presets(): Promise<void> {
     : `\n  ⚠️ ${drift} preset(s) drifted. Edit app/markets/demo.ts by hand — do not let a script move a pin.\n`);
 }
 
-if (flag('presets') !== undefined) await presets();
+/**
+ * Put the six preset questions on chain, ready to play. ⚠️ **Spends ~0.02 USDC per market.**
+ *
+ * ⚠️ **THIS IS WHERE CREATION LIVES, AND THE REASON IS PRESENTATION AS MUCH AS SAFETY.** A real
+ * market page has no "create a market" control, so a demo that had one could be told apart at a
+ * glance — and the operator-secret field it needed was the ugliest thing on the surface. Moving it
+ * to a script makes the page indistinguishable and makes the privilege structural: you have a shell
+ * or you do not.
+ *
+ * ⚠️ **Staggered closeTimes.** Six markets created in one pass would otherwise all shut within
+ * seconds of each other, giving a judge one playable market and five corpses. Each is offset by a
+ * full staking window so they come due in sequence.
+ *
+ * ⚠️ **The cap is deliberately NOT applied here.** It exists to stop a browser looping `resetDemo
+ * Market`; an operator seeding a demo day is the case it was never meant to catch. The count is
+ * printed so the decision is visible rather than silent.
+ */
+async function seed(): Promise<void> {
+  const block = await arcProvider().getBlock('latest');
+  if (!block) { console.error('\n❌ STOP  could not read the Arc chain clock.\n'); process.exit(1); }
+
+  const [report] = await db()<{ hash: string }[]>`
+    SELECT r.hash FROM reports r JOIN report_tokens rt ON rt.report_hash = r.hash
+    WHERE r.canonical_json LIKE ${`%${DEMO_SLUG}.totalDepositBalanceUSD%`}
+    ORDER BY r.created_at LIMIT 1`;
+  if (!report) { console.error('\n❌ STOP  no tokenized report to bind against.\n'); process.exit(1); }
+
+  console.log(`\n══ seeding ${PRESETS.length} demo markets${SEND ? ' — ⚠️ SPENDING' : ' — plan only'}\n`);
+  console.log(`  ⚠️ the open-market cap (${MAX_OPEN_DEMO_MARKETS}) is not applied to a seed run; it guards the browser path.\n`);
+
+  const plans = [];
+  for (const [i, preset] of PRESETS.entries()) {
+    // ⚠️ Staggered, so they come due one at a time rather than all at once.
+    const closeTime = block.timestamp + DEMO_STAKING_SECONDS * (i + 1);
+    const observationEnd = closeTime + 1;
+    try {
+      const plan = await prepareDemo({
+        reportHash: report.hash,
+        spec: { slug: DEMO_SLUG, metric: preset.metric, comparison: 'above', threshold: preset.threshold, observedDay: preset.observedDay },
+        closeTime, observationEnd,
+        resolveDeadline: observationEnd + DEMO_RETIREMENT_SECONDS,
+        amount: STAKE,
+      });
+      plans.push({ preset, plan, closeTime });
+      console.log(`  ${preset.id}  ${preset.metric.padEnd(22)} ${preset.observedDay}  above ${preset.threshold.padStart(12)}  closes ${new Date(closeTime * 1000).toISOString().slice(11, 19)}Z`);
+    } catch (e) {
+      console.log(`  ${preset.id}  ❌ refused: ${(e as Error).message.slice(0, 96)}`);
+    }
+  }
+
+  if (!SEND) {
+    console.log('\n  Plan only. Nothing spent. Add --send to put them on chain.\n');
+    return;
+  }
+
+  console.log('');
+  for (const { preset, plan, closeTime } of plans) {
+    const made = await create(plan);
+    await commit(plan, made.chainMarketId);
+    console.log(`  ${preset.id}  → /markets/${made.chainMarketId}  open until ${new Date(closeTime * 1000).toISOString().slice(11, 19)}Z`);
+  }
+  console.log(`\n  ✅ ${plans.length} markets live. Open /markets and play one.\n`);
+}
+
+if (flag('seed') !== undefined) await seed();
+else if (flag('presets') !== undefined) await presets();
 else if (flag('list') !== undefined) await list();
 else if (flag('create') !== undefined) await createOne();
 else if (flag('retire') !== undefined) await retire();
-else console.log('\n  one of --presets, --list, --create, --retire. See the header for the full forms.\n');
+else console.log('\n  one of --presets, --seed, --list, --create, --retire. See the header for the full forms.\n');
 
 await close();

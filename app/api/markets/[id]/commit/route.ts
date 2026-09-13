@@ -30,7 +30,8 @@
 
 import { NextResponse } from 'next/server.js';
 import { ethers } from 'ethers';
-import { MarketRefused, commit, prepare } from '../../../../../src/arc/market.js';
+import { MarketRefused, commit, prepare, prepareDemo } from '../../../../../src/arc/market.js';
+import { pastPosted } from '../../../../../src/arc/rehearsal.js';
 import { BindingRefused } from '../../../../../src/arc/admission.js';
 import { requiredEnv } from '../../../../../src/config/env.js';
 import { db } from '../../../../../src/store/db.js';
@@ -67,10 +68,11 @@ export async function POST(
 
   const contractAddress = requiredEnv('ARC_MARKET_ADDRESS');
   const [market] = await db()<{
-    spec_json: string; close_time: Date; resolve_deadline: Date;
-    resolved_at: Date | null; voided_at: Date | null;
+    spec_json: string; close_time: Date; observation_end: Date; resolve_deadline: Date;
+    observed_day: string; resolved_at: Date | null; voided_at: Date | null;
   }[]>`
-    SELECT spec_json, close_time, resolve_deadline, resolved_at, voided_at
+    SELECT spec_json, close_time, observation_end, resolve_deadline, observed_day,
+           resolved_at, voided_at
       FROM markets WHERE chain_market_id = ${id} AND contract_address = ${contractAddress}`;
   if (!market) return NextResponse.json({ error: `no market ${id}` }, { status: 404 });
 
@@ -91,9 +93,24 @@ export async function POST(
   // row is the only acceptable source for these five fields and these two timestamps.
   const spec = JSON.parse(market.spec_json) as Spec;
 
+  // ⚠️ **WHICH PLANNER, AND THIS BRANCH IS THE WHOLE REASON A DEMO MARKET CAN BE STAKED AT ALL.**
+  // `prepare()` runs `questionCore()`, whose rule is `closeTime <= dayStart(observedDay)` — past-
+  // posting prevention. A demo market is past-posted **by construction**, so `prepare()` throws
+  // *"closeTime is inside or after the observed day"* and this route answered **409 before spending
+  // anything**, every single time. Not a partial failure: no demo commit could ever land through here.
+  //
+  // ⚠️ **The branch is on the market's own arithmetic, never on a flag or a parameter.**
+  // `pastPosted(close_time, observed_day)` reads the two stored columns, so a caller cannot ask for
+  // the lenient planner — the market either is past-posted or it is not, and the row decides.
+  //
+  // ⚠️ **`prepareDemo` is not a weaker `prepare`.** It runs all nine of the same guards in the same
+  // order, including guard 8's admission check; only the timing rules differ, and `demoQuestionCore`
+  // has its own — it REFUSES a day that is not yet settleable, which `questionCore` never checks.
+  const demo = pastPosted(market.close_time, market.observed_day);
+
   let plan;
   try {
-    plan = await prepare({
+    const subject = {
       reportHash: reportHash.trim(),
       spec: {
         slug: spec.slug,
@@ -105,7 +122,13 @@ export async function POST(
       closeTime: Math.floor(market.close_time.getTime() / 1000),
       resolveDeadline: Math.floor(market.resolve_deadline.getTime() / 1000),
       amount: ethers.parseUnits(amount.trim(), 18).toString(),
-    });
+    };
+    plan = demo
+      // ⚠️ `observationEnd` off the stored row rather than derived from the day. For a demo market
+      // the two are unrelated — the reveal unlocks minutes from now, the day ended long ago — and
+      // deriving it would rebuild a different market id than the one on chain.
+      ? await prepareDemo({...subject, observationEnd: Math.floor(market.observation_end.getTime() / 1000)})
+      : await prepare(subject);
   } catch (error) {
     // ⚠️ **Every refusal is a 409 with a sentence, never a 500.** `MarketRefused` covers the
     // already-committed and unit-rule cases; `BindingRefused` is Unit 6c's admission check — the

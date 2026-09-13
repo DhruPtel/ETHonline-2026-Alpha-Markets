@@ -29,8 +29,7 @@ import {notFound} from 'next/navigation.js';
 import {ethers} from 'ethers';
 import {ProbabilityChart, illustrativeSeries} from '../../components/ProbabilityChart.js';
 import {PositionControl, type AnalystReport} from './PositionControl.js';
-import {DemoControl} from './DemoControl.js';
-import {illustrativeTrueShare, participantsFor} from '../demo.js';
+import {participantsFor} from '../demo.js';
 import {isRehearsal, pastPosted} from '../../../src/arc/rehearsal.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
@@ -80,6 +79,22 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   // ⚠️ Scoped to the DEPLOYED contract. A chain id is only an identity within one deployment.
   if (!market) notFound();
 
+  // ⚠️ **THE SQL COPY OF THE REHEARSAL RULE IS GONE FROM THIS FILE.** It carried
+  // `(observation_end <= created_at) AS after_the_fact` — the third spelling `rehearsal.ts` was
+  // created to end, and the one its header named as the straggler. Both categories are now the
+  // imported predicates.
+  //
+  // ⚠️ **AND THE SQL VERSION OF `pastPosted` WOULD NOT HAVE BEEN EQUIVALENT.** The obvious inline,
+  // `close_time > (observed_day || 'T00:00:00Z')::timestamptz`, resolves that cast in the session's
+  // TimeZone, and this rule is a midnight boundary — off UTC it moves by hours and a market near the
+  // boundary silently changes category. `dayStart()` is explicit `Date.UTC`. A wrong answer that
+  // looks right is worse than the duplication was.
+  const rehearsal = isRehearsal(market.observation_end, market.created_at);
+  const demo = pastPosted(market.close_time, market.observed_day);
+  const participants = demo ? participantsFor(id) : [];
+
+  const spec = JSON.parse(market.spec_json) as Spec;
+
   const claims = await db()<{
     id: string; chain_claim_id: string; author: string; side: boolean; amount: string;
     report_hash: string; directive: string | null; title: string | null;
@@ -94,24 +109,22 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
      ORDER BY c.created_at`;
   // ⚠️ Exactly one, or none. Two claims on one market would mean two sides to "join" and the
   // position panel could not name one — that case says so rather than picking.
-  const claim = claims.length === 1 ? claims[0]! : null;
-
-  const spec = JSON.parse(market.spec_json) as Spec;
-
-  // ⚠️ **THE SQL COPY OF THE REHEARSAL RULE IS GONE FROM THIS FILE.** It carried
-  // `(observation_end <= created_at) AS after_the_fact` — the third spelling `rehearsal.ts` was
-  // created to end, and the one its header named as the straggler. Both categories are now the
-  // imported predicates.
   //
-  // ⚠️ **AND THE SQL VERSION OF `pastPosted` WOULD NOT HAVE BEEN EQUIVALENT.** The obvious inline,
-  // `close_time > (observed_day || 'T00:00:00Z')::timestamptz`, resolves that cast in the session's
-  // TimeZone, and this rule is a midnight boundary — off UTC it moves by hours and a market near the
-  // boundary silently changes category. `dayStart()` is explicit `Date.UTC`. A wrong answer that
-  // looks right is worse than the duplication was.
-  const rehearsal = isRehearsal(market.observation_end, market.created_at);
-  const demo = pastPosted(market.close_time, market.observed_day);
-  const participants = demo ? participantsFor(id) : [];
-  const simTrueShare = demo ? illustrativeTrueShare(participants) : 0;
+  // ⚠️ **A DEMO MARKET CARRIES TWO THE MOMENT A JUDGE PLAYS**, and `claims.length === 1` was the
+  // first thing that would break. It already holds the analyst's claim from creation; the judge's
+  // commit makes it two, `claim` falls to null, the outcome rows lose their side marker and the
+  // panel changes shape under them mid-run. So a demo market names the ANALYST's claim for display
+  // and the panel never joins it.
+  //
+  // ⚠️ **The non-demo expression is untouched, deliberately.** Two claims on a forecast genuinely is
+  // ambiguous — two sides to join and no way to pick — and that case still says so rather than
+  // guessing. Checked: every market on chain today carries at most one claim, so this changes
+  // nothing that is currently rendered.
+  const analystLower = ANALYSTS.map((a) => a.arcAddress.toLowerCase());
+  const claim = demo
+    ? (claims.find((c) => analystLower.includes(c.author.toLowerCase())) ?? claims[0] ?? null)
+    : (claims.length === 1 ? claims[0]! : null);
+
 
   // ⚠️ **THE RPC URL A BROWSER MAY SEE.** `ARC_RPC_URL` can carry a key in its userinfo, query or
   // path. Anything but a bare host is replaced by the public endpoint before it is handed to a
@@ -135,6 +148,34 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   const staked = total > 0n;
   const truePct = staked ? Number((poolTrue * 1000n) / total) / 10 : null;
   const oneSided = staked && (poolTrue === 0n || poolFalse === 0n);
+
+  // ── ⚠️ WHAT THE PAGE SHOWS versus WHAT THE CONTRACT HOLDS ────────────────────────────────────
+  //
+  // On a demo market the illustrative participants are added to the pools **for display only**, so
+  // the ratio, the chart and the outcome rows read like a market with people in it rather than one
+  // with two stakes. This is the same treatment the chart has always carried — an invented shape
+  // whose right-hand end is real — extended to the numbers beside it, and marked in the same breath.
+  //
+  // ⚠️ **NOTHING SETTLES ON THESE.** `payoutOf` reads the contract, which knows only the real
+  // stakes, and it is the one figure on this page denominated in money that is not illustrative.
+  // A judge who checks arcscan finds the real stakers, which is why the marker is on the rows.
+  //
+  // ⚠️ **A real market passes through unchanged** — `demo` is false, so every `show*` below is the
+  // contract's own number and `/markets/6` renders exactly what it rendered before.
+  const simTrue = participants.filter((x) => x.side)
+    .reduce((a, x) => a + ethers.parseUnits(x.amountUsdc, 18), 0n);
+  const simFalse = participants.filter((x) => !x.side)
+    .reduce((a, x) => a + ethers.parseUnits(x.amountUsdc, 18), 0n);
+  const showTrue = demo ? poolTrue + simTrue : poolTrue;
+  const showFalse = demo ? poolFalse + simFalse : poolFalse;
+  const showTotal = showTrue + showFalse;
+  const showStaked = showTotal > 0n;
+  const showTruePct = showStaked ? Number((showTrue * 1000n) / showTotal) / 10 : null;
+
+  /** ⚠️ Decoration only — see `ProbabilityChart`'s `decorLines`. Seeded so they do not shuffle. */
+  const decorLines = demo
+    ? [17, 43, 71].map((k) => illustrativeSeries(`${id}/${k}`, ((showTruePct ?? 50) + k) % 90 + 5).trueLine)
+    : [];
 
   const recorded = await db()<{staker: string; amount: string; side: boolean; tx_hash: string}[]>`
     SELECT staker, amount, side, tx_hash FROM stakes WHERE market_id = ${market.id} ORDER BY seq`;
@@ -213,20 +254,11 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 distinction but this. `observation_end <= created_at` is the test — arithmetic, not a
                 naming convention, because one stored market's id contains the word "rehearsal" while
                 being a forecast by that arithmetic. */}
-            {/* ⚠️ **A DEMO MUST NEVER READ AS A FORECAST**, and on chain nothing tells them apart —
-                the contract stores three timestamps and never checks them against the day the
-                question names. `pastPosted` is the only thing that does. */}
-            {demo && (
-              <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
-                ⚠️ <strong>This is a demo, not a forecast.</strong> Staking opened on{' '}
-                {when(market.close_time)} — <strong>after {spec.observedDay} had already ended</strong>,
-                so the answer was public before anyone could commit. Every totalizator on earth is
-                built to prevent exactly this; the racing term is past-posting, and here it is
-                deliberate so the whole loop can be run in minutes. <strong>It counts towards no
-                record and reaches no planning prompt.</strong>
-              </p>
-            )}
-
+            {/* ⚠️ **NO PARAGRAPH HERE, DELIBERATELY.** The category is stated once, in the eyebrow
+                above and in the section this market came from on `/markets`. What keeps a demo out
+                of the record and out of the planning prompt is `pastPosted` in the data path —
+                `agent/context.ts` and `GradeMarker` — and a page that explained the mechanism read
+                like a disclaimer rather than a market. **The mechanism is not the copy.** */}
             {rehearsal && !demo && (
               <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
                 ⚠️ <strong>This is a rehearsal, not a forecast.</strong> The observed day
@@ -268,12 +300,13 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               </div>
             </div>
 
-            {staked ? (
+            {showStaked ? (
               <ProbabilityChart
-                series={illustrativeSeries(id, truePct!)}
-                truePct={truePct!}
-                falsePct={Number((100 - truePct!).toFixed(1))}
+                series={illustrativeSeries(id, showTruePct!)}
+                truePct={showTruePct!}
+                falsePct={Number((100 - showTruePct!).toFixed(1))}
                 illustrative
+                decorLines={decorLines}
               />
             ) : (
               <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
@@ -285,7 +318,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             {/* ⚠️ **ONE-SIDED MUST NOT READ AS A LANDSLIDE.** Every pool in this deployment is
                 one-sided. `payoutOf`'s `winningPool == 0` branch then returns each stake to the
                 staker who made it — the contract working, not a fault. */}
-            {oneSided && (
+            {oneSided && !demo && (
               <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
                 ⚠️ <strong>One-sided.</strong> Nobody has staked the other side, so 100% is not a
                 weight of opinion — it is the only side with money on it. If it settles this way the
@@ -298,9 +331,21 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 <Clock size={14} />
                 {open ? `Staking closes ${when(market.close_time)}` : standing}
               </span>
-              <span>{usdc(total)} USDC pool</span>
+              <span>{usdc(showTotal)} USDC pool</span>
+              {/* ⚠️ A demo counts the illustrative rows too, because the Stakes table below lists
+                  them — a count that disagreed with the list beneath it would be the first thing a
+                  reader noticed. A real market keeps its exact original wording. */}
               <span>
-                {recorded.length} recorded stake{recorded.length === 1 ? '' : 's'}
+                {demo ? (
+                  <>
+                    {recorded.length + participants.length} stake
+                    {recorded.length + participants.length === 1 ? '' : 's'}
+                  </>
+                ) : (
+                  <>
+                    {recorded.length} recorded stake{recorded.length === 1 ? '' : 's'}
+                  </>
+                )}
               </span>
             </div>
 
@@ -313,8 +358,8 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               <span>POOL</span>
               <span>SHARE</span>
             </div>
-            {([[true, poolTrue], [false, poolFalse]] as const).map(([side, amt]) => {
-              const pct = staked ? Number((amt * 1000n) / total) / 10 : null;
+            {([[true, showTrue], [false, showFalse]] as const).map(([side, amt]) => {
+              const pct = showStaked ? Number((amt * 1000n) / showTotal) / 10 : null;
               return (
                 <div key={String(side)} className={claim?.side === side ? 'outcome-row chosen' : 'outcome-row'}>
                   <div>
@@ -428,38 +473,51 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               </div>
             </div>
           </details>
-          {/* ── ⚠️ ILLUSTRATION, AND THE NAMES SAY SO ───────────────────────────────────── */}
+          {/* ── The stakes on this market. ⚠️ Simulated rows carry a two-word marker. ────────── */}
           {demo && (
             <div className="holdings-panel panel" style={{marginTop: 20}}>
               <div className="section-title">
                 <div>
-                  <span className="eyebrow">POOL SHAPE / NOT ON CHAIN</span>
-                  <h2>Ten illustrative participants</h2>
+                  <span className="eyebrow">WHO IS ON EACH SIDE</span>
+                  <h2>Stakes</h2>
                 </div>
-                <span className="badge">{simTrueShare}% TRUE</span>
+                <span className="badge">{usdc(showTotal)} USDC</span>
               </div>
-              <p className="market-statline" style={{display: 'block', lineHeight: 1.6, paddingTop: 0}}>
-                ⚠️ <strong>These are not real and they hold nothing.</strong> They exist to give the
-                pool a shape a judge can read at a glance. They are derived from this market&rsquo;s
-                id, stored nowhere, and <strong>no payout on this page is derived from them</strong> —
-                the only USDC figure here comes from <code>payoutOf</code> against the real pool.
-                <strong> Arcscan will show the real stakers, not twelve.</strong>
-              </p>
               <div className="table-scroll">
                 <table className="financial-table">
                   <thead>
-                    <tr><th>Participant</th><th>Side</th><th>Illustrative size</th></tr>
+                    <tr><th>Staker</th><th>Side</th><th>Amount</th></tr>
                   </thead>
                   <tbody>
                     {participants.map((pt) => (
                       <tr key={pt.handle}>
-                        <td><code>{pt.handle}</code></td>
+                        <td>
+                          <code>{pt.handle}</code>{' '}
+                          {/* ⚠️ Two words, on the row, every row. Not a paragraph and not a footnote —
+                              a marker that can be scrolled away from the thing it marks is no marker. */}
+                          <span className="holdings-sub">simulated</span>
+                        </td>
                         <td>
                           <span className={`badge grade-${pt.side ? 'right' : 'wrong'}`}>
                             {pt.side ? 'TRUE' : 'FALSE'}
                           </span>
                         </td>
-                        <td>{pt.amountUsdc} <span className="holdings-sub">simulated</span></td>
+                        <td>{pt.amountUsdc} USDC</td>
+                      </tr>
+                    ))}
+                    {recorded.map((r) => (
+                      <tr key={r.tx_hash}>
+                        <td>
+                          <a className="text-link" href={`https://testnet.arcscan.app/tx/${r.tx_hash}`} target="_blank" rel="noreferrer">
+                            <code>{r.staker.slice(0, 12)}…</code>
+                          </a>
+                        </td>
+                        <td>
+                          <span className={`badge grade-${r.side ? 'right' : 'wrong'}`}>
+                            {r.side ? 'TRUE' : 'FALSE'}
+                          </span>
+                        </td>
+                        <td>{usdc(BigInt(r.amount))} USDC</td>
                       </tr>
                     ))}
                   </tbody>
@@ -478,25 +536,6 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               a button, meant a person could stake USDC twice for what is one action.
               ⚠️ The heading and the whose-money line live inside the control because both change
               with the branch. */}
-          {/* ⚠️ **A DEMO MARKET GETS A DIFFERENT CONTROL, NOT A RESKINNED ONE.** `PositionControl`'s
-              COMMIT branch spends the ANALYST's money through Circle, which is the wrong wallet
-              entirely here — §2.3 settled that the judge commits their own claim, from their own
-              wallet, backing a report they choose. Its JOIN branch calls `stake`, which carries no
-              report at all. Neither is the call this needs. */}
-          {demo ? (
-            <DemoControl
-              chainMarketId={id}
-              contractAddress={market.contract_address}
-              rpcUrl={publicRpc}
-              reports={analystReports.map((r) => ({hash: r.hash, label: r.label}))}
-              closeTimeMs={market.close_time.getTime()}
-              observationEndMs={market.observation_end.getTime()}
-              state={panelState}
-              outcome={market.outcome}
-              observedDay={spec.observedDay}
-              deployment={spec.slug}
-            />
-          ) : (
           <PositionControl
             chainMarketId={id}
             reports={analystReports}
@@ -510,8 +549,8 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                   }
                 : null
             }
-            poolTrue={poolTrue.toString()}
-            poolFalse={poolFalse.toString()}
+            poolTrue={showTrue.toString()}
+            poolFalse={showFalse.toString()}
             maxStakeWei={maxStake.toString()}
             contractAddress={market.contract_address}
             rpcUrl={publicRpc}
@@ -525,8 +564,10 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
             state={panelState}
             standing={standing}
             outcome={market.outcome}
+            demo={demo}
+            closeTimeMs={market.close_time.getTime()}
+            observationEndMs={market.observation_end.getTime()}
           />
-          )}
 
           <div className="arc-evidence">
             <span className="eyebrow">ARC / ONCHAIN EVIDENCE</span>

@@ -16885,3 +16885,209 @@ Rendered and checked: `/markets` 200 with the section and `5 settled — 2 right
 and the play panel; `/markets/6` 200 still reading `FORECAST` with no demo controls.
 
 `npx next build` after `rm -rf .next` passes. No schema change, no contract change.
+
+---
+
+## 2026-09-13 — PHASE-8 Task 3 review: what to keep when the demo surface is rebuilt as a market page
+
+No code changed. A read-only audit of what Task 3 built, ahead of rebuilding the demo as the market
+detail page with a reveal button. **Most of it is presentation and swaps cleanly; three things are
+load-bearing and one of them is easy to strip by accident.**
+
+### The short version
+
+⚠️ **The record and planning-prompt exclusion is NOT in the demo surface and survives deleting all of
+it.** `pastPosted` is enforced in `src/agent/context.ts::build()` and in
+`app/components/GradeMarker.tsx` (`gradesFor`, `analystRecord`, `recordLine`) — the data path, shared
+with `/`, `/analyst`, `/markets` and `/report/[hash]`. The demo page's own `pastPosted` call only
+picks an eyebrow and a control. **Deleting `DemoControl.tsx`, `DemoStarter.tsx` and `demo.ts` strips
+nothing from the guard.**
+
+### What is actually load-bearing
+
+1. **`revealDemoMarket`'s `pastPosted` refusal** (`app/markets/actions.ts`). That action is ungated,
+   and the refusal is the only thing stopping it resolving markets 6, 7, 11 and 12. It must survive
+   any rewrite of the surface above it.
+2. **`DemoControl`'s browser-wallet `commitPrediction`.** It is the only code in the repo that
+   commits a claim from a *visitor's* wallet. `PositionControl`'s COMMIT branch spends the
+   **analyst's** USDC through Circle and connects no wallet; its JOIN branch signs from the visitor's
+   wallet but calls `stake()`, which carries no report. Neither is the call the demo needs.
+3. **The `after_the_fact` removal in `app/markets/[id]/page.tsx`.** That replaced the SQL rehearsal
+   copy — the straggler `rehearsal.ts`'s header named — with the imported predicates. It is shared
+   with real markets and is an improvement independent of the demo. ⚠️ **Do not revert it with the
+   rest.**
+
+### ⚠️ The finding that decides the rebuild: the commit route refuses demo markets
+
+`/api/markets/[id]/commit` rebuilds the market's own times and calls **`prepare()`**, which runs
+`questionCore()` — past-posting prevention. For a demo market `closeTime > dayStart(observedDay)`, so
+it throws *"closeTime is inside or after the observed day"* and the route returns **409 before
+spending anything**.
+
+**So reusing the real position panel on a demo market does not half-work — every commit through it is
+refused.** The route needs to pick `prepareDemo` when the market is past-posted. That is a small,
+well-defined change, and it is the one thing standing between "looks like a real market" and "is one".
+
+### What the real components already handle, with nothing to do
+
+- **The chart.** `ProbabilityChart` + `illustrativeSeries` is already invented, deterministic, seeded
+  by the market id, ends on the live pool share, and **says it is illustrative inside the chart**.
+  The demo page already renders it. This is exactly the treatment the rebuild wants and it is free.
+- **Outcome rows, pool statline, supporting research, the resolved/voided copy.** All in the shared
+  part of the page and all already correct for a demo market.
+
+### What the real components do NOT handle
+
+- **No reveal affordance.** `PositionControl` renders a `Lock` and "Staking closed" for any
+  non-open state. The reveal button has to be added there.
+- **No side picker.** Deliberately — JOIN reads the side off the claim and COMMIT lets `decideSide`
+  choose. A judge must pick TRUE or FALSE. ⚠️ The original design reference
+  (`trash/front-end-design/prediction-*.html`) has exactly this control, labelled **Outcome**, along
+  with **Stake amount**, the amount **presets**, **Attach supporting report** and **Potential total
+  payout**. The shipped panel has the report select, the amount field and the presets; Outcome and
+  the payout line were never built. So they are additions the design already specifies, not
+  inventions.
+- **No countdown**, and the page is server-rendered per request. A demo market changes state twice in
+  three minutes, so something client-side has to tick and re-render. `DemoControl` does that today.
+- ⚠️ **The single-claim assumption.** `const claim = claims.length === 1 ? claims[0]! : null`. A demo
+  market gets the analyst's claim at creation; if a judge also commits, that is two, `claim` becomes
+  null, the outcome rows lose their "the analyst's side" marker and the panel flips branch. Checked
+  the store: **every market on chain today has at most one claim**, so this has never been exercised.
+
+### The operator secret — it only looks removable
+
+`startDemoMarket` compares the secret server-side and returns a refusal on mismatch, and
+`requiredEnv('CONSOLE_SECRET')` runs first, so the action **needs the env var to exist even to
+refuse**. Deleting the field without deleting the check makes every Start press fail. Nothing else
+reads it on this path — `lock.ts` has been unwired since 2026-09-12 and the console routes have their
+calls commented out — so removal is self-contained.
+
+⚠️ **But removing it leaves an ungated endpoint that spends the analyst's USDC per press**, which is
+the precise situation `DECISIONS.md` (2026-09-12) says puts the lock back. Worth noting that **a real
+market page has no "create a market" button at all** — so moving creation to
+`scripts/ops/demo-market.ts` would both remove the secret from the page and make the surface look
+*more* like a real market, not less. That is a decision for the owner and is raised in chat.
+
+### The simulated participants, and the one arithmetic hazard
+
+`participantsFor(chainMarketId)` is pure, deterministic and stored nowhere — an xorshift seeded by
+the market id, no schema change. Rendering them as ordinary stakers is easy; **what needs deciding is
+which number the pool and percentages show.** The contract's `poolTrue`/`poolFalse` do not include
+them, so if sims render as ordinary staker rows without more, a visitor adding up the rows gets a
+different figure from the pool, and the outcome-row share and the illustrative share become two
+numbers that should agree and do not.
+
+The clean resolution is the one the brief already points at: **let the sims drive the displayed pool
+and percentages, marked the way the chart is marked**, and keep the only real money figure —
+`payoutOf` against the real pool — as the payout. That is the same illustrative treatment real
+markets already carry, and it leaves exactly one number on the page denominated in money.
+
+### Two things to settle before building
+
+1. **Where creation is triggered** — an ungated button on the page, or `scripts/ops/demo-market.ts`.
+2. **Whose wallet commits** — keep the judge's browser wallet (needs the commit route to branch to
+   `prepareDemo`), or fall back to the analyst's Circle wallet, which works today but is no longer
+   the judge's bet.
+
+Both raised in chat rather than assumed. Nothing was edited.
+
+---
+
+## 2026-09-13 — PHASE-8 Task 3, rebuilt: the demo IS the market page
+
+The honesty apparatus is gone — no operator secret, no question table, no disclaimer paragraphs. A
+demo market is a card in the Demo section, and clicking it gives the market detail page: same
+heading, same chart, same outcome rows, same dark position panel. **One sentence at the section
+head, and one extra button on the page.** Nothing was staked, revealed or created.
+
+### Step 1 — the commit route, and the refusal proved it
+
+`/api/markets/[id]/commit` now branches on `pastPosted(close_time, observed_day)` and calls
+`prepareDemo` for a demo market, `prepare` for everything else. The branch is on the market's own
+arithmetic, never a parameter, so a caller cannot ask for the lenient planner.
+
+⚠️ **Checked against market 13's stored times rather than asserted**, and the result is stronger than
+a pass: `prepare()` refuses at the timing guard — *"closeTime 1789265126 is inside or after the
+observed day"* — while `prepareDemo()` gets **past** it and refuses at **guard 7, already
+committed**. A refusal at the *next* guard is proof the tested one accepted. Neither spends.
+
+### Step 2 — the panel, and `/markets/6` byte-identical
+
+`PositionControl` gained a `demo` mode. Every new branch is gated on it, and a real market passes
+`false` and renders what it always did.
+
+- ⚠️ **`const joining = claim !== null` became `!demo && claim !== null`.** A demo market already
+  carries the analyst's claim, so the plain test would have put the panel in JOIN — report select
+  disabled, no side, and `stake()`, which carries no report at all. The exact opposite of the point.
+- ⚠️ **The `claims.length === 1` fix, which fires on the first press.** A demo market names the
+  analyst's claim for display; the non-demo expression is untouched, because two claims on a
+  forecast genuinely is ambiguous and should still say so.
+- New in demo mode: an **Outcome** picker, **Attach supporting report**, **Stake amount** with
+  presets, a **potential total payout** line, one button, and `commitPrediction` from the judge's own
+  wallet — the call neither existing branch had.
+
+**Check: `/markets/6` and `/markets/11` render text-identical to the pre-change capture.** ⚠️ The
+first comparison was against raw HTML and drowned in chunk hashes and per-request RSC ids; stripping
+to visible text is what made it a real check rather than a green tick.
+
+### Step 3 — sims drive the display, and the chart got lines
+
+Illustrative participants are added to the pools **for display only** — ratio, chart, outcome rows
+and the pool total. `payoutOf` still reads the contract and is the one money figure that is not
+illustrative. The participants render as ordinary staker rows in a **Stakes** table beside the real
+ones, each carrying the word `simulated` — two words on the row, not a paragraph, because a marker
+that can be scrolled away from what it marks is no marker.
+
+The chart takes `decorLines`: three faint unlabelled paths drawn behind the two real ones, with
+`* settlement is binary — two pools` in the legend. ⚠️ They have no legend entry precisely because
+they are not outcomes and nothing can be staked on one.
+
+⚠️ **Two regressions caught by the `/markets/6` check, both mine.** Changing the statline to
+`{n} stake(s)` dropped the word "recorded" from every real market; and fixing it with a template
+literal changed the JSX text-node boundaries. Restoring the original fragment shape made it identical
+again. **Neither would have been visible without a byte comparison against a baseline.**
+
+### Step 4 — the surface that was replaced, deleted
+
+`DemoControl.tsx` and `DemoStarter.tsx` are gone, and `startDemoMarket` with its `CONSOLE_SECRET`
+gate went with them. Creation moved to `scripts/ops/demo-market.ts --seed`, which puts all six
+preset questions on chain with **staggered closeTimes** — six created in one pass would otherwise
+shut within seconds of each other and leave a judge one playable market and five corpses.
+
+⚠️ **Moving creation to a script is presentation as much as safety.** A real market page has no
+"create a market" control, so a demo that had one could be told apart at a glance — and the secret
+field it needed was the ugliest thing on the surface. In a script the privilege is structural: you
+have a shell or you do not.
+
+`createDemoMarket` remains but is **not exported** from the `'use server'` module. An unrestricted
+"make me a market" reachable from a browser is exactly what should not be one.
+
+### Step 5 — the copy
+
+`/markets` carries one sentence: *"These resolve in minutes because the day they measure has already
+happened."* The detail page's demo paragraph is gone entirely, replaced by a comment saying why:
+⚠️ **the mechanism is not the copy.** `pastPosted` lives in `agent/context.ts` and `GradeMarker` —
+the data path — and explaining it on screen made the page read like a disclaimer instead of a market.
+
+The **DEMO** eyebrow stays. It is one word, it matches the section the market came from, and removing
+it would leave the page claiming to be a FORECAST, which it is not.
+
+### The reset, and what it costs
+
+One claim per author per market means the same market cannot be replayed. **Play this question
+again** creates a new market on the same question with a later `closeTime` — a different market, so
+the contract's rule is untouched rather than circumvented. It sits in the position panel under the
+settled status, costs the analyst about **0.02 USDC** (a `createMarket` plus the analyst's
+`commitPrediction`), and is ungated but bounded: past-posted only, settled only, reuses the existing
+market's own spec so it cannot mint an arbitrary question, and the three-market open cap.
+
+### ⚠️ What has NOT been exercised
+
+Market 13 is resolved, so the surfaces checked were the settled ones. **The open-state demo panel —
+Outcome picker, stake button — and the Reveal button have never rendered against a live open demo
+market**, because creating one spends and this task said not to. `--seed --send` is the first press.
+
+Also: a judge returning to an already-settled market sees no payout figure, because `payoutOf` is
+read in-session after Reveal rather than on load. Noted, not built.
+
+`npx next build` after `rm -rf .next` passes. Markets 6, 7, 11 and 12 untouched; `marketCount` 13.

@@ -41,8 +41,9 @@
 // live pools and the contract's own constants — and then **MetaMask is itself the second
 // confirmation**, showing the amount in the wallet's own words before anything is signed.
 
-import {useState} from 'react';
-import {ArrowUpRight, Check, Lock} from '../../components/Icons.js';
+import {useEffect, useState} from 'react';
+import {resetDemoMarket, revealDemoMarket} from '../actions.js';
+import {ArrowUpRight, Check, Clock, Lock} from '../../components/Icons.js';
 
 export interface AnalystReport {
   hash: string;
@@ -108,6 +109,9 @@ export function PositionControl({
   state,
   standing,
   outcome,
+  demo = false,
+  closeTimeMs,
+  observationEndMs,
 }: {
   chainMarketId: string;
   /** The analyst's tokenized reports. Not filtered further — see the header. */
@@ -124,8 +128,20 @@ export function PositionControl({
   state: 'open' | 'closed' | 'resolved' | 'voided';
   standing: string;
   outcome: boolean | null;
+  /**
+   * ⚠️ **Past-posted, so the judge commits their OWN claim from their OWN wallet.** Every branch
+   * this opens is gated on it, and a real market passes `false` and renders exactly what it always
+   * did — that property is the check `/markets/6` exists to prove.
+   */
+  demo?: boolean;
+  closeTimeMs?: number;
+  observationEndMs?: number;
 }) {
-  const joining = claim !== null;
+  // ⚠️ **A DEMO VISITOR NEVER JOINS.** The analyst's claim is already on a demo market, so the plain
+  // `claim !== null` would put this panel in JOIN — disabling the report select, hiding the side, and
+  // calling `stake()`, which carries no report at all. The whole point is the opposite: their wallet,
+  // their report, their side. Non-demo markets read exactly as before.
+  const joining = !demo && claim !== null;
 
   const [hash, setHash] = useState(claim?.reportHash ?? reports[0]?.hash ?? '');
   const [amount, setAmount] = useState(joining ? '1' : '0.01');
@@ -138,6 +154,18 @@ export function PositionControl({
   const [txHash, setTxHash] = useState<string | null>(null);
   const [done, setDone] = useState<{what: 'committed' | 'staked'; id: string; arcscan: string | null} | null>(null);
   const [pools, setPools] = useState({t: BigInt(poolTrue), f: BigInt(poolFalse)});
+  /** ⚠️ Demo only. `commitPrediction` carries a side and the contract will not guess one. */
+  const [side, setSide] = useState<boolean | null>(null);
+  const [revealing, setRevealing] = useState(false);
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const [payout, setPayout] = useState<bigint | null>(null);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!demo) return undefined;
+    const t = setInterval(() => setTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [demo]);
+  void tick;
 
   const max = BigInt(maxStakeWei);
   const wei = toWei(amount);
@@ -300,6 +328,93 @@ export function PositionControl({
     }
   };
 
+  /**
+   * ⚠️ **The judge's own claim, from the judge's own wallet.** `commitPrediction(marketId,
+   * reportHash, side)` — the one call `PositionControl` did not have: COMMIT above spends the
+   * ANALYST's USDC through Circle and connects no wallet, and JOIN signs from the visitor's wallet
+   * but calls `stake()`, which carries no report. A demo needs both halves at once.
+   *
+   * ⚠️ **Selector computed with `ethers.id()` and checked, not written from memory.** Two earlier
+   * attempts at these by hand were both wrong, and a bad selector presents as an unexplained revert
+   * *after* the judge has signed — the worst possible moment to find out.
+   */
+  const commitAsJudge = async () => {
+    if (side === null) return;
+    setBusy(true);
+    setStop(null);
+    try {
+      const from = account ?? (await (async () => {
+        setStage('waiting for the wallet to connect…');
+        const accounts = (await eth().request({method: 'eth_requestAccounts'})) as string[];
+        const first = accounts[0];
+        if (!first) throw new Error('The wallet returned no account.');
+        setAccount(first);
+        return first;
+      })());
+      await ensureArc();
+      const data = '0xcdb24e7d'
+        + BigInt(chainMarketId).toString(16).padStart(64, '0')
+        + hash.replace(/^0x/, '').padStart(64, '0')
+        + (side ? 1n : 0n).toString(16).padStart(64, '0');
+      setStage('confirm the stake in your wallet…');
+      const h = (await eth().request({
+        method: 'eth_sendTransaction',
+        params: [{from, to: contractAddress, value: `0x${wei!.toString(16)}`, data}],
+      })) as string;
+      setTxHash(h);
+      await record(h);
+    } catch (e) {
+      const err = e as {code?: number; message?: string};
+      setStop({
+        message: err.code === 4001 ? 'You rejected the request in the wallet. Nothing was sent.' : (err.message ?? String(e)),
+        kind: 'error',
+      });
+      setStage('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** Settle it against the day that already happened. ⚠️ Spends ~0.0014 USDC of the analyst's gas. */
+  const doReveal = async () => {
+    setRevealing(true);
+    setStop(null);
+    try {
+      const r = await revealDemoMarket(chainMarketId);
+      if (!r.ok) { setStop({message: r.why, kind: 'refused'}); return; }
+      setRevealed(r.note);
+      if (account) {
+        // ⚠️ `payoutOf(uint256,address)` — the real pool. The only figure here that is not illustrative.
+        const data = '0x16df4910'
+          + BigInt(chainMarketId).toString(16).padStart(64, '0')
+          + account.replace(/^0x/, '').toLowerCase().padStart(64, '0');
+        try {
+          const res = await fetch(rpcUrl, {
+            method: 'POST', headers: {'content-type': 'application/json'},
+            body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{to: contractAddress, data}, 'latest']}),
+          });
+          const j = (await res.json()) as {result?: string};
+          if (j.result) setPayout(BigInt(j.result));
+        } catch { /* absent rather than zero */ }
+      }
+    } catch (e) {
+      setStop({message: (e as Error).message, kind: 'error'});
+    } finally { setRevealing(false); }
+  };
+
+  /** Play the same question again on a fresh market. ⚠️ Costs the analyst ~0.02 USDC. */
+  const doReset = async () => {
+    setRevealing(true);
+    setStop(null);
+    try {
+      const r = await resetDemoMarket(chainMarketId);
+      if (!r.ok) { setStop({message: r.why, kind: 'refused'}); return; }
+      globalThis.location.href = `/markets/${r.chainMarketId}`;
+    } catch (e) {
+      setStop({message: (e as Error).message, kind: 'error'});
+    } finally { setRevealing(false); }
+  };
+
   // ── ⚠️ THE THREE CLOSED STATES. Neither call is available; each says what is true of it. ──────
   if (state !== 'open') {
     return (
@@ -319,9 +434,37 @@ export function PositionControl({
             <span>claim #{claim.chainClaimId}</span>
           </p>
         )}
-        <span className="btn white full inert">
-          <Lock size={15} /> {state === 'voided' ? 'Voided' : state === 'resolved' ? 'Market resolved' : 'Staking closed'}
-        </span>
+        {/* ⚠️ The status a real market shows, FIRST — the demo's extra control goes under it, not
+            in front of it. A button above the sentence that explains the state reads as the primary
+            action on a settled market, which it is not. */}
+        {(!demo || (state !== 'closed' && !revealed)) && (
+          <span className="btn white full inert">
+            <Lock size={15} /> {state === 'voided' ? 'Voided' : state === 'resolved' ? 'Market resolved' : 'Staking closed'}
+          </span>
+        )}
+
+        {/* ⚠️ **THE ONE CONTROL A REAL MARKET DOES NOT HAVE.** A forecast waits for the resolver's
+            daily pass; a demo's day finished hours ago, so settlement can run the moment staking
+            shuts. `revealDemoMarket` refuses anything that is not past-posted, so this cannot reach
+            markets 6, 7, 11 or 12 whatever id it is handed. */}
+        {demo && state === 'closed' && !revealed && (
+          <button className="btn white full" type="button" disabled={revealing} onClick={() => void doReveal()}>
+            {revealing ? 'Reading the day…' : 'Reveal answer'}
+          </button>
+        )}
+        {demo && revealed && <p className="position-sub"><Check size={13} /> {revealed}</p>}
+        {demo && payout !== null && (
+          <p className="position-sub">Your payout is {fromWei(payout)} USDC, from the real pool.</p>
+        )}
+        {/* ⚠️ One claim per author per market, so the same market cannot be replayed. This creates a
+            NEW market on the same question with a later closeTime — a different market, which leaves
+            the contract's rule exactly as written. It costs the analyst ~0.02 USDC. */}
+        {demo && (state === 'resolved' || state === 'voided' || revealed) && (
+          <button className="btn dark-outline full" type="button" disabled={revealing} onClick={() => void doReset()}>
+            {revealing ? 'Creating the next one…' : 'Play this question again'}
+          </button>
+        )}
+        {stop && <p className="validation-message">{stop.message}</p>}
       </>
     );
   }
@@ -349,6 +492,121 @@ export function PositionControl({
             Follow it on arcscan <ArrowUpRight size={13} />
           </a>
         )}
+      </>
+    );
+  }
+
+  // ── ⚠️ THE DEMO PANEL. Same labels, same classes, same one button as a real market. ───────────
+  //
+  // The only structural difference from a forecast is the **Outcome** control, and it is unavoidable
+  // rather than decorative: `commitPrediction` takes a side and the contract will not guess one. On a
+  // real market the side is either the analyst's (`decideSide` picks it) or the claim's (JOIN reads
+  // it off), so there has never been anything for a visitor to choose.
+  if (demo) {
+    const closesIn = closeTimeMs ? Math.max(0, Math.ceil((closeTimeMs - Date.now()) / 1000)) : 0;
+    // ⚠️ Illustrative, from the DISPLAYED pool, and marked — the same treatment the chart carries.
+    // The only real money figure on this page is `payoutOf`, read after settlement.
+    const win = side === true ? pools.t : pools.f;
+    const lose = side === true ? pools.f : pools.t;
+    const potential = wei !== null && side !== null && win + wei! > 0n
+      ? fromWei(wei! + (wei! * lose) / (win + wei!))
+      : null;
+
+    return (
+      <>
+        <h2>Your position</h2>
+        <p>
+          You sign from your own wallet on Arc. <strong>The USDC is yours and so is the claim</strong> —
+          the report you attach is what gets graded when this settles.
+        </p>
+
+        <label htmlFor="position-outcome">Outcome</label>
+        <div className="amount-shortcuts" id="position-outcome">
+          {([true, false] as const).map((v) => (
+            <button
+              key={String(v)} type="button" disabled={busy}
+              className={side === v ? 'active' : undefined}
+              onClick={() => setSide(v)}
+            >
+              {v ? 'TRUE' : 'FALSE'}
+            </button>
+          ))}
+        </div>
+
+        <label htmlFor="position-report">Attach supporting report</label>
+        <select
+          id="position-report" className="choice" value={hash} disabled={busy}
+          onChange={(e) => { setHash(e.target.value); setStop(null); }}
+        >
+          {reports.map((r) => (
+            <option key={r.hash} value={r.hash} style={OPTION}>{r.label}</option>
+          ))}
+        </select>
+        <span className="position-sub">
+          {reports.length} tokenized report{reports.length === 1 ? '' : 's'}{chosen ? ` · ${chosen.isin}` : ''}
+        </span>
+
+        <label htmlFor="position-amount">Stake amount</label>
+        <div className="amount-field">
+          <input
+            id="position-amount" value={amount} disabled={busy} inputMode="decimal"
+            onChange={(e) => { setAmount(e.target.value); setStop(null); }}
+          />
+          <span>USDC</span>
+        </div>
+        <div className="amount-shortcuts">
+          {['0.01', '0.1', '1', '10'].map((v) => (
+            <button
+              key={v} type="button" disabled={busy}
+              className={amount === v ? 'active' : undefined}
+              onClick={() => { setAmount(v); setStop(null); }}
+            >
+              {v}
+            </button>
+          ))}
+        </div>
+
+        {invalid && <p className="validation-message">{invalid}</p>}
+
+        {side !== null && !invalid && (
+          <div className="transaction-receipt">
+            <b><span>side</span><span>{side ? 'TRUE' : 'FALSE'}</span></b>
+            <b><span>amount</span><span>{amount} USDC</span></b>
+            <b><span>from</span><span>your wallet</span></b>
+            <b>
+              <span>potential total payout *</span>
+              <span>{potential ? `${potential} USDC` : '—'}</span>
+            </b>
+          </div>
+        )}
+
+        {stop && <p className="validation-message">{stop.message}</p>}
+
+        <button
+          className="btn white full" type="button"
+          disabled={busy || invalid !== null || side === null}
+          onClick={() => void commitAsJudge()}
+        >
+          {busy
+            ? 'Staking…'
+            : side === null
+              ? 'Pick an outcome'
+              : `Stake ${amount} USDC on ${side ? 'TRUE' : 'FALSE'}`}
+        </button>
+
+        {account && <p className="balance-line">Connected: {account}</p>}
+        {stage && <p className="balance-line">{stage}</p>}
+        {txHash && (
+          <a className="text-link" href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer">
+            Your transaction on arcscan <ArrowUpRight size={13} />
+          </a>
+        )}
+
+        <p className="position-disclaimer">
+          <Clock size={13} /> Staking closes in {Math.floor(closesIn / 60)}:{String(closesIn % 60).padStart(2, '0')},
+          then <strong>Reveal answer</strong> settles it against the day&rsquo;s real snapshot.
+          {' '}* Pool and payout above are illustrative; the settled figure is read from the contract.
+        </p>
       </>
     );
   }
