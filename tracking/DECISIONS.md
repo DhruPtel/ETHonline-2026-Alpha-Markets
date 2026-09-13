@@ -900,3 +900,28 @@ the right shape the day a stranger has bought a listed report, and more than tes
 **Affects.** `src/store/reports.ts` (`unpublish()`, and `publish()`'s comment now points at it) and
 `scripts/ops/unpublish.ts`. It reverses 009's "there is no unpublish" for operator cleanup; 009 is not
 edited, and its argument survives as `unpublish()`'s doc comment.
+
+## 2026-09-13 — the three live forecasts are undirected, and 6, 7, 11 and 12 are unlisted by id
+
+**What.** Markets 34, 35 and 36 were created through `prepare()` and `create()` with no commit, and
+`scripts/ops/create-forecasts.ts` clears `directed_at` the moment each lands — so `/api/cron/commit`
+never claims them and the first commit on each is whoever presses it. `/markets` lists forecasts
+except chain ids 6, 7, 11 and 12 (one named constant), only the newest demo market, and no longer
+renders the Rehearsals or Not-on-chain sections.
+
+**Why.** Both the operator's calls, in chat. A cron that claims all three at 22:00Z leaves every market
+refusing the one action it exists for — a judge committing a report. And nothing in state separates
+11 and 12 from the new three today (all open, unsettled forecasts), so the hiding is a named list
+rather than a rule that only appears to be one.
+
+**Given up.** ⚠️ **A2's evidence, tonight.** A2 closes on a `vercel-cron/1.0` request committing
+unattended, and none has ever been recorded — every real claim was placed by hand. With the three
+cleared, the only directed markets left have long-closed staking and the cron refuses them, so the
+22:00Z run commits nothing. Also given up: the join flow with real money in view on `/markets`, which
+until someone commits on a new market lives only on the unlisted pages of 11 and 12.
+
+**Rejected.** Leaving the three directed. A created-after cutoff. An open-for-staking rule, which would
+empty the Forecasts section for the whole of the new markets' settlement.
+
+**Affects.** PLAN-v4's A2 row — not amended: it is still the criterion, and its evidence is deferred
+rather than dropped. `scripts/ops/create-forecasts.ts`, `app/markets/page.tsx`.

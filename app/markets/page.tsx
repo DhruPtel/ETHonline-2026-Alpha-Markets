@@ -95,9 +95,11 @@ function shortQuestion(spec: Spec): string {
 /** `aave-v3-ethereum` → `Aave v3`. Every configured deployment is on Ethereum, so the suffix names nothing. */
 function protocolName(slug: string): string {
   return slug.replace(/-ethereum$/, '').split('-')
-    .map((w) => (/^v\d+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .map((w) => PROPER_NAME[w] ?? (/^v\d+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
     .join(' ');
 }
+/** Names whose capitalisation a rule cannot recover. */
+const PROPER_NAME: Readonly<Record<string, string>> = {makerdao: 'MakerDAO'};
 
 /**
  * $24,315,301,463 → $24.3B. ⚠️ **CARD ONLY.** It is rounded, so it must never appear where it could be
@@ -108,6 +110,23 @@ function abbreviateUsd(decimal: string): string {
   const [div, unit]: [number, string] = n >= 1e9 ? [1e9, 'B'] : n >= 1e6 ? [1e6, 'M'] : n >= 1e3 ? [1e3, 'K'] : [1, ''];
   return `$${(n / div).toFixed(1).replace(/\.0$/, '')}${unit}`;
 }
+
+/**
+ * ⚠️ **FORECASTS NOT LISTED, BY CHAIN ID — A LIST, AND DELIBERATELY SO.** The operator's choice on
+ * 2026-09-13, when three live forecasts were created for the replacement reports. Nothing in state
+ * separates these four from those three: all are forecasts, and 11 and 12 were still open for staking.
+ * So the choice is named here rather than dressed up as a rule.
+ *
+ *   6, 7    closed; resolvable until 2026-09-15T00:00Z on evidence recorded at 02:52Z, voidable by
+ *           anyone after that. Market 6 holds a human wallet's 1.00 USDC.
+ *   11, 12  open until 2026-09-13T23:59Z with five stakes from one wallet — until a new market carries
+ *           a claim, the only pages that show the join flow with real money in it.
+ *
+ * ⚠️ **Not listed, not gone.** Each keeps `/markets/<id>`, its claim, its stakes, its arcscan trail and,
+ * once it settles, its grade on `/analyst`. A staker collects through the contract's `claim()` either
+ * way — this site has never had a button for it.
+ */
+const UNLISTED_FORECASTS: readonly string[] = ['6', '7', '11', '12'];
 
 /** The five states a market can be in. ⚠️ A void is an absence of an outcome, never a wrong answer. */
 function standing(r: Row): string {
@@ -170,22 +189,22 @@ export default async function MarketIndex() {
   // transactions on arcscan. The record line above still counts them. **Only the index stops
   // showing them**, so the section reads as a thing to play rather than a pile of finished games.
   //
-  // The rule: everything still open for staking, plus the single most recently settled one so a
-  // judge who just revealed can still see what they did. `allDemos` keeps the true count for the
-  // line that names it.
+  // ⚠️ **The rule: the single most recently CREATED demo market, whatever its state.** It was
+  // "everything open for staking, plus the most recent other one", which is two cards the moment a
+  // judge presses Start while an earlier market is listed. Newest-by-creation is exactly one whenever
+  // any exist, derived from state with no flag, and pressing Start replaces it — so the card is always
+  // the market most likely to be the one in play. `allDemos` keeps the true count for the line naming it.
   const allDemos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
   const demoOpen = allDemos.filter(
     (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
   );
-  const demoRecent = allDemos
-    .filter((r) => !demoOpen.includes(r))
-    .sort((a, b) => b.created_at.getTime() - a.created_at.getTime())
-    .slice(0, 1);
-  const demos = [...demoOpen, ...demoRecent];
+  const demos = [...allDemos].sort((a, b) => b.created_at.getTime() - a.created_at.getTime()).slice(0, 1);
   const demoHidden = allDemos.length - demos.length;
-  const forecasts = onChain.filter(
+  const allForecasts = onChain.filter(
     (r) => !isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
   );
+  const forecasts = allForecasts.filter((r) => !UNLISTED_FORECASTS.includes(r.chain_market_id!));
+  const forecastsHidden = allForecasts.length - forecasts.length;
   const rehearsals = onChain.filter(
     (r) => isRehearsal(r.observation_end, r.created_at) && !pastPosted(r.close_time, r.observed_day),
   );
@@ -371,7 +390,7 @@ export default async function MarketIndex() {
         categories={['All']}
         activeCategory="All"
         status="All statuses"
-        marketCount={all.length}
+        marketCount={forecasts.length + demos.length}
       />
 
       <div className="results-meta">
@@ -397,6 +416,14 @@ export default async function MarketIndex() {
       ) : (
         <div className="prediction-grid">{forecasts.map((r) => card(r, 'forecast'))}</div>
       )}
+      {forecastsHidden > 0 && (
+        <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
+          <span className="holdings-sub">
+            {forecastsHidden} earlier forecast{forecastsHidden === 1 ? ' is' : 's are'} not listed — each
+            stays on chain and at its own page.
+          </span>
+        </p>
+      )}
 
       {/* ── ⚠️ ITS OWN SECTION, ITS OWN SENTENCE, AND THE ENTRY POINT TO PLAYING ONE ────────── */}
       <div className="section-title">
@@ -412,7 +439,7 @@ export default async function MarketIndex() {
           <>
             {' '}
             <span className="holdings-sub">
-              {demoHidden} finished {demoHidden === 1 ? 'one is' : 'ones are'} not listed — they stay
+              {demoHidden} earlier {demoHidden === 1 ? 'one is' : 'ones are'} not listed — they stay
               on chain and at their own pages.
             </span>
           </>
@@ -425,37 +452,11 @@ export default async function MarketIndex() {
         <div className="prediction-grid" style={{marginTop: 20}}>{demos.map((r) => card(r, 'demo'))}</div>
       )}
 
-      {/* ⚠️ **A REHEARSAL MUST NOT READ AS A FORECAST, AND NOTHING ON CHAIN ENFORCES THAT BUT US.**
-          A market created over a day that had already closed had a knowable answer when the analyst
-          committed. Showing them in one undifferentiated grid would be a lie about the record. */}
-      {rehearsals.length > 0 && (
-        <>
-          <div className="section-title">
-            <h2>Rehearsals</h2>
-            <span className="eyebrow">THE ANSWER WAS ALREADY KNOWN</span>
-          </div>
-          <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
-            Created over days that had <strong>already closed</strong>, so the answer was knowable
-            when the analyst committed. They exist to drive resolve, void and refund on chain before a
-            real market needed them. <strong>None is a forecast and none counts towards the record.</strong>
-          </p>
-          <div className="prediction-grid">{rehearsals.map((r) => card(r, 'rehearsal'))}</div>
-        </>
-      )}
-
-      {offChain.length > 0 && (
-        <>
-          <div className="section-title">
-            <h2>Not on chain</h2>
-            <span className="eyebrow">NOTHING TO STAKE ON</span>
-          </div>
-          <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
-            Created in the store and never landed on chain, so there is no contract entry, no pool and
-            nothing to stake. A directed market waits here until the commit cron reaches it.
-          </p>
-          <div className="prediction-grid">{offChain.map((r) => card(r, 'offchain'))}</div>
-        </>
-      )}
+      {/* ⚠️ **REHEARSALS AND NOT-ON-CHAIN ARE NO LONGER RENDERED** — the operator's call on 2026-09-13:
+          this page shows the live forecasts and one demo, and nothing else. Both sections were test
+          apparatus — markets built to drive resolve, void and refund, and store rows that never landed —
+          and neither counts toward the record. `rehearsals` and `offChain` are still computed, so the
+          arithmetic that keeps a rehearsal out of Forecasts is unchanged, and every market keeps its page. */}
 
       <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
         ⚠️ Pools are read from the contract on every request, not from our database — the store

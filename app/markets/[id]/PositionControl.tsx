@@ -880,12 +880,12 @@ export function PositionControl({
         </a>
       )}
 
-      <p className="position-disclaimer">
-        ⚠️ <strong>Real funds.</strong>{' '}
-        {joining
-          ? `You sign from your own wallet on Arc testnet. The native gas token is USDC at 18 decimals — the ERC-20 at the same address reports 6, a factor of 10¹² — so a stake must be a whole 6-decimal unit of at most ${fromWei(max)} USDC. It cannot be withdrawn before settlement.`
-          : 'This spends the analyst’s own USDC through Circle, plus about 0.0068 USDC of gas. One claim per author per market, and it cannot be withdrawn before settlement.'}
-      </p>
+      {joining && (
+        <p className="position-disclaimer">
+          ⚠️ <strong>Real funds.</strong>{' '}
+          {`You sign from your own wallet on Arc testnet. The native gas token is USDC at 18 decimals — the ERC-20 at the same address reports 6, a factor of 10¹² — so a stake must be a whole 6-decimal unit of at most ${fromWei(max)} USDC. It cannot be withdrawn before settlement.`}
+        </p>
+      )}
     </>
   );
 }

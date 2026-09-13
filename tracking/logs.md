@@ -17606,3 +17606,75 @@ and is raised in chat.
 - Live, four replays and five calls, none saved: before the fix 6-fact ok (998 tokens), 140-fact ok
   (2,797); after the cap and first detector 140-fact filler, 6-fact silent then filler. ⚠️ **The
   watchdog and filler rejection were not run live** — the run budget was spent finding them.
+
+---
+
+## 2026-09-13 — three live forecasts for the new reports, and /markets shows only those plus one demo
+
+**Created: #34, #35, #36**, one per replacement report, through `prepare()` and `create()` with no
+commit (`scripts/ops/create-forecasts.ts`, plan-only by default). Observed day **2026-09-15**;
+staking closes 2026-09-14T23:59Z, about forty hours from creation; resolve deadline 2026-09-18.
+
+```
+#34  makerdao-ethereum    deposits above $5.02B    09-12 snapshot $5.0243B   -0.085%   gas 0.00228 USDC
+#35  morpho-blue          borrows  above $11.46B   09-12 snapshot $11.4559B  +0.036%   gas 0.00575 USDC
+#36  spark-lend-ethereum  deposits above $7.20B    09-12 snapshot $7.2006B   -0.008%   gas 0.00224 USDC
+                                                                      total createMarket gas 0.01026 USDC
+```
+
+Thresholds sit within 0.1% of the series settlement reads, so the analyst's own read would split two
+TRUE, one FALSE. 100,134 gas each; the price varied. No stake placed.
+
+⚠️ **`directed_at` is cleared once each lands, and it costs A2's evidence tonight.** `create()` marks a
+market directed at the analyst, and `/api/cron/commit` commits the analyst's claim on any directed
+market with none — so all three would have been claimed at 22:00Z, refusing the judge's commit they
+exist for. The operator chose to clear it. **A2 has never been evidenced** — every real claim was placed
+by hand — and tonight's run finds only two long-closed directed markets, which it refuses.
+DECISIONS.md carries it.
+
+**Hidden.** `/markets` now lists forecasts except chain ids 6, 7, 11 and 12 (a named constant, the
+operator's choice: nothing in state separates 11 and 12 from the new three), shows **only the newest
+demo market** (derived from `created_at`, so exactly one whenever any exist and a Start press replaces
+it), and no longer renders Rehearsals or Not on chain. Every hidden market keeps its page.
+
+⚠️ **Markets 6 and 7 are not voidable yet** — the brief said they were. On chain their
+`resolveDeadline` is 2026-09-15T00:00Z; until then they are resolvable on the evidence recorded at
+02:52Z. And a void does not return a stake by itself: the staker must still call the contract's
+`claim()`, for which this site has no button.
+
+### Checks
+
+- `npx next build` after clearing `.next` except the running dev server's `dev/` — passes. Root `tsc` —
+  the pre-existing `seed-demo-record.ts` error only.
+- Production build in headless Chromium: `/markets` shows **Forecasts (3): #36, #35, #34, all Open** and
+  **Demo (1): #33**, and nothing else; "3 FORECASTS · 3 OPEN FOR STAKING".
+- `/markets/34`, `/35`, `/36`: the no-claim commit panel, report dropdown **enabled with 11 reports**,
+  amount 0.01, **Review this position enabled**. No console errors.
+- Store: all three `directed_at` NULL, 0 claims; on chain, times match and the analyst's claim id is 0.
+- ⚠️ The dropdown defaults to the newest tokenized report (Spark Lend) on all three. A dry `prepare()`
+  of that report on #34 is **refused before spending** — *"the report has no fact
+  makerdao-ethereum.totalDepositBalanceUSD"* — and the MakerDAO report is admitted.
+
+## 2026-09-13 — the analyst's "Real funds" line is cut from the commit panel
+
+The no-claim panel on `/markets/[id]` ended with *"Real funds. This spends the analyst's own USDC
+through Circle, plus about 0.0068 USDC of gas. One claim per author per market, and it cannot be
+withdrawn before settlement."* It is gone, not shortened. The same `<p>` also carried the joining
+branch's wallet warning, so it now renders only when joining, with that text unchanged. Behaviour is
+untouched: the first press still returns a dry plan, the second still spends, and the whose-money line
+and the "Commit and stake … of the analyst's" label still name the money.
+
+Looked for the same line elsewhere and found no copy of it. The demo panel's footnote (closing time,
+illustrative pool) is different text; the joining warning is a different line; the plan the first
+press returns names the amount and carries no gas figure or warning. The ~0.0068 USDC figure survives only in
+a code comment in the commit route, outside this change's scope.
+
+### Checks
+
+- `npx next build` after clearing `.next` except the running dev server's `dev/` — passes.
+- Headless Chromium, production build and dev server, `/markets/34`: the panel goes heading →
+  whose-money line → Supporting report → caption → Analyst's stake → shortcuts → **Review this
+  position** → Arc evidence. The button to evidence gap is 27px, the evidence block's own top margin above
+  its rule, where it was 22px to the old line. No console errors.
+- Served HTML for #34, #35 and #36 has no "Real funds", "0.0068" or "withdrawn before settlement";
+  demo #33 keeps its footnote. Nothing was pressed.
