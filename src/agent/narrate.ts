@@ -147,9 +147,154 @@ function cleanTitle(raw: string | undefined): string | null {
   return t.length > 70 ? null : t;
 }
 
+/**
+ * ⚠️ **8,000 — sized to MEASURED output, now that something other than the cap catches degeneration.**
+ *
+ * It was 4,000 from 2026-09-12 on the strength of "the largest report ever emitted is ~1,819 tokens,
+ * so 4,000 is 2.2× headroom". **That figure was estimated from characters at ~3 per token, and it was
+ * wrong by half.** Counted with `count_tokens` on 2026-09-13, the `write_report` JSON of every stored
+ * report runs at 1.7–2.5 characters per token — `{fact:aave-v3-ethereum.market.0x…}` placeholders
+ * tokenise densely — and the largest, a 140-fact Aave report, needed **3,794 tokens: 95% of the cap.**
+ * Five 140-fact narrations need 3,336–3,794. A wide report that works was one variance away from
+ * being truncated.
+ *
+ * ⚠️ **The cap was also doing a second job, and that job moved to `runaway()`.** 4,000 was chosen so a
+ * degenerate generation would surface in ~35s rather than 207s (lessons.md 2026-09-07, 2026-09-12).
+ * A cap cannot tell a long honest answer from a loop; `runaway()` can, and it stops a loop within
+ * seconds of it starting whatever the cap is. So the cap only has to fit the honest answer, and 8,000
+ * is 2.1× the largest one measured.
+ */
+const MAX_TOKENS = 8_000;
+
+// ── ⚠️ WHERE A DEGENERATE GENERATION GOES, AND WHERE IT IS STOPPED ─────────────────────────────────
+//
+// "table 452 chars, assessment MISSING" at `stop_reason max_tokens` came from a 6-fact report — about
+// 900 tokens of honest output — against a 4,000-token cap. The SDK's partial-JSON parser drops an
+// unterminated string, so that message can only mean the output was cut **after the table string
+// closed and before `"assessment"` opened**: whitespace between fields, or a title that never ended.
+// Both are invisible in the parsed input, which is how a whole budget went into them while the error
+// reported a short table and nothing else. Established 2026-09-13 by running synthetic truncations
+// through the SDK's own `partialParse`; see logs.md.
+//
+// ⚠️ **And in the one live capture of it, the output was not in the stream at all.** A 6-fact replay
+// streamed the table and `"title": "Morpho Blue Balance Overview"`, then nothing for ~110 seconds, and
+// ended at `max_tokens` with 8,000 output tokens and zero thinking tokens. The checks below cover
+// output that can be seen; the watchdog in `attempt()` covers output that cannot.
+//
+// Healthy output, from two live captures that day: **5 whitespace characters outside strings in total,
+// never two in a row**, and titles of 37 and 41 characters. The limits below sit an order of magnitude
+// past that — and the whitespace rule counts a RUN, not a total, so a model that happens to space out
+// a 140-id `basis` array still cannot trip it.
+const MAX_WHITESPACE_RUN = 64;
+/** Silence on the tool stream that means a stall. Healthy output delivers a delta every ~130ms. */
+const STALL_MS = 20_000;
+/** Per open string: well past each schema `maxLength`, which the model has been measured to overrun. */
+const RUNAWAY_STRING: Readonly<Record<string, number>> = { title: 280, summary: 6_000, table: 40_000 };
+
+/**
+ * What a generation is doing that its parsed input would not show, or `null` while it looks healthy.
+ * Scans the raw tool JSON as it streams. ⚠️ Exported for the offline check recorded in logs.md.
+ */
+export function runaway(json: string): string | null {
+  let inString = false, escaped = false, start = 0, lastString = '', key = '', valueKey = '', run = 0;
+  for (let i = 0; i < json.length; i++) {
+    const c = json[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === '\\') escaped = true;
+      else if (c === '"') { inString = false; lastString = json.slice(start + 1, i); }
+      continue;
+    }
+    if (c === ' ' || c === '\n' || c === '\r' || c === '\t') {
+      run += 1;
+      if (run > MAX_WHITESPACE_RUN) return `${run}+ whitespace characters in a row between JSON fields, after "${key}" — healthy output never has two`;
+      continue;
+    }
+    run = 0;
+    if (c === '"') { inString = true; start = i; valueKey = key; }
+    else if (c === ':') key = lastString;
+  }
+  const limit = inString ? RUNAWAY_STRING[valueKey] : undefined;
+  if (limit !== undefined && json.length - start - 1 > limit) {
+    return `the "${valueKey}" string ran past ${limit} characters without closing`;
+  }
+  return null;
+}
+
+type Attempt =
+  | { readonly response: Anthropic.Message; readonly degenerated: null }
+  | { readonly response: null; readonly degenerated: string };
+
+/** One narrator call, watched as it streams, and stopped the moment `runaway()` recognises it. */
+async function attempt(client: Anthropic, system: string, draft: DraftReport): Promise<Attempt> {
+  const stream = client.messages.stream({
+    model: MODEL, max_tokens: MAX_TOKENS, system, tools: [WRITE],
+    tool_choice: { type: 'tool', name: 'write_report' },
+    messages: [{ role: 'user', content: context(draft) }],
+  });
+  let json = '';
+  let degenerated = null as string | null;
+  const stop = (reason: string) => {
+    if (degenerated !== null) return;
+    degenerated = reason;
+    stream.abort();
+  };
+  // ⚠️ **THE WATCHDOG, AND IT IS THE CHECK THAT MATCHES THE REAL CASE.** The captured stall delivered
+  // nothing while the model kept generating, so no inspection of the JSON could see it — silence is the
+  // only signal there is. Armed before the first delta, re-armed on every one.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const arm = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => stop(`no tool JSON for ${STALL_MS / 1000}s after …${JSON.stringify(json.slice(-48))} — the model kept generating output the stream never delivered`), STALL_MS);
+  };
+  arm();
+  stream.on('inputJson', (delta) => {
+    json += delta;
+    arm();
+    const found = runaway(json);
+    if (found !== null) stop(found);
+  });
+  try {
+    const response = await stream.finalMessage();
+    return { response, degenerated: null };
+  } catch (error) {
+    // ⚠️ Only OUR abort becomes a degeneration. Any other failure — an API error, a network drop —
+    // propagates unchanged, exactly as it did before this watcher existed.
+    if (degenerated !== null) return { response: null, degenerated };
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * ⚠️ **A summary under this length is filler, not a paragraph.** On 2026-09-13 the narrator returned
+ * `{"summary":"placeholder","basis":[],"confidence":"low"}` on two of four replays, and one stored
+ * report (`8022be43`, 2026-09-12) carries exactly that — it passed the old non-empty check and was
+ * saved. The shortest honest summary among the 23 stored reports is 982 characters.
+ */
+const MIN_SUMMARY = 200;
+
+/** What is wrong with a finished response's report, said part by part — or `null` when it is usable. */
+function incomplete(response: Anthropic.Message): string | null {
+  const call = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+  if (!call) return 'no tool call';
+  const { title, table, assessment } = call.input as { title?: string; table?: string; assessment?: Assessment };
+  const summary = assessment?.summary?.trim() ?? '';
+  if (table?.trim() && assessment && summary.length >= MIN_SUMMARY) return null;
+  return `table ${table?.trim() ? `${table.trim().length} chars` : 'MISSING'}, ` +
+    `title ${title?.trim() ? `${title.trim().length} chars` : 'MISSING'}, ` +
+    `assessment ${!assessment ? 'MISSING'
+      : !summary ? 'present but summary EMPTY'
+      : summary.length < MIN_SUMMARY ? `present but the summary is filler (${JSON.stringify(summary.slice(0, 40))})`
+      : 'present'}`;
+}
+
 export async function narrate(
   draft: DraftReport,
   client: Anthropic,
+  /** Told once, with the reason, when a first attempt is abandoned and the second one starts. */
+  opts: { readonly onRetry?: (reason: string) => void } = {},
 ): Promise<{ report: Report; title: string | null }> {
   // ⚠️ One skill, no form. The table is whatever the plan fetched — the facts below decide its
   // shape, not a template chosen before the data was read.
@@ -171,34 +316,28 @@ ONE paragraph about the protocols and the market. Not what was queried, not how 
 directive, not a description of the checking that produced the figures.`;
 
   // ⚠️ **Streamed, and not by choice.** The SDK refuses a non-streaming request whose `max_tokens`
-  // could run past its ten-minute ceiling, so raising the budget to 24,000 forces `.stream()`. We
-  // want no incremental events — `finalMessage()` waits for the whole thing — the streaming is
-  // purely how the SDK permits a long request.
-  const response = await client.messages.stream({
-    // ⚠️ **24,000 is headroom, not the fix.** Measured 2026-09-07: five narrations of one 140-fact
-    // draft at 16,000 produced ZERO usable reports — three exhausted the budget, one returned the
-    // literal string "placeholder", one an empty summary — while the table they did produce was
-    // 2,600 characters. The widest legitimate output this can be asked for is roughly 3,500 tokens
-    // (a 63-row market table of placeholders plus one paragraph), so 16,000 was never too small for
-    // real output; it was being consumed by degeneration. Raising it buys headroom for the honest
-    // case and does not address the dishonest one — see `maxLength` on the tool and the fact cap
-    // noted in `execute.ts`.
-    // ⚠️ **4,000, and it does NOT make a failing report succeed.** Measured 2026-09-07: the widest
-    // legitimate output this call can be asked for is ~3,500 tokens. Measured again 2026-09-12 across
-    // all sixteen stored reports, including every 140-fact one: **the largest ever emitted is ~1,819
-    // tokens.** So 4,000 is 2.2× the biggest real report and below the widest honest ask — it cannot
-    // truncate a directive that works.
-    //
-    // ⚠️ **What it buys is a shorter failure, not a success.** A degenerate generation consumes the
-    // whole budget whatever it is; at 24,000 that was a 207-second hang, and 24,000 is seven times
-    // the largest honest answer. At 4,000 the same pathology surfaces in roughly 35 seconds — which
-    // matters because **Vercel Hobby kills the function at 60s**, and a run killed there ends with no
-    // error event at all: the stream simply stops and the diagnosis is lost. See lessons.md
-    // 2026-09-07 and 2026-09-12.
-    model: MODEL, max_tokens: 4000, system, tools: [WRITE],
-    tool_choice: { type: 'tool', name: 'write_report' },
-    messages: [{ role: 'user', content: context(draft) }],
-  }).finalMessage();
+  // could run past its ten-minute ceiling. The stream is now also what lets `runaway()` watch the tool
+  // JSON as it arrives. The cap and why it is 8,000 are on `MAX_TOKENS`; the history of 16,000,
+  // 24,000 and 4,000 is in lessons.md 2026-09-07, 2026-09-12 and 2026-09-13.
+  //
+  // ── ⚠️ ONE RETRY, AND ONLY FOR A GENERATION THAT DEGENERATED OR RAN OUT OF ROOM ──────────────
+  //
+  // The failure is intermittent. Four replays of stored drafts on 2026-09-13: two wrote real reports,
+  // one wrote a filler summary, and one first attempt went silent and ran to the cap before its retry
+  // returned filler. So a retry helps but does not cure it — which is why a second failure is an error
+  // rather than a saved report. Bounded to one, never taken for a refusal, and cheap: the watchdog stops
+  // a silent attempt after seconds instead of letting it run to the cap.
+  const first = await attempt(client, system, draft);
+  const retryReason = first.degenerated !== null
+    ? first.degenerated
+    // ⚠️ A refusal is the model declining, which is not ours to repeat. Anything else incomplete is.
+    : first.response.stop_reason === 'refusal' ? null : incomplete(first.response);
+  if (retryReason !== null) opts.onRetry?.(retryReason);
+  const final = retryReason !== null ? await attempt(client, system, draft) : first;
+  if (final.degenerated !== null) {
+    throw new Error(`narrator degenerated on both attempts — first: ${retryReason}; second: ${final.degenerated}`);
+  }
+  const response = final.response;
   const call = response.content.find((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
   if (!call) throw new Error(`narrator returned no tool call (stop_reason ${response.stop_reason})`);
   const { title, table, assessment } = call.input as
@@ -208,10 +347,12 @@ directive, not a description of the checking that produced the figures.`;
   // `assessment` whose summary is a blank string satisfies the schema and is still not a report.
   // Distinguishing the two is the difference between a five-minute diagnosis and an hour of it.
   const summary = assessment?.summary?.trim();
-  if (!table?.trim() || !assessment || !summary) {
-    throw new Error(`narrator returned an incomplete report (stop_reason ${response.stop_reason}, ` +
-      `table ${table?.trim() ? `${table.trim().length} chars` : 'MISSING'}, ` +
-      `assessment ${!assessment ? 'MISSING' : summary ? 'present' : 'present but summary EMPTY'})`);
+  // ⚠️ `incomplete()` now also rejects a FILLER summary and reports the title — a title that never
+  // closes is one of the places the parsed input cannot show.
+  const problem = incomplete(response);
+  if (problem !== null || !table?.trim() || !assessment || !summary) {
+    throw new Error(`narrator returned an incomplete report (stop_reason ${response.stop_reason}, ${problem ?? 'no tool call'})` +
+      (retryReason !== null ? ` — this was the retry, after: ${retryReason}` : ''));
   }
   // ⚠️ The binding length guard. `maxLength` on the schema is a hint the model overran eightfold in
   // measurement, so a degenerating generation is caught here rather than rendered. Generous on

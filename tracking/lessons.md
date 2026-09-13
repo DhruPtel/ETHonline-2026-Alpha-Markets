@@ -1439,3 +1439,35 @@ second one behind it: even with a row, the market page's Supporting research ren
 analyst's claim, so the judge's report had two independent places to disappear. Both are now fixed
 (refresh route records the commit; the page lists every claim on a demo). ⚠️ **The earlier line
 above — "raised in chat rather than built" — no longer describes the build.**
+
+---
+
+## 2026-09-13 — The cap was measured wrong, the degeneration was misplaced, and filler was being saved
+
+**What we expected.** The 2026-09-12 entry: the largest narration ever emitted is ~1,819 tokens, so a
+4,000 cap is 2.2× headroom and *"cannot truncate a working directive."* The 2026-09-07 entry: the
+degeneration sits *"inside the summary string."*
+
+**What happened.**
+
+- **The token figure was an estimate, and it was half the truth.** Counted with `count_tokens`, the
+  `write_report` JSON of every stored report runs at 1.7–2.5 characters per token, because
+  `{fact:aave-v3-ethereum.market.0x…}` placeholders tokenise densely. Five 140-fact narrations need
+  3,336–3,794 tokens; the largest used 95% of the cap.
+- **The location was wrong.** The SDK's partial-JSON parser drops an unterminated string, so "assessment
+  MISSING" means the cut came *before* the assessment began; a cut inside the summary reads "summary
+  EMPTY". Caught live: the stream went silent right after the title for ~110 seconds while the model
+  generated to `max_tokens` with zero thinking tokens — output that is never delivered, which no
+  inspection of the stream can see.
+- **A second failure had been saved as a report.** `{"summary":"placeholder","basis":[],"confidence":"low"}`
+  came back on two of four replays, and stored report `8022be43` carries it. A non-empty check
+  cannot tell filler from a paragraph.
+
+**What changes.** ⚠️ **This invalidates the 2026-09-12 claim that 4,000 cannot truncate a working
+directive, and the 2026-09-07 location of the fault.** The cap is 8,000, sized to counted output; a
+stall watchdog replaces the cap as the thing that makes a degeneration fail fast; filler is rejected;
+one retry. It is still a mitigation — the model breaks at the assessment and the cause is untested.
+
+**The habit.** ⚠️ **Count tokens with the tokenizer; never divide characters by a constant.** The two
+estimates behind the cap assumed prose, and this output is mostly identifiers — a ratio that holds for
+one is off by half for the other.

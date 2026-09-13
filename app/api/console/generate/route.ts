@@ -145,7 +145,12 @@ export async function POST(request: Request): Promise<Response> {
 
         // ── Narrate ─────────────────────────────────────────────────────────────────────────────
         emit({ stage: 'narrate', status: 'start' });
-        const { report, title } = await narrate(ex.draft, client);
+        // ⚠️ A retry is its own STAGE, not a narrate status. The console renders every `narrate`
+        // status other than `start` as "narrate · ok", so a retry there would read as success; an
+        // unknown stage prints its raw line, which says exactly what happened.
+        const { report, title } = await narrate(ex.draft, client, {
+          onRetry: (reason) => emit({ stage: 'narrate-retry', detail: `first attempt abandoned — ${reason}; retrying once` }),
+        });
         const hash = reportHash(report);
         const facts = Object.keys(report.facts).length;
         emit({ stage: 'narrate', status: 'ok', hash, facts });

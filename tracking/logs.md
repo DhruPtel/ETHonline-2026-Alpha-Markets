@@ -17561,3 +17561,48 @@ missing score as a void. Outside this task's files; raised in chat.
   error only. Both scripts ran plan-only first.
 - ⚠️ **Seen, not fixed:** the `/markets` header read "0.0 USDC staked in total" — the same intermittent
   failure of the index's contract reads noted above.
+
+---
+
+## 2026-09-13 — report generation: where the narrator breaks, and a watchdog instead of a tight cap
+
+**Diagnosed before changing anything.** Nothing on the narrator's path had changed since its last
+successes: no commit to `src/agent/`, the skills or the model since the cap went to 4,000 on 09-12,
+and stored reports show no growth in facts or checks. Four live replays of stored drafts, the SDK's own
+partial-JSON parser and `count_tokens` established the rest.
+
+- **Not thinking.** `thinking_tokens: 0` on all five narrator calls — the forced `tool_choice` leaves
+  the model none.
+- **Where the tokens go.** The SDK drops an unterminated string, so "table 452 chars, assessment
+  MISSING" can only mean a cut after the table closed and before `"assessment"` opened; a cut inside
+  the summary reads "summary EMPTY" instead. **Caught live:** a 6-fact replay streamed the table and
+  the title, then nothing for ~110 seconds, and ended at `max_tokens` with 8,000 output tokens. The
+  output never reached the stream.
+- **Filler, saved.** Two replays returned `{"summary":"placeholder","basis":[],"confidence":"low"}`,
+  and stored report `8022be43` carries exactly that — it passed the non-empty check.
+- **The cap was mis-sized.** Counted, 140-fact narrations need 3,336–3,794 tokens, the largest 95% of
+  4,000. The "~1,819" it was set against was estimated at ~3 characters a token; fact-id placeholders
+  run at 1.7–2.5.
+
+**The fix, in `src/agent/narrate.ts`.** A watchdog aborts an attempt after 20 seconds with no tool JSON.
+Checks on what *is* visible abort a whitespace run over 64, a title over 280 characters or a summary
+over 6,000. Anything incomplete except a refusal is retried once; a summary under 200 characters is
+rejected as filler; `max_tokens` is 8,000; the error names the title. The generate route emits
+`narrate-retry` as its own stage, since the console renders any narrate status but `start` as "ok".
+
+⚠️ **Not cured.** The model still breaks at the assessment intermittently. What this changes is that a
+failure is caught in seconds, retried once, and never saved as a report. The cause-level question —
+the narrator cannot think, and breaks exactly where it first has to reason — needs model runs to test
+and is raised in chat.
+
+### Checks
+
+- `npx next build` after clearing `.next` except the running dev server's `dev/` — passes. Root `tsc`
+  — the pre-existing `seed-demo-record.ts` error only.
+- Offline: `runaway()` never fires on either healthy capture, pretty-printed or spaced, and fires 64
+  characters into whitespace and 291 into a runaway title. The real `narrate()` against a fake stream
+  replaying the captured outcomes: good saves; filler→good retries and saves; filler twice errors;
+  silent→good retries at 20.4s and saves; silent→filler errors.
+- Live, four replays and five calls, none saved: before the fix 6-fact ok (998 tokens), 140-fact ok
+  (2,797); after the cap and first detector 140-fact filler, 6-fact silent then filler. ⚠️ **The
+  watchdog and filler rejection were not run live** — the run budget was spent finding them.
