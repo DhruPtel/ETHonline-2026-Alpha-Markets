@@ -17517,3 +17517,47 @@ Vercel log. A resolve costs 0.0012–0.0017 USDC of gas (54,275–54,287 gas, si
   published), the Publishing… transition, a saved description, and the minting indicator.
 - ⚠️ **Seen, not fixed:** some `/markets` cards show "—" for pools — the index's per-card contract
   reads fail intermittently. It predates this change.
+
+---
+
+## 2026-09-13 — test data hidden: nine reports unlisted, four demo grades deleted
+
+**Reports.** `unpublish()` in `src/store/reports.ts` writes `published_at` back to NULL. The one-way
+argument survives as its doc comment — a purchase settled against a listed report cannot be un-made by
+hiding the row — together with why it does not apply here: every purchase on the nine listings was our
+own buyer account. `scripts/ops/unpublish.ts` checks that per report and refuses any report bought by
+another payer. **A script, not a console control**: explicit hashes (replacement reports are being
+published while it runs), one command for the batch, and nothing without `--apply`. Nine unlisted,
+none refused. Rows, pages, tokens and claims are untouched.
+
+**Grades.** `scripts/ops/clear-test-grades.ts` deletes a score only when its market is on chain and
+`isRehearsal` or `pastPosted`. It keeps store-only markets (the five seeded rows) and every forecast,
+so the grades markets 6 and 7 are about to get land in KEEP by arithmetic; the protected ids are
+asserted as well. It deleted four — demo markets 13, 14, 15 and 31, each printed whole first — and
+five rows remain.
+
+**Markets.** Nothing written. The Demo section already showed one card (#33); the other nineteen demo
+markets were already off the index by its own rule. There is no hide switch for a market, and voiding
+on chain would spend and state "no outcome" about markets that have one.
+
+⚠️ **What undoes it.** The resolve cron's work query includes the seventeen closed, unrevealed demo
+markets, so its next run would try to resolve them, and its `scoreSettled()` re-grades every settled
+demo market — the four deleted grades included. `score.ts` without `--market` does the same. Not
+changed: `src/arc/score.ts` and the cron are outside this task. The grades script is idempotent, so a
+second run removes them again.
+
+⚠️ **Resolved and ungraded reads as voided.** `/markets/13` now says "Forecast: no outcome — voided,
+so neither right nor wrong" about a market that resolved TRUE, because the market page treats a
+missing score as a void. Outside this task's files; raised in chat.
+
+### Afterwards, and checks
+
+- `/` — "0 published · 0 tokenized on Hedera · 20 not listed" and the "Nothing published yet" state.
+- `/markets` — record "5 settled — 2 right, 2 wrong, 1 voided · 5 test data" (the "· 4 demo" clause is
+  gone); Forecasts 4, Demo 1 (#33), Rehearsals 3, Not on chain 8.
+- `/analyst` — "5 CLAIMS GRADED · 20 REPORTS WRITTEN", five rows, all marked test data. Console: "20
+  reports not listed".
+- `npx next build` after `rm -rf .next` — passes. Root `tsc` — the pre-existing `seed-demo-record.ts`
+  error only. Both scripts ran plan-only first.
+- ⚠️ **Seen, not fixed:** the `/markets` header read "0.0 USDC staked in total" — the same intermittent
+  failure of the index's contract reads noted above.

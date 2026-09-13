@@ -215,10 +215,8 @@ export async function listPublished(limit = 50): Promise<ListedReport[]> {
  * timestamp: the landmark records *when* a report was listed, and a second press is not a second
  * listing. `changed: false` with the original date is the honest answer to "publish this again".
  *
- * ⚠️ **There is no `unpublish`, deliberately.** 009's header carries the reasoning: writing NULL
- * back does not record a withdrawal, it erases the fact that the report was ever listed — and five
- * reports in this store have settled x402 purchases against them, which is money that moved on
- * Hedera against something that was for sale. A withdrawal is its own landmark if it is ever wanted.
+ * ⚠️ **There was no `unpublish`, deliberately, and there is one now.** The reasoning against it is
+ * kept on `unpublish()` below rather than deleted — read it before calling that function.
  *
  * ⚠️ **Publishing is not tokenizing, and since 2026-09-13 the console requires the token first.** A
  * tokenized report can stay unlisted — the ATS security exists on Hedera whether or not our index
@@ -239,6 +237,43 @@ export async function publish(reportHash: string): Promise<{ publishedAt: Date; 
     SELECT published_at FROM reports WHERE hash = ${reportHash}`;
   if (!existing) return null;
   return { publishedAt: existing.published_at!, changed: false };
+}
+
+/**
+ * Take a report off the marketplace: `published_at` back to NULL. Returns whether this call changed
+ * anything, or `null` for an unknown hash.
+ *
+ * ── ⚠️ THE ARGUMENT AGAINST THIS FUNCTION, KEPT BECAUSE IT IS STILL RIGHT ABOUT BUYERS ──────────
+ *
+ * Publishing was built one-way on purpose (009). Writing NULL back does not record a withdrawal — it
+ * erases the fact that the report was ever listed. A purchase settled against a listed report is money
+ * that moved on Hedera against something that was for sale, and hiding the row cannot un-make that
+ * purchase; it can only make the site stop admitting the listing existed. A withdrawal a buyer could
+ * ask about deserves its own landmark (`withdrawn_at`), not an erased one.
+ *
+ * ⚠️ **Why it exists anyway: that argument is about buyers, and on 2026-09-13 the listings were our
+ * own test data**, cleared so three replacement reports could be the whole shopfront. So it is held to
+ * the case the argument does not cover:
+ *
+ *   · **operator-only** — no route and no console control calls it; `scripts/ops/unpublish.ts` does,
+ *     with explicit hashes, printing what each report carries, and only with `--apply`;
+ *   · **refused where a buyer exists** — that script will not unlist a report with a purchase from
+ *     any account but our own buyer (`HEDERA_BUYER_ID`). On such a report the argument applies in
+ *     full, and this function is the wrong tool.
+ *
+ * ⚠️ **Hidden, never deleted.** The row, its page, its x402 gate, its ATS token and every claim it
+ * backs keep working: a tokenized report's hash is in a Hedera creation event and a staked one backs a
+ * claim on Arc. Publishing it again sets a new `published_at` — the first date is not kept — and
+ * reopens `recordDescription()`, which writes only while a report is unpublished.
+ */
+export async function unpublish(reportHash: string): Promise<{ changed: boolean } | null> {
+  const [updated] = await db()<{ hash: string }[]>`
+    UPDATE reports SET published_at = NULL
+     WHERE hash = ${reportHash} AND published_at IS NOT NULL
+     RETURNING hash`;
+  if (updated) return { changed: true };
+  const [existing] = await db()<{ hash: string }[]>`SELECT hash FROM reports WHERE hash = ${reportHash}`;
+  return existing ? { changed: false } : null;
 }
 
 function toListed(r: ReportRow): ListedReport {

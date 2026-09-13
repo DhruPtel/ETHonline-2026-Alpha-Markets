@@ -880,3 +880,23 @@ publishing independent of minting.
 (`PublishControl`), `src/store/reports.ts` (`recordDescription`, and `publish()`'s doc comment), and
 migration 010. It reverses the reasoning in 009's header for new listings; 009 is history and is not
 edited. The plan does not address publishing, so it needs no amendment.
+
+## 2026-09-13 — a listing can be undone, for our own test data only
+
+**What.** `unpublish()` in `src/store/reports.ts` writes `published_at` back to NULL. Only
+`scripts/ops/unpublish.ts` calls it: explicit hashes, `--apply` to write, and a refusal for any report
+with a purchase from an account other than `HEDERA_BUYER_ID`.
+
+**Why.** The operator is replacing every listing with three new reports. All nine listings were our
+own test data, and every purchase on them was made by our own buyer account.
+
+**Given up.** 009's "a landmark is set once and is then a fact" for `published_at`: a report listed
+again gets a new date and the first is not kept, and `recordDescription()` reopens while it is unlisted.
+
+**Rejected.** A console control beside Publish — it would make unlisting a routine author action,
+which is exactly what the one-way argument warns against once buyers exist. A `withdrawn_at` landmark —
+the right shape the day a stranger has bought a listed report, and more than test data needs.
+
+**Affects.** `src/store/reports.ts` (`unpublish()`, and `publish()`'s comment now points at it) and
+`scripts/ops/unpublish.ts`. It reverses 009's "there is no unpublish" for operator cleanup; 009 is not
+edited, and its argument survives as `unpublish()`'s doc comment.
