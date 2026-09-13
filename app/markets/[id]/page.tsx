@@ -498,8 +498,11 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
               byline, arrow. **It displays what backs this market and holds no controls.** The commit
               control moved to the position panel and the stake table and the claim's score moved
               into the chart panel, where the pool and the outcome they describe already are.
-              ⚠️ **One row, and that is not a shortfall.** The reference draws several; a market
-              cites ONE claim which cites ONE report. There is no second row to render. */}
+              ⚠️ **One row on a forecast, every claim on a demo.** A forecast cites ONE claim which
+              cites ONE report. A demo market carries the analyst's claim from creation plus one per
+              judge who commits, each with its own report — and rendering only `claim`, which on a demo
+              is the analyst's, hid the judge's report: the very thing their commit entered the market
+              to be graded on. */}
           <div className="supporting-research panel">
             <div className="section-title">
               <h2>Supporting research</h2>
@@ -507,22 +510,26 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
                 All reports <ArrowRight size={14} />
               </a>
             </div>
-            {claim ? (
-              <a className="supporting-row" href={`/report/${claim.report_hash}`}>
-                <div className="supporting-thumbnail" aria-hidden="true">
-                  <MiniDocument title={heading} subtitle={claim.report_hash.slice(0, 18)} preview="bars" locked />
-                </div>
-                <div>
-                  <h3>{heading}</h3>
-                  <p>
-                    {claim.author} · staked {usdc(BigInt(claim.amount))} USDC on{' '}
-                    {claim.side ? 'TRUE' : 'FALSE'}
-                  </p>
-                  <span>Claim #{claim.chain_claim_id}</span>
-                </div>
-                <ArrowUpRight size={18} />
-              </a>
-            ) : (
+            {(demo ? claims : claim ? [claim] : []).map((c) => {
+              const title = c.title ?? c.directive ?? 'The report behind this claim';
+              return (
+                <a key={c.id} className="supporting-row" href={`/report/${c.report_hash}`}>
+                  <div className="supporting-thumbnail" aria-hidden="true">
+                    <MiniDocument title={title} subtitle={c.report_hash.slice(0, 18)} preview="bars" locked />
+                  </div>
+                  <div>
+                    <h3>{title}</h3>
+                    <p>
+                      {c.author} · staked {usdc(BigInt(c.amount))} USDC on{' '}
+                      {c.side ? 'TRUE' : 'FALSE'}
+                    </p>
+                    <span>Claim #{c.chain_claim_id}</span>
+                  </div>
+                  <ArrowUpRight size={18} />
+                </a>
+              );
+            })}
+            {(demo ? claims.length === 0 : !claim) && (
               <p>No committed claim, so no report backs this market yet.</p>
             )}
           </div>

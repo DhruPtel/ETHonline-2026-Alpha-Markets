@@ -279,6 +279,9 @@ export function PositionControl({
     if (body.recorded) {
       setDone({what: 'staked', id: String(body.amount), arcscan: `https://testnet.arcscan.app/tx/${h}`});
       setStage('');
+      // ⚠️ A demo commit is a new CLAIM, and Supporting research is server-rendered from `claims` —
+      // refresh so the judge's report appears in the list without a reload. Forecasts unchanged.
+      if (demo) router.refresh();
       return;
     }
     setStage(
@@ -520,7 +523,9 @@ export function PositionControl({
           <Check size={13} />{' '}
           {done.what === 'committed'
             ? `Committed. On-chain claim #${done.id}. The analyst staked ${plan?.amountUsdc} USDC of its own money on ${plan?.side ? 'TRUE' : 'FALSE'}.`
-            : `Staked ${fromWei(BigInt(done.id))} USDC on ${claim?.side ? 'TRUE' : 'FALSE'}, recorded from the Staked event.`}
+            : demo
+              ? `Staked ${fromWei(BigInt(done.id))} USDC on ${side ? 'TRUE' : 'FALSE'} with your report — your own claim, recorded from the PredictionCommitted event.`
+              : `Staked ${fromWei(BigInt(done.id))} USDC on ${claim?.side ? 'TRUE' : 'FALSE'}, recorded from the Staked event.`}
         </p>
         {/* ⚠️ **Step 3 of the loop, named.** A report entering a market is what gets graded when it
             settles; if it does not appear as the evidence behind the position, the panel has not
@@ -528,7 +533,9 @@ export function PositionControl({
         <p className="position-sub">
           {done.what === 'committed'
             ? 'Reload and the report you staked appears in Supporting research at the bottom of this page — it is now the evidence behind this position, and the thing the market grades when it settles.'
-            : 'The report behind this claim is in Supporting research at the bottom of this page. Reload to see the pool.'}
+            : demo
+              ? 'Your report is now in Supporting research at the bottom of this page — the evidence behind your claim, and what gets graded when this settles.'
+              : 'The report behind this claim is in Supporting research at the bottom of this page. Reload to see the pool.'}
         </p>
         {done.arcscan && (
           <a className="text-link" href={done.arcscan} target="_blank" rel="noreferrer">
@@ -679,6 +686,13 @@ export function PositionControl({
 
         {account && <p className="balance-line">Connected: {account}</p>}
         {stage && <p className="balance-line">{stage}</p>}
+        {/* ⚠️ The retry `record()`'s own messages tell the judge to press. The forecast panel has
+            always had it; the demo panel said "press Record it" with nothing to press. */}
+        {txHash && (
+          <button className="btn dark-outline full" type="button" disabled={busy} onClick={() => void record(txHash)}>
+            Record it
+          </button>
+        )}
         {txHash && (
           <a className="text-link" href={`https://testnet.arcscan.app/tx/${txHash}`} target="_blank" rel="noreferrer">
             Your transaction on arcscan <ArrowUpRight size={13} />

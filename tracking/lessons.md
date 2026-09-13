@@ -1433,3 +1433,9 @@ address that is not the analyst, off `PredictionCommitted`, which touches the re
 the store records — raised in chat rather than built. **The habit:** a loop described in a plan as
 "lifted, not rewritten" still needs one run end to end; the wallet half here was type-checked and
 never executed.
+
+**Follow-up, same day, after the operator ran it.** The first real run confirmed the break and found a
+second one behind it: even with a row, the market page's Supporting research rendered only the
+analyst's claim, so the judge's report had two independent places to disappear. Both are now fixed
+(refresh route records the commit; the page lists every claim on a demo). ⚠️ **The earlier line
+above — "raised in chat rather than built" — no longer describes the build.**

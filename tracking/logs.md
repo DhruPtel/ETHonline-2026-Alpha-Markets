@@ -17432,3 +17432,37 @@ serving; verification then used `next start` on separate ports to stay out of `.
 - Links: the IPFS manifest URL returns 200. Etherscan serves a Cloudflare challenge to curl and to
   headless Chromium, so the page itself could not be fetched; block 25,965,405 was confirmed on a
   public RPC at 02:05:23Z, the same second the panel shows as "Indexed to".
+
+---
+
+## 2026-09-13 — a judge's report now enters Supporting research
+
+The operator staked a report on demo market 31 from a wallet and it never appeared in Supporting
+research. **Diagnosed in order before touching anything.** The transaction
+(`0xcb49c304…`) called **`commitPrediction(31, 0xc2649f05…, false)`** with 0.1 USDC — selector
+`0xcdb24e7d`, not `stake()`'s `0x7b0472f0` — so the report *was* attached, and the chain holds it as
+claim 28. **It stopped at the store:** the panel posts the hash to `/api/markets/31/refresh`, which
+looked only for a `Staked` event; `commitPrediction` emits `PredictionCommitted`, so the route answered
+422 and nothing wrote a `claims` row. Replaying the route's parse on the real receipt reproduced that
+exact refusal. **And the page would have dropped it anyway**: Supporting research rendered the single
+`claim`, which on a demo market is the analyst's.
+
+**Fixed at both points.** The refresh route now turns a `PredictionCommitted` into a `claims` row read
+off the event — demo markets only, tokenized reports only, and with `market.ts`'s id rule, which a dry
+run showed reproduces the analyst's stored id exactly. Supporting research lists every claim on a demo
+market; forecasts keep their one row. Two knock-ons handled rather than left: the `/markets` card now
+prefers the analyst's claim so it cannot label a judge's side `· analyst`, and the demo panel got the
+**Record it** button its own messages already told people to press. After a recorded commit the panel
+refreshes the page, so the report appears without a reload.
+
+⚠️ **Not written by me: market 31's claim 28.** It is still on chain with no row. Re-posting its hash
+to the refresh route would record it; left for the operator, who asked for no writes.
+
+### Checks
+
+- `npx next build` after `rm -rf .next` — passes, run only after confirming no Next process was up.
+- Dry run of the new branch against `0xcb49c304…`: `PredictionCommitted` only, past-posted, report
+  tokenized, would insert `c/f30cb8b3eaa7f20e0e2d9e36`, no existing row. Nothing written.
+- Production build in headless Chromium: `/markets/31` shows the analyst's row (the judge's is not
+  recorded yet), `/markets/11` and `/markets/6` one row each as before, the `/markets` card for 31
+  reads `FALSE · analyst`. No console errors.

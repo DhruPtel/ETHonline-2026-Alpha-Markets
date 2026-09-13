@@ -44,6 +44,7 @@ import {SeedButton} from './SeedButton.js';
 import {db} from '../../src/store/db.js';
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
+import {ANALYSTS} from '../../src/config/analysts.js';
 import {ethers} from 'ethers';
 
 export const runtime = 'nodejs';
@@ -73,6 +74,7 @@ interface Row {
   voided_at: Date | null;
   outcome: boolean | null;
   claim_id: string | null;
+  author: string | null;
   side: boolean | null;
   report_hash: string | null;
   forecast_correct: boolean | null;
@@ -97,7 +99,7 @@ export default async function MarketIndex() {
     SELECT m.id, m.chain_market_id, m.spec_json, m.created_at, m.close_time, m.observation_end,
            m.observed_day,
            m.resolved_at, m.voided_at, m.outcome,
-           c.id AS claim_id, c.side, c.report_hash,
+           c.id AS claim_id, c.author, c.side, c.report_hash,
            s.forecast_correct
       FROM markets m
       LEFT JOIN claims  c ON c.market_id = m.id
@@ -107,11 +109,16 @@ export default async function MarketIndex() {
 
   // ⚠️ One row per market: a market with two claims would otherwise render twice. The row carrying
   // a claim wins, because a claim is what a card has something to say about.
+  // ⚠️ **And the ANALYST's claim wins over a judge's.** The card labels its side `· analyst`, and a
+  // demo market now carries a judge's claim beside the analyst's — whichever row the join returned
+  // first would otherwise have put the judge's side under the analyst's name.
+  const analystLower = ANALYSTS.map((a) => a.arcAddress.toLowerCase());
+  const byAnalyst = (r: Row): boolean => r.author !== null && analystLower.includes(r.author.toLowerCase());
   const seen = new Map<string, Row>();
   for (const r of rows) {
     const key = r.chain_market_id ?? r.id;
     const held = seen.get(key);
-    if (!held || (!held.claim_id && r.claim_id)) seen.set(key, r);
+    if (!held || (!held.claim_id && r.claim_id) || (byAnalyst(r) && !byAnalyst(held))) seen.set(key, r);
   }
   const all = [...seen.values()];
   const onChain = all.filter((r) => r.chain_market_id);
