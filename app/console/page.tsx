@@ -1,10 +1,13 @@
 import {AtlasPanel, type AtlasData} from '../components/AtlasPanel.js';
 import {ConsoleViewer} from '../components/ConsoleViewer.js';
-import {ListingPreviewText, TokenizeForm, type Listing, type TokenTarget} from '../components/TokenizeForm.js';
-import {MiniDocument, type PreviewChart} from '../components/MiniDocument.js';
-import {ArrowDown, ArrowRight, ArrowUpRight, Check, Info} from '../components/Icons.js';
+import {refresh} from 'next/cache.js';
+import {
+  ListingPreviewCard, ListingPreviewText, PublishBadge, PublishControl, TokenizeForm, type Listing, type TokenTarget,
+} from '../components/TokenizeForm.js';
+import {type PreviewChart} from '../components/MiniDocument.js';
+import {ArrowDown, ArrowRight, ArrowUpRight, Info} from '../components/Icons.js';
 import {SecretProvider, type Evidence} from '../components/ConsoleSecret.js';
-import {list, load, publish} from '../../src/store/reports.js';
+import {list, load, publish, recordDescription} from '../../src/store/reports.js';
 import {tokenFor} from '../../src/store/tokens.js';
 import {db} from '../../src/store/db.js';
 import {REPORT_PRICE_HBAR} from '../../src/config/pricing.js';
@@ -25,7 +28,7 @@ import {render} from '../../src/agent/narrate.js';
 type Workspace = {
   atlas: AtlasData;
   listing: Listing;
-  listingPreview: {title: string; subtitle: string; preview: PreviewChart; marketId: string};
+  listingPreview: {preview: PreviewChart};
   steps: {number: string; title: string; hint: string; complete: boolean}[];
 };
 
@@ -61,7 +64,6 @@ const WORKSPACE: Workspace = {
     currency: 'USDC',
     fileName: 'lending-protocols-q2-2026.pdf',
     filePages: 4,
-    marketClaim: 'Aave leads lending by end-2027',
     // ⚠️ Not 'Created after publishing'. The ISIN is derived from the report hash before anything
     // is sent, which is why the tokenize form can show it in the plan.
     tokenIdState: 'Derived from the report hash',
@@ -71,11 +73,10 @@ const WORKSPACE: Workspace = {
     // the report's actual landmark, filled at the render site — this literal is the no-report case.
     publishState: 'No report selected',
   },
+  // ⚠️ The mock-up's title, subtitle and "related market" are gone: the preview card follows the title
+  // field and the report on screen, and a related market had no column and nothing that read it.
   listingPreview: {
-    title: 'Lending protocols / Q2 2026',
-    subtitle: 'Comparative financial analysis of leading lending protocols.',
     preview: 'bars',
-    marketId: 'lending-2027',
   },
   steps: [
     // ⚠️ **STEP 03 HAS NOW BEEN WRONG IN BOTH DIRECTIONS, AND THIS RECORDS WHY.** It first read
@@ -91,8 +92,8 @@ const WORKSPACE: Workspace = {
     // false, false` on every render regardless of what had happened, which is decoration pretending
     // to be a status. Filled at the render site below.
     {number: '01', title: 'Report', hint: 'The research being listed', complete: false},
-    {number: '02', title: 'Listing', hint: 'Preview only · these fields are not stored', complete: false},
-    {number: '03', title: 'Publish', hint: 'Puts it in the marketplace · tokenizing is separate', complete: false},
+    {number: '02', title: 'Listing', hint: 'The description is saved when you publish', complete: false},
+    {number: '03', title: 'Publish', hint: 'Puts it in the marketplace · needs a minted token', complete: false},
   ],
 };
 
@@ -269,6 +270,8 @@ export default async function Console({
   const target: TokenTarget | null = doc && {
     hash: doc.meta.hash,
     heading: doc.meta.heading,
+    // ⚠️ The marketplace card's own subtitle, so the console's preview card is the card a buyer sees.
+    subtitle: `${doc.meta.analyst.slice(0, 10)}… · block ${doc.meta.block.toLocaleString('en-US')}`,
     factCount: doc.meta.factCount,
     // ⚠️ **HBAR, not USDC.** `pricing.ts` records why a dollar price cannot simply be typed in:
     // `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no HBAR entry, so
@@ -300,9 +303,10 @@ export default async function Console({
   // `tokenize` mints for ~7.7 HBAR; publishing is free and reversible only in the sense that it
   // cannot be reversed — see `publish()`'s own note.
   //
-  // ⚠️ **No `revalidatePath`.** Both `/` and `/console` are `force-dynamic`, so neither has a cache
-  // to bust: Next re-renders this route when the action resolves, and `/` re-reads the store on its
-  // next request. Adding a revalidate call would be ceremony that does nothing.
+  // ⚠️ **`refresh()`, and its absence is why a press looked like nothing happened.** This said Next
+  // re-renders the route when an action resolves. It does not — a server action updates the page only
+  // when it asks to — so the landmark was written and the card kept saying "Not listed", and a button
+  // that does nothing gets pressed twice. Both pages are `force-dynamic`, so a refresh is all it takes.
   // ⚠️ See the control in the card below for why this exists. One object, three call sites, so the
   // three states of the control cannot drift apart at the breakpoint where the card is a grid.
   const PLACE = {gridColumn: 2} as const;
@@ -313,7 +317,14 @@ export default async function Console({
     // ⚠️ The hash comes from this page's own target, so this guard is for a hand-crafted POST. A
     // malformed one does nothing rather than reaching the store with a bad key.
     if (!/^[0-9a-f]{64}$/.test(hash)) return;
+    // ⚠️ **Minted first.** The button says so; this is the same rule for a POST that skips the button.
+    if (!(await tokenFor(hash))) return;
+    // ⚠️ **Before `publish()`, and the order is the rule.** `recordDescription` writes only while the
+    // report is unpublished, so this is the one moment the description is saved, and a replay of this
+    // form after listing changes nothing.
+    await recordDescription(hash, String(formData.get('description') ?? ''));
     await publish(hash);
+    refresh();
   }
 
   // ⚠️ **The author's unpublished reports, and this is the answer to "where do they see them".**
@@ -374,9 +385,8 @@ export default async function Console({
         <div className="tokenize-heading">
           <span className="eyebrow">FROM RESEARCH TO CONVICTION</span>
           <h1>Tokenize your report.</h1>
-          {/* ⚠️ Reversed by 009: listing no longer follows from minting. Two independent actions,
-              named as two. */}
-          <p>Mint a security if you want one. Publish when the market should see it.</p>
+          {/* ⚠️ Two actions, and since 2026-09-13 in this order: publishing needs a minted token. */}
+          <p>Mint the security, then publish it when the market should see it.</p>
         </div>
 
         <div className="tokenize-grid">
@@ -402,64 +412,71 @@ export default async function Console({
               ))}
             </div>
 
-            <TokenizeForm listing={listing} target={target} />
-
-            {/* ── ⚠️ THE ROSTER STAYS HERE, AND IT IS NOT THE CONTROL ──────────────────────── */}
-            {/* The publish button moved into the Marketplace preview card, where the listing it
-                creates is shown. **This did not move with it, deliberately.** The card previews ONE
-                report; a list of eleven others inside it would be a second index sitting in a
-                preview of something else. It is navigation among drafts, so it belongs under the
-                form that targets a report — each link loads that report into this console.
-                ⚠️ Still not a second marketplace: headings only, no cards, no prices, no previews. */}
-            {unlisted.length > 0 && (
-              <details className="integration-detail">
-                <summary>
-                  <span>{unlisted.length} report{unlisted.length === 1 ? '' : 's'} not listed</span>
-                  <span className="badge off">unpublished</span>
-                </summary>
-                <p>
-                  In the store, not on the marketplace. Open one here to read it, then publish it
-                  from the preview card.
-                </p>
-                {unlisted.map((r) => (
-                  <div key={r.hash}>
-                    <a className="text-link" href={`/console?report=${r.hash}`}>
-                      {r.title ?? r.directive.slice(0, 54)}
-                      {!r.title && r.directive.length > 54 ? '…' : ''} <ArrowUpRight size={13} />
-                    </a>
-                  </div>
-                ))}
-              </details>
-            )}
+            {/* ⚠️ **Keyed by the report on screen.** Generating a report refreshes the page around the
+                form rather than remounting it, and its hash field kept the previous report — so the
+                next press would have minted the wrong one. A new key is a new form.
+                ⚠️ The roster is handed in rather than rendered after the form, so the form's three
+                notes can sit BELOW it — they used to stand between the fields and the button. */}
+            <TokenizeForm
+              key={target?.hash ?? 'no-report'}
+              listing={listing}
+              target={target}
+              roster={
+                // ── ⚠️ THE ROSTER, AND IT IS NOT THE CONTROL ─────────────────────────────────────
+                // Navigation among drafts, so it belongs under the form that targets a report — each
+                // link loads that report into this console. Still not a second marketplace: headings
+                // only, no cards, no prices, no previews.
+                unlisted.length > 0 ? (
+                  <details className="integration-detail">
+                    <summary>
+                      <span>{unlisted.length} report{unlisted.length === 1 ? '' : 's'} not listed</span>
+                      <span className="badge off">unpublished</span>
+                    </summary>
+                    <p>
+                      In the store, not on the marketplace. Open one here to read it, then tokenize
+                      and publish it from the preview card.
+                    </p>
+                    {unlisted.map((r) => (
+                      <div key={r.hash}>
+                        <a className="text-link" href={`/console?report=${r.hash}`}>
+                          {r.title ?? r.directive.slice(0, 54)}
+                          {!r.title && r.directive.length > 54 ? '…' : ''} <ArrowUpRight size={13} />
+                        </a>
+                      </div>
+                    ))}
+                  </details>
+                ) : null
+              }
+            />
           </div>
 
           <aside className="listing-preview dark-panel">
             <div className="section-title">
               <h2>Marketplace preview</h2>
-              <span className={doc?.meta.publishedAt ? 'badge' : 'badge off'}>
-                {doc
-                  ? doc.meta.publishedAt
-                    ? `Listed ${doc.meta.publishedAt.slice(0, 10)}`
-                    : 'Not listed'
-                  : listing.publishState}
-              </span>
+              <PublishBadge
+                listedOn={doc ? (doc.meta.publishedAt?.slice(0, 10) ?? null) : undefined}
+                noReport={listing.publishState}
+              />
             </div>
 
-            <MiniDocument
-              title={listingPreview.title}
-              subtitle={listingPreview.subtitle}
+            {/* ⚠️ The white card and the black block below it follow the same title field — see
+                `ListingPreviewCard`. Both fall back to the report on screen, never the mock-up. */}
+            <ListingPreviewCard
+              hash={target?.hash ?? null}
+              fallback={{title: target?.heading ?? 'No report yet', subtitle: target?.subtitle ?? '—'}}
               preview={listingPreview.preview}
             />
 
             {/* ⚠️ Live from the form beside it — title, description and price as they are typed. The
                 fallback is the report on screen, not the mockup. */}
             <ListingPreviewText
+              hash={target?.hash ?? null}
               fallback={{title: target?.heading ?? 'No report yet', priceHbar: target?.priceHbar ?? '—'}}
             />
 
             {/* ── ⚠️ THE PUBLISH CONTROL, IN THE CARD THAT SHOWS WHAT IT CREATES ─────────────── */}
             {/* ⚠️ **Inserted into the card's existing sequence; nothing already in it moved.** The
-                badge above, the thumbnail, the listing text, the related market, the flow strip and
+                badge above, the thumbnail, the listing text, the flow strip and
                 the notice are all where they were.
 
                 ⚠️ **`gridColumn: 2` is not decoration.** At ≤1180px `.listing-preview` becomes a
@@ -486,25 +503,15 @@ export default async function Console({
                 ⚠️ **The buyer link is kept and demoted to a `.text-link` BENEATH the button**, not
                 promoted into it. That was the choice: the button has one job in every state, and the
                 link is a second, quieter action that does not compete with it. */}
-            {!doc ? (
-              // Nothing loaded: present and visibly not pressable, which is truer than an absent
-              // button on a card that is otherwise fully drawn.
-              <span className="btn white full inert" style={PLACE}>Publish to the marketplace</span>
-            ) : doc.meta.publishedAt ? (
-              // ⚠️ Says it is done and does NOT offer to publish again. `publish()` is idempotent so
-              // a second press would be harmless, but a live button on a finished action invites a
-              // press that means nothing — and `.inert` is the design's own spent-control treatment.
-              <span className="btn white full inert" style={PLACE}>
-                <Check size={15} /> Published to the marketplace
-              </span>
-            ) : (
-              <form action={publishReport} style={PLACE}>
-                <input type="hidden" name="hash" value={doc.meta.hash} />
-                <button className="btn white full" type="submit">
-                  Publish to the marketplace <ArrowUpRight size={15} />
-                </button>
-              </form>
-            )}
+            {/* ⚠️ Four states — no report, not minted, ready, published — in `PublishControl`, which
+                also carries the typed description and shows the press registering. */}
+            <PublishControl
+              action={publishReport}
+              hash={doc?.meta.hash ?? null}
+              minted={!!target?.token}
+              publishedAt={doc?.meta.publishedAt ?? null}
+              style={PLACE}
+            />
 
             {/* ⚠️ Beneath the button, only once there is something for a buyer to see. A direct
                 child of the card, so it needs the same column placement at the grid breakpoint. */}
@@ -513,14 +520,6 @@ export default async function Console({
                 See it as a buyer does <ArrowUpRight size={14} />
               </a>
             )}
-
-            <div className="related-preview">
-              <span>Related prediction market</span>
-              <a href={`/markets/${listingPreview.marketId}`}>
-                {listing.marketClaim}
-                <ArrowRight size={16} />
-              </a>
-            </div>
 
             <div className="token-flow">
               <span>

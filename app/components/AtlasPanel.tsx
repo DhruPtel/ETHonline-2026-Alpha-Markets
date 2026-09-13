@@ -175,7 +175,14 @@ export function AtlasPanel({
             setRun('saved');
             // ⚠️ Fired on `save`, not on `done`: the row exists the moment save reports, and the
             // refresh runs in parallel with the last stage rather than after it.
-            router.refresh();
+            // ⚠️ **With `?report=` in the URL a refresh re-loads THAT report**, so the new one never
+            // reached the panel or the tokenize form beneath it. Point the URL at the new report
+            // instead; with no parameter the newest report is already what a refresh shows.
+            if (new URLSearchParams(globalThis.location.search).has('report')) {
+              router.replace(`/console?report=${e.hash}`, {scroll: false});
+            } else {
+              router.refresh();
+            }
           }
           write(describe(e));
           // ⚠️ The hash on its own line, whole and selectable. It is the report's identity — what

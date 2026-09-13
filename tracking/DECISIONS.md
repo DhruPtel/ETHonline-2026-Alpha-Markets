@@ -855,3 +855,28 @@ correct, because a past-posted result is one whose answer was public before the 
 **Affects.** `src/arc/spec.ts`, `src/arc/market.ts`, `src/arc/rehearsal.ts`,
 `scripts/ops/demo-market.ts`. PHASE-8 Task 1's file list gains `market.ts`, agreed in chat before
 the work started. §2.8's `--retire` is re-scoped from "tidying" to the refund path for a dead day.
+
+## 2026-09-13 — publishing needs a minted token, and a description is written once, at publish
+
+**What.** The console's Publish control is unavailable until the report on screen has a token, and
+says so; the publish server action refuses an untokenized report too, so the rule does not live in
+the button alone. The Description field now saves to `reports.description` (migration 010) — written
+by the publish action immediately before `publish()`, and only while the report is unpublished.
+
+**Why.** Both are the operator's call, made in chat while walking the flow. The brief asked for
+Publish to be greyed out until the report is minted. Of three save points offered for the description
+(a Save control usable any time, a Save control plus publish, or publish only), the operator chose
+publish only.
+
+**Given up.** Migration 009's independence in both directions — "a published report needs no token,
+x402 sells a read without one" — for anything listed from now on. Reports already listed without a
+token stay listed; there is no unpublish. Editing a description after listing, and any way for a
+report published before 010 to gain one through the console.
+
+**Rejected.** A separate Save control (offered with and without publish also saving). Leaving
+publishing independent of minting.
+
+**Affects.** `app/console/page.tsx` (the publish action), `app/components/TokenizeForm.tsx`
+(`PublishControl`), `src/store/reports.ts` (`recordDescription`, and `publish()`'s doc comment), and
+migration 010. It reverses the reasoning in 009's header for new listings; 009 is history and is not
+edited. The plan does not address publishing, so it needs no amendment.

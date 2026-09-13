@@ -125,8 +125,8 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
   // no part of a report body, which is why they can be read on the unpaid side of the wall at all.
   // ⚠️ Written here rather than added to `store/`: `/` and `/console` write their own joins the same
   // way, and this unit may not touch `src/`.
-  const [titleRow] = await db()<{title: string | null}[]>`
-    SELECT title FROM reports WHERE hash = ${hash}`;
+  const [titleRow] = await db()<{title: string | null; description: string | null}[]>`
+    SELECT title, description FROM reports WHERE hash = ${hash}`;
   const token = await tokenFor(hash);
   const claims = await db()<ClaimRow[]>`
     SELECT c.chain_claim_id, c.side, c.amount,
@@ -173,6 +173,12 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
             RESEARCH REPORT / BLOCK {report.block.toLocaleString('en-US')}
           </span>
           <h1>{heading}</h1>
+          {/* ⚠️ **The author's listing description (migration 010), on the unpaid side of the wall.**
+              It is copy the author wrote to sell the report, set once at publish — public in the way
+              the title is, and it is never a figure this page computed. **No description renders
+              nothing**: no placeholder and no directive standing in, so a report without one reads
+              exactly as it did before. */}
+          {titleRow?.description && <p>{titleRow.description}</p>}
           {/* ⚠️ **The directive is NOT repeated here.** It is the document's own standfirst and the
               sheet below carries it whole; printing it twice above the fold was the page's worst
               duplication. Where the heading came from is said on the sheet's eyebrow instead. */}

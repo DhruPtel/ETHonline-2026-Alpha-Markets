@@ -34,6 +34,9 @@ export interface ListedReport {
   /** ⚠️ The narrator's own name for the report, outside the hash. `null` for anything written
    *  before migration 008 — eleven rows — and for a title the digit guard rejected. */
   readonly title: string | null;
+  /** ⚠️ The author's listing description, outside the hash (migration 010). Written once, at
+   *  publish; `null` for every report listed before 010 and for any listed with the field empty. */
+  readonly description: string | null;
   /**
    * ⚠️ **Display only. Never rebuild a `Report` from this.** The driver returns `BIGINT` as a
    * JavaScript *string* — deliberately, since a bigint can exceed `Number.MAX_SAFE_INTEGER` — so
@@ -52,7 +55,7 @@ export interface ListedReport {
 }
 
 interface ReportRow {
-  hash: string; analyst: string; directive: string; title: string | null;
+  hash: string; analyst: string; directive: string; title: string | null; description: string | null;
   canonical_json: string;
   block: string; observed_at: Date; created_at: Date; published_at: Date | null;
 }
@@ -117,6 +120,22 @@ export async function recordTitle(reportHash: string, title: string | null): Pro
   await db()`UPDATE reports SET title = ${title} WHERE hash = ${reportHash}`;
 }
 
+/**
+ * The author's listing description. ⚠️ **Written AFTER `save()`, never inside `canonical()`** — the
+ * shape `recordTitle` uses, for the same reason: four report hashes are committed in ATS creation
+ * events on Hedera, and a column is invisible to `load()`'s integrity checks.
+ *
+ * ⚠️ **Only while unpublished, and that guard is what makes it write-once.** The console calls this
+ * immediately before `publish()`; once `published_at` is set a replayed form changes nothing, so the
+ * description a buyer first saw is the one that stays. An empty description is a no-op, so NULL keeps
+ * meaning "none" — the same rule as a null title.
+ */
+export async function recordDescription(reportHash: string, description: string | null): Promise<void> {
+  const text = description?.trim().slice(0, 500) ?? '';
+  if (!text) return;
+  await db()`UPDATE reports SET description = ${text} WHERE hash = ${reportHash} AND published_at IS NULL`;
+}
+
 export async function load(hash: string): Promise<Report | null> {
   const [row] = await db()<ReportRow[]>`
     SELECT hash, analyst, directive, canonical_json, block, observed_at, created_at
@@ -163,7 +182,7 @@ export async function load(hash: string): Promise<Report | null> {
  */
 export async function list(limit = 50): Promise<ListedReport[]> {
   const rows = await db()<ReportRow[]>`
-    SELECT hash, analyst, directive, title, block, created_at, published_at
+    SELECT hash, analyst, directive, title, description, block, created_at, published_at
     FROM reports ORDER BY created_at DESC LIMIT ${limit}`;
   return rows.map(toListed);
 }
@@ -183,7 +202,7 @@ export async function list(limit = 50): Promise<ListedReport[]> {
  */
 export async function listPublished(limit = 50): Promise<ListedReport[]> {
   const rows = await db()<ReportRow[]>`
-    SELECT hash, analyst, directive, title, block, created_at, published_at
+    SELECT hash, analyst, directive, title, description, block, created_at, published_at
     FROM reports WHERE published_at IS NOT NULL
     ORDER BY published_at DESC LIMIT ${limit}`;
   return rows.map(toListed);
@@ -201,9 +220,10 @@ export async function listPublished(limit = 50): Promise<ListedReport[]> {
  * reports in this store have settled x402 purchases against them, which is money that moved on
  * Hedera against something that was for sale. A withdrawal is its own landmark if it is ever wanted.
  *
- * ⚠️ **Publishing is not tokenizing and neither implies the other.** A tokenized report can be
- * unlisted — the ATS security exists on Hedera whether or not our index shows it — and a published
- * report needs no token, which is the common case: x402 sells a read without one.
+ * ⚠️ **Publishing is not tokenizing, and since 2026-09-13 the console requires the token first.** A
+ * tokenized report can stay unlisted — the ATS security exists on Hedera whether or not our index
+ * shows it. **This function does not check for a token**; the console's publish action does, and
+ * reports listed before that rule stay listed. See `tracking/DECISIONS.md` 2026-09-13.
  *
  * Returns `null` when there is no such report, which a caller must not silently treat as success.
  */
@@ -227,6 +247,7 @@ function toListed(r: ReportRow): ListedReport {
     analyst: r.analyst,
     directive: r.directive,
     title: r.title ?? null,
+    description: r.description ?? null,
     // ⚠️ **The one coercion in this file, and it is display-only.** See `ListedReport.block`. Safe
     // because an Ethereum block number is ~2.6e7 against `Number.MAX_SAFE_INTEGER` of ~9.0e15, and
     // this value never re-enters a hashed object — `load` is the only path back to a `Report`.

@@ -45,6 +45,7 @@ import {db} from '../../src/store/db.js';
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
 import {ANALYSTS} from '../../src/config/analysts.js';
+import {BAND_KEYS, METRIC_WORD, bandSeed, bandsFor, displayPools} from './demo.js';
 import {ethers} from 'ethers';
 
 export const runtime = 'nodejs';
@@ -82,7 +83,31 @@ interface Row {
 
 /** ⚠️ USDC on Arc is native gas at 18 decimals on a token the world knows as 6. */
 const usdc = (wei: bigint): string => ethers.formatUnits(wei, 18);
-const grouped = (decimal: string) => Number(decimal).toLocaleString('en-US');
+/**
+ * The card's short title, COMPOSED from the spec's own fields and never cut from the sentence:
+ * "Aave v3 deposits above $24.3B". ⚠️ The day and the exact threshold belong to the market page's
+ * heading. The metric word stays because two cards on one protocol must still read differently.
+ */
+function shortQuestion(spec: Spec): string {
+  return `${protocolName(spec.slug)} ${METRIC_WORD[spec.metric] ?? spec.metric} ${spec.comparison} ${abbreviateUsd(spec.threshold)}`;
+}
+
+/** `aave-v3-ethereum` → `Aave v3`. Every configured deployment is on Ethereum, so the suffix names nothing. */
+function protocolName(slug: string): string {
+  return slug.replace(/-ethereum$/, '').split('-')
+    .map((w) => (/^v\d+$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ');
+}
+
+/**
+ * $24,315,301,463 → $24.3B. ⚠️ **CARD ONLY.** It is rounded, so it must never appear where it could be
+ * read as the threshold a market settles against — the market page prints the exact figure.
+ */
+function abbreviateUsd(decimal: string): string {
+  const n = Number(decimal);
+  const [div, unit]: [number, string] = n >= 1e9 ? [1e9, 'B'] : n >= 1e6 ? [1e6, 'M'] : n >= 1e3 ? [1e3, 'K'] : [1, ''];
+  return `$${(n / div).toFixed(1).replace(/\.0$/, '')}${unit}`;
+}
 
 /** The five states a market can be in. ⚠️ A void is an absence of an outcome, never a wrong answer. */
 function standing(r: Row): string {
@@ -205,17 +230,22 @@ export default async function MarketIndex() {
 
   const record = await analystRecord();
 
-  // ⚠️ `kind` is not read inside — the card renders from the row — but it is the label at each call
-  // site and a demo passed as 'rehearsal' would be a false statement in the source even though the
-  // output is identical. Kept honest rather than deleted, because the moment a card needs different
-  // copy per section this is the parameter that will carry it.
+  // ⚠️ `kind` is the label at each call site, and it is now read for one thing: a demo card draws the
+  // market page's five bands instead of the binary pair. A demo passed as 'rehearsal' would lose them.
   const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'demo' | 'offchain') => {
     const spec = JSON.parse(r.spec_json) as Spec;
     const p = r.chain_market_id ? pools.get(r.chain_market_id) : undefined;
     const total = p ? p.t + p.f : null;
     const staked = total !== null && total > 0n;
     const truePct = staked ? Number((p!.t * 1000n) / total!) / 10 : null;
-    const question = `Will ${spec.slug}'s ${spec.metric} be ${spec.comparison} $${grouped(spec.threshold)} on ${spec.observedDay}?`;
+    // ⚠️ The full question — the day and the exact threshold — is the market page's heading. The card
+    // carries the composed short form.
+    const question = shortQuestion(spec);
+    // ⚠️ **A demo card draws the page's five bands**, off the same display pools and the same seeds, so
+    // a colour on the card is the colour of the same row on the page. Everything else keeps the pair.
+    const shown = kind === 'demo' && p ? displayPools(r.chain_market_id!, p.t, p.f) : null;
+    const bands = shown ? bandsFor(r.chain_market_id!, spec.threshold, shown.showTruePct ?? 50) : [];
+    const chartPct = shown ? shown.showTruePct : truePct;
     const resolved = r.resolved_at !== null || r.voided_at !== null;
     const Card = (r.chain_market_id ? 'a' : 'div') as 'a';
 
@@ -241,13 +271,17 @@ export default async function MarketIndex() {
 
         {/* ⚠️ No pool, no chart. A market nobody has staked has no ratio, and drawing 50/50 or 100/0
             over an empty pool would be the one invented number on this page. */}
-        {staked ? (
+        {chartPct !== null ? (
           <ProbabilityChart
-            series={illustrativeSeries(r.chain_market_id ?? r.id, truePct!)}
-            truePct={truePct!}
-            falsePct={100 - truePct!}
+            series={illustrativeSeries(r.chain_market_id ?? r.id, chartPct)}
+            truePct={chartPct}
+            falsePct={100 - chartPct}
             compact
             illustrative
+            bandLines={bands.map((b, i) => ({
+              values: illustrativeSeries(bandSeed(r.chain_market_id!, b.threshold), b.sharePct).trueLine,
+              className: `line-band-${BAND_KEYS[i]}`,
+            }))}
           />
         ) : (
           <p className="market-statline" style={{padding: '14px 0'}}>
@@ -255,22 +289,46 @@ export default async function MarketIndex() {
           </p>
         )}
 
-        <div className="prediction-outcomes">
-          <div>
-            <span>
-              <i className="dot-true" />
-              TRUE{r.side === true ? ' · analyst' : ''}
-            </span>
-            <b>{truePct === null ? '—' : `${truePct}%`}</b>
+        {bands.length > 0 ? (
+          // ⚠️ The same five rows as the market page, top to bottom, with the same state column. The
+          // thresholds abbreviate here as the title does; the page prints them exactly.
+          <div className="prediction-outcomes">
+            {bands.map((b, i) => (
+              <div key={b.threshold}>
+                <span>
+                  <i className={`dot-band-${BAND_KEYS[i]}`} />
+                  Above {abbreviateUsd(b.threshold)}{b.isMarket ? ' · settles' : ''}
+                </span>
+                <b>
+                  {!b.isMarket
+                    ? `${b.sharePct}%`
+                    : r.voided_at
+                      ? 'refundable'
+                      : r.resolved_at
+                        ? r.outcome ? 'WON' : 'lost'
+                        : `${b.sharePct}%`}
+                </b>
+              </div>
+            ))}
           </div>
-          <div>
-            <span>
-              <i className="dot-false" />
-              FALSE{r.side === false ? ' · analyst' : ''}
-            </span>
-            <b>{truePct === null ? '—' : `${(100 - truePct).toFixed(1).replace(/\.0$/, '')}%`}</b>
+        ) : (
+          <div className="prediction-outcomes">
+            <div>
+              <span>
+                <i className="dot-true" />
+                TRUE{r.side === true ? ' · analyst' : ''}
+              </span>
+              <b>{truePct === null ? '—' : `${truePct}%`}</b>
+            </div>
+            <div>
+              <span>
+                <i className="dot-false" />
+                FALSE{r.side === false ? ' · analyst' : ''}
+              </span>
+              <b>{truePct === null ? '—' : `${(100 - truePct).toFixed(1).replace(/\.0$/, '')}%`}</b>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="prediction-card-footer">
           {/* ⚠️ Volume is the pool sum and nothing else. No invented figure. */}

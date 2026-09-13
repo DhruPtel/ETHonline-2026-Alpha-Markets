@@ -29,7 +29,7 @@ import {notFound} from 'next/navigation.js';
 import {ethers} from 'ethers';
 import {ProbabilityChart, illustrativeSeries} from '../../components/ProbabilityChart.js';
 import {PositionControl, type AnalystReport} from './PositionControl.js';
-import {bandsFor, participantsFor} from '../demo.js';
+import {BAND_KEYS, bandSeed, bandsFor, displayPools, participantsFor} from '../demo.js';
 import {isRehearsal, pastPosted} from '../../../src/arc/rehearsal.js';
 import {ArrowLeft, ArrowRight, ArrowUpRight, Check, Clock} from '../../components/Icons.js';
 import {db} from '../../../src/store/db.js';
@@ -55,9 +55,6 @@ const STAKE_IFACE = new ethers.Interface(['function stake(uint256 marketId, uint
 interface Spec {
   slug: string; metric: string; comparison: 'above' | 'below'; threshold: string; observedDay: string;
 }
-
-/** ⚠️ Five, matching `--band-a…e` in `globals.css`. Index order is table order, top to bottom. */
-const BAND_KEYS = ['a', 'b', 'c', 'd', 'e'] as const;
 
 const usdc = (wei: bigint): string => ethers.formatUnits(wei, 18);
 const when = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
@@ -177,12 +174,10 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
   //
   // ⚠️ **A real market passes through unchanged** — `demo` is false, so every `show*` below is the
   // contract's own number and `/markets/6` renders exactly what it rendered before.
-  const simTrue = participants.filter((x) => x.side)
-    .reduce((a, x) => a + ethers.parseUnits(x.amountUsdc, 18), 0n);
-  const simFalse = participants.filter((x) => !x.side)
-    .reduce((a, x) => a + ethers.parseUnits(x.amountUsdc, 18), 0n);
-  const showTrue = demo ? poolTrue + simTrue : poolTrue;
-  const showFalse = demo ? poolFalse + simFalse : poolFalse;
+  // ⚠️ `displayPools` is shared with this market's card on `/markets`, so both draw the same bands.
+  const shown = demo ? displayPools(id, poolTrue, poolFalse) : null;
+  const showTrue = shown ? shown.showTrue : poolTrue;
+  const showFalse = shown ? shown.showFalse : poolFalse;
   const showTotal = showTrue + showFalse;
   const showStaked = showTotal > 0n;
   const showTruePct = showStaked ? Number((showTrue * 1000n) / showTotal) / 10 : null;
@@ -197,7 +192,7 @@ export default async function MarketDetail({params}: {params: Promise<{id: strin
    * in two colours. Seeded per band so the shapes do not shuffle between renders.
    */
   const bandLines = bands.map((b, i) => ({
-    values: illustrativeSeries(`${id}/band/${b.threshold}`, b.sharePct).trueLine,
+    values: illustrativeSeries(bandSeed(id, b.threshold), b.sharePct).trueLine,
     className: `line-band-${BAND_KEYS[i]}`,
   }));
 

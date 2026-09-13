@@ -43,7 +43,7 @@ import { DEMO_RETIREMENT_SECONDS, validateSpec } from '../../src/arc/spec.js';
 import { arcProvider } from '../../src/arc/arc.js';
 import { requiredEnv } from '../../src/config/env.js';
 import { db } from '../../src/store/db.js';
-import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, PRESETS, type Preset } from './demo.js';
+import { DEMO_SLUG, DEMO_STAKING_SECONDS, MAX_OPEN_DEMO_MARKETS, METRIC_WORD, PRESETS, type Preset } from './demo.js';
 
 /** ⚠️ Never throws a raw error at a page — every failure is a sentence a judge can read. */
 export type DemoResult =
@@ -271,16 +271,9 @@ export async function demoSeedPlan(): Promise<SeedPlan> {
     // ⚠️ ONE market per press, so the cost quoted is one market's.
     costUsdc: '0.02',
     nextFrees: open[0] ? open[0].close_time.toISOString().slice(11, 19) : null,
-    nextLabel: next ? `${LABEL[next.metric] ?? next.metric} above $${Number(next.threshold).toLocaleString('en-US')}` : null,
+    nextLabel: next ? `${METRIC_WORD[next.metric] ?? next.metric} above $${Number(next.threshold).toLocaleString('en-US')}` : null,
   };
 }
-
-const LABEL: Readonly<Record<string, string>> = {
-  totalDepositBalanceUSD: 'deposits',
-  totalBorrowBalanceUSD: 'borrows',
-  dailyDepositUSD: 'daily deposits',
-  dailyBorrowUSD: 'daily borrows',
-};
 
 /**
  * Which question to open next. ⚠️ **Rotates rather than restarting at the top**, so a judge pressing

@@ -1,9 +1,11 @@
 'use client';
 
-import {useState} from 'react';
+import {useEffect, useState, type CSSProperties, type ReactNode} from 'react';
+import {useFormStatus} from 'react-dom';
 import {useRouter} from 'next/navigation.js';
 import {useSecret} from './ConsoleSecret.js';
-import {ArrowUpRight, ChevronDown, FileText, Upload} from './Icons.js';
+import {MiniDocument, type PreviewChart} from './MiniDocument.js';
+import {ArrowUpRight, Check, ChevronDown, Clock, FileText, Upload} from './Icons.js';
 
 /**
  * The tokenize form: the source tabs, the listing fields and the access price.
@@ -15,6 +17,8 @@ import {ArrowUpRight, ChevronDown, FileText, Upload} from './Icons.js';
 export type TokenTarget = {
   hash: string;
   heading: string;
+  /** The line under a marketplace card's title — analyst and block — so the preview card matches it. */
+  subtitle: string;
   factCount: number;
   /** The constant every report is sold at. ⚠️ HBAR, not USDC — see the notes in the form. */
   priceHbar: string;
@@ -56,13 +60,17 @@ export type Listing = {
   currency: string;
   fileName: string;
   filePages: number;
-  marketClaim: string;
   tokenIdState: string;
   transactionState: string;
   publishState: string;
 };
 
-export function TokenizeForm({listing, target}: {listing: Listing; target: TokenTarget | null}) {
+export function TokenizeForm({listing, target, roster}: {
+  listing: Listing;
+  target: TokenTarget | null;
+  /** The "reports not listed" control, rendered between this form and the notes about it. */
+  roster?: ReactNode;
+}) {
   const router = useRouter();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [minted, setMinted] = useState<Minted | null>(null);
@@ -72,6 +80,10 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   // ⚠️ **The hash is a field now, defaulted to the report on screen.** Paste another and the form
   // targets it; the price step asks the route about THAT hash, so an unknown one comes back as the
   // route's own refusal rather than silently reverting to the displayed report.
+  // ⚠️ **AND IT FOLLOWS A NEW REPORT.** `useState` reads its default once, and generating a report
+  // refreshes the page around this component rather than remounting it — so the field kept the
+  // previous hash and the next press would have minted the wrong report. The console page now keys
+  // this form by the report on screen: a new report is a new form, field and plan included.
   const [hash, setHash] = useState(target?.hash ?? '');
 
   // ⚠️ **Normalise before looking anything up.** A hash copied out of a terminal or a log arrives
@@ -83,14 +95,30 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   const clean = normalise(hash);
   const looksLikeHash = /^[0-9a-f]{64}$/.test(clean);
 
-  // ⚠️ The draft is seeded from the report once and then owned by whoever is typing.
-  const d = draft ?? {
+  // ⚠️ The draft is seeded from the report and then owned by whoever is typing — for THAT report only.
+  // The provider outlives the refresh, so a draft typed for the previous report is set aside.
+  const d = draft && draft.hash === (target?.hash ?? '') ? draft : {
+    hash: target?.hash ?? '',
     title: target?.heading ?? '',
     description: '',
     priceHbar: target?.priceHbar ?? '',
   };
   const edit = (patch: Partial<typeof d>) => setDraft({...d, ...patch});
   const [error, setError] = useState<string | null>(null);
+
+  // ⚠️ **What minting shows while it runs: the seconds elapsed and the three steps in order.** The route
+  // sends deploy, grant ISSUER and issue one after another and answers once, when all three have
+  // landed — it streams nothing — so this cannot say which of the three is in flight, and it does not
+  // pretend to. Elapsed time is the one true thing there is to show.
+  const minting = busy && plan !== null;
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!minting) return undefined;
+    const started = Date.now();
+    setElapsed(0);
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [minting]);
 
   // ⚠️ **The hash comes from the report on screen, not from a field.** It is 64 characters and the
   // document sits directly above this panel; asking someone to find and paste it would be the
@@ -170,6 +198,7 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
   }
 
   return (
+    <>
     <div className="tokenize-form panel">
       <div className="tabs">
         <label className="field-label">Source</label>
@@ -268,15 +297,15 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
         </div>
         <div className="description-field">
           <label htmlFor="description">Description</label>
-          {/* ⚠️ **MARKED — no column behind it.** `reports` has no description, and the route does
-              not take one. Left visible and disabled rather than deleted. */}
+          {/* ⚠️ **Saved when you publish, once** (migration 010). The publish control carries this
+              text in the form it submits, and publishing is one-way, so it cannot be edited after. */}
           <textarea
             id="description"
             className="field"
             maxLength={500}
             value={d.description}
             onChange={(e) => edit({description: e.target.value})}
-            placeholder="Describe the listing. Shown in the preview; not saved — see below."
+            placeholder="Describe the listing. Saved when you publish — it cannot be changed after."
           />
         </div>
         <div>
@@ -293,19 +322,6 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
             {/* ⚠️ HBAR. A USD-denominated price throws on testnet — no HBAR entry in DEFAULT_ASSETS. */}
             <span>HBAR</span>
           </div>
-          <label className="second-label" htmlFor="related-market">
-            Related market
-          </label>
-          <button
-            id="related-market"
-            className="choice inert"
-            type="button"
-            aria-label="Related prediction market"
-            aria-disabled="true"
-          >
-            <span className="choice-value">{listing.marketClaim}</span>
-            <ChevronDown size={16} />
-          </button>
         </div>
       </div>
 
@@ -429,19 +445,6 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
         </p>
       </details>
 
-      {/* ⚠️ **WHAT SURVIVES A PUBLISH, said where the person publishes.** `/api/console/tokenize`
-          accepts `{reportHash, confirm}` and nothing else — so **none of the three editable fields
-          above is sent, and none is stored.** The title that exists is the narrator's, written at
-          generation time by `recordTitle()`; editing it here changes the preview and not the record.
-          Storing any of them needs a `reports` column and a route that accepts it, which is a
-          schema change and is not being made here. */}
-      <p className="notice"><span>
-        <strong>Only the report hash is published.</strong> Title, description and price edit the
-        preview so you can see the listing — <strong>none of the three is saved</strong>, and the
-        charge stays {target ? target.priceHbar : '0.001'} HBAR whatever the price box says. Storing
-        them needs a <code>reports</code> column and a route that takes it.
-      </span></p>
-
       {error && <p className="notice"><span>{error}</span></p>}
 
       {/* ⚠️ **THE CONTROLS ARE ALWAYS HERE.** What changes is what they say and whether they are
@@ -457,23 +460,6 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
           from what is typed. "Already minted" is only knowable for the report on screen; paste any
           other hash and the controls stay live, because whether THAT report has a token is the
           route's answer to give — and it gives it as a refusal rather than a surprise. */}
-      {plan && (
-        <p className="notice"><span>
-          <strong>This will spend about {plan.estimateHbar} HBAR and mint a permanent asset.</strong>{' '}
-          Balance {plan.balanceHbar} HBAR, floor {plan.floorHbar}. ISIN <code>{plan.isin}</code>,
-          issued to <code>{plan.recipient.slice(0, 12)}…</code>. Nothing has been spent yet.
-        </span></p>
-      )}
-
-      {state === 'minted' && (
-        <p className="notice"><span>
-          <strong>This report is already tokenized</strong> as <code>{(done ?? existing)!.isin}</code>.
-          A report can hold one token — <code>report_tokens.report_hash</code> is the primary key and
-          the route refuses a second mint. Paste a different hash above to tokenize another report;
-          the receipt below stays.
-        </span></p>
-      )}
-
       {state === 'no-hash' && (
         <p className="muted">
           Paste a report hash above, or open <code>/console?report=&lt;hash&gt;</code>. The buttons
@@ -498,7 +484,7 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
                 ? 'Already tokenized'
                 : plan
                   ? `Confirm — spend ~${plan.estimateHbar} HBAR and mint`
-                  : 'Price this tokenization'}
+                  : 'Tokenize report'}
         </button>
         {/* ⚠️ **THE BLANK BUTTON, and it was two faults at once.**
             1. `.btn.dark-outline` sets `color: var(--paper)` — WHITE — because it is the dark Atlas
@@ -515,17 +501,55 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
         )}
       </div>
 
-      {/* ⚠️ **REVERSED BY MIGRATION 009, AND THE OLD COPY WAS TRUE WHEN IT WAS WRITTEN.** This read
-          "Minting lists it … there is no separate publish step", because `/` rendered every row in
-          the store. It now renders published rows only, so minting and listing are two decisions
-          and this must not imply otherwise. ⚠️ They are genuinely independent in both directions: a
-          tokenized report can stay unlisted (the ATS security exists on Hedera whatever our
-          shopfront shows) and a listed report needs no token (x402 sells a read without one). */}
+      {minting && (
+        <p className="muted" role="status" aria-live="polite">
+          <Clock size={13} /> Minting · {elapsed}s — deploy the security, grant ISSUER, issue 1: three
+          Hedera transactions sent in order. The receipt appears when all three have landed.
+        </p>
+      )}
+
+      {/* ⚠️ **TWO DECISIONS, AND SINCE 2026-09-13 THEY RUN ONE WAY.** Migration 009 made minting and
+          listing independent in both directions. Publishing now requires a minted token — the
+          operator's call, recorded in DECISIONS.md — so a listed report is always a security. A
+          tokenized report can still stay unlisted. */}
       <p className="muted">
-        Minting does not list it. <code>/</code> shows published reports only — publishing is the
-        control below, and it is a separate decision from tokenizing.
+        Minting does not list it. Publishing is the control in the Marketplace preview, and it opens
+        once this report is minted.
       </p>
     </div>
+
+    {roster}
+
+    {/* ── ⚠️ THE NOTES, BELOW THE ROSTER ──────────────────────────────────────────────────────────
+        They sat between the fields and the button, where three paragraphs pushed the one control the
+        form exists for down the page. They explain the button; they do not need to stand in front of
+        it. `.notice` is styled globally, so moving them out of the panel changes nothing about them. */}
+    {plan && (
+      <p className="notice"><span>
+        <strong>This will spend about {plan.estimateHbar} HBAR and mint a permanent asset.</strong>{' '}
+        Balance {plan.balanceHbar} HBAR, floor {plan.floorHbar}. ISIN <code>{plan.isin}</code>,
+        issued to <code>{plan.recipient.slice(0, 12)}…</code>. Nothing has been spent yet.
+      </span></p>
+    )}
+
+    {state === 'minted' && (
+      <p className="notice"><span>
+        <strong>This report is already tokenized</strong> as <code>{(done ?? existing)!.isin}</code>.
+        A report can hold one token — <code>report_tokens.report_hash</code> is the primary key and
+        the route refuses a second mint. Paste a different hash above to tokenize another report; the
+        receipt above stays.
+      </span></p>
+    )}
+
+    {/* ⚠️ **WHAT SURVIVES A PUBLISH.** Since migration 010 the description does, written once by the
+        publish action. The title and price still only edit the preview: the stored title is the
+        narrator's (`recordTitle()`), and the charge is one constant. */}
+    <p className="notice"><span>
+      <strong>The description is saved when you publish</strong> — once, since publishing is one-way.
+      The title and price only edit the preview: the stored title is the narrator&rsquo;s, and the
+      charge stays {target ? target.priceHbar : '0.001'} HBAR whatever the price box says.
+    </span></p>
+    </>
   );
 }
 
@@ -536,11 +560,16 @@ export function TokenizeForm({listing, target}: {listing: Listing; target: Token
  * the same context; and it renders only the dynamic text, so `.listing-preview`'s markup in
  * `app/console/page.tsx` is otherwise untouched.
  */
-export function ListingPreviewText({fallback}: {fallback: {title: string; priceHbar: string}}) {
+export function ListingPreviewText({hash, fallback}: {
+  hash: string | null;
+  fallback: {title: string; priceHbar: string};
+}) {
   const {draft} = useSecret();
-  const title = draft?.title?.trim() || fallback.title;
-  const price = draft?.priceHbar?.trim() || fallback.priceHbar;
-  const description = draft?.description?.trim() ?? '';
+  // ⚠️ Only a draft typed for the report on screen — see `Draft.hash`.
+  const mine = draft && draft.hash === hash ? draft : null;
+  const title = mine?.title.trim() || fallback.title;
+  const price = mine?.priceHbar.trim() || fallback.priceHbar;
+  const description = mine?.description.trim() ?? '';
 
   return (
     <>
@@ -551,5 +580,95 @@ export function ListingPreviewText({fallback}: {fallback: {title: string; priceH
         {price} <small>HBAR</small>
       </strong>
     </>
+  );
+}
+
+/**
+ * The white card in the Marketplace preview. ⚠️ **It read the mock-up's "Lending protocols / Q2 2026"
+ * while the black block beneath it followed the title field** — one listing with two titles. It now
+ * takes the same draft title, and the marketplace card's own subtitle, so the preview is the card a
+ * buyer will see.
+ */
+export function ListingPreviewCard({hash, fallback, preview}: {
+  hash: string | null;
+  fallback: {title: string; subtitle: string};
+  preview: PreviewChart;
+}) {
+  const {draft} = useSecret();
+  const mine = draft && draft.hash === hash ? draft : null;
+  return <MiniDocument title={mine?.title.trim() || fallback.title} subtitle={fallback.subtitle} preview={preview} />;
+}
+
+/**
+ * The badge in the preview card's heading. `listedOn` is `undefined` with no report loaded, `null` for
+ * an unlisted one, or the date it was listed. ⚠️ Reads "Publishing…" while a press is in flight.
+ */
+export function PublishBadge({listedOn, noReport}: {listedOn: string | null | undefined; noReport: string}) {
+  const {publishing} = useSecret();
+  if (publishing) return <span className="badge">Publishing…</span>;
+  if (listedOn === undefined) return <span className="badge off">{noReport}</span>;
+  return <span className={listedOn ? 'badge' : 'badge off'}>{listedOn ? `Listed ${listedOn}` : 'Not listed'}</span>;
+}
+
+/**
+ * The publish control. ⚠️ **A client component for two reasons, and still a real `<form>` around a
+ * server action**, so a press works before hydration:
+ *
+ *   · it carries the typed description in the form it submits — the one moment it is saved;
+ *   · it shows that the press registered. `useFormStatus` greys the button and the badge reads
+ *     "Publishing…" until the action's `refresh()` brings the listed state back. Before this nothing
+ *     changed on a press, and a button that does nothing gets pressed twice.
+ *
+ * ⚠️ **Unavailable until the report is minted, and it says why** rather than only greying out. The
+ * server action refuses an untokenized report too, so the rule does not live in the button alone.
+ */
+export function PublishControl({action, hash, minted, publishedAt, style}: {
+  action: (formData: FormData) => Promise<void>;
+  hash: string | null;
+  minted: boolean;
+  publishedAt: string | null;
+  style: CSSProperties;
+}) {
+  const {draft} = useSecret();
+  if (!hash) return <span className="btn white full inert" style={style}>Publish to the marketplace</span>;
+  if (publishedAt) {
+    // ⚠️ Done, and does not offer to publish again — `.inert` is the design's spent-control treatment.
+    return (
+      <span className="btn white full inert" style={style}>
+        <Check size={15} /> Published to the marketplace
+      </span>
+    );
+  }
+  if (!minted) {
+    return (
+      <>
+        <span className="btn white full inert" style={style} aria-disabled="true">Publish to the marketplace</span>
+        <p style={style}>Tokenize this report first — publishing opens once it is minted.</p>
+      </>
+    );
+  }
+  const description = draft && draft.hash === hash ? draft.description : '';
+  return (
+    <form action={action} style={style}>
+      <input type="hidden" name="hash" value={hash} />
+      <input type="hidden" name="description" value={description} />
+      <PublishSubmit />
+    </form>
+  );
+}
+
+function PublishSubmit() {
+  const {pending} = useFormStatus();
+  const {setPublishing} = useSecret();
+  // ⚠️ The cleanup matters: the form unmounts in the same render that brings the listed state, and a
+  // flag left true would hold the badge on "Publishing…" after it had finished.
+  useEffect(() => {
+    setPublishing(pending);
+    return () => setPublishing(false);
+  }, [pending, setPublishing]);
+  return (
+    <button className="btn white full" type="submit" disabled={pending}>
+      {pending ? 'Publishing…' : <>Publish to the marketplace <ArrowUpRight size={15} /></>}
+    </button>
   );
 }

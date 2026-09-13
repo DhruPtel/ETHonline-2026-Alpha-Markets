@@ -17466,3 +17466,54 @@ to the refresh route would record it; left for the operator, who asked for no wr
 - Production build in headless Chromium: `/markets/31` shows the analyst's row (the judge's is not
   recorded yet), `/markets/11` and `/markets/6` one row each as before, the `/markets` card for 31
   reads `FALSE · analyst`. No console errors.
+
+---
+
+## 2026-09-13 — console fixes, a description column, short market cards, and two answers
+
+**Console.** The hash field kept the previous report after a generation: `useState` reads its default
+once, and a run only refreshes the page around the form. The form is now keyed by the report on
+screen and a draft remembers which report it was typed for; with `?report=` in the URL the Atlas panel
+points it at the new report rather than reloading the old one. The white preview card follows the
+title field (it read the mock-up's title). "Related market" is gone from form and preview; "Price this
+tokenization" is "Tokenize report"; the three notes moved below the not-listed control. Minting shows
+elapsed seconds and the three steps — it cannot say which transaction is in flight, because the route
+answers once, after all three.
+
+**Publish.** Unavailable until the report is minted, saying why, and the server action refuses too.
+It now carries the typed description, greys out with "Publishing…" on the button and badge, and calls
+`refresh()`. ⚠️ **The page's comment said Next re-renders a route when a server action resolves. It
+does not**, so the landmark was written while the card kept saying "Not listed" — which is why it got
+pressed twice.
+
+**Descriptions.** Migration 010 adds `reports.description`, outside the hash, applied to the live
+database. Written once, by the publish action, only while unpublished — the operator chose publish-only
+in chat. Shown under the report page heading and on marketplace cards; a report without one shows
+nothing, which today is all twenty.
+
+**Markets.** Cards carry a composed title — "Aave v3 deposits above $24.3B", metric word kept on the
+operator's call — abbreviated on the card only; the market page keeps the exact question and date.
+Demo cards draw the page's five bands through helpers moved into `demo.ts`, so card and page share
+pools, seeds and colours.
+
+**Two answers, nothing built.** Context: the digest proves the block was *supplied* to the planner;
+nothing records that it was *used*, and the report page shows neither. ⚠️ **Markets 6 and 7 — this
+corrects yesterday's "nothing scheduled has run".** Both carry settlement evidence recorded at
+02:52:38Z on the 13th, inside the 02:00Z cron hour, reading 24,604,743,245.52 → TRUE. No resolve was
+ever sent: arcscan shows no resolve transaction for either, successful or failed. Every guard checkable
+from here passes, guard 5 re-hashed. Why that run stopped between recording and sending is only in its
+Vercel log. A resolve costs 0.0012–0.0017 USDC of gas (54,275–54,287 gas, six receipts).
+
+### Checks
+
+- `npx next build` after `rm -rf .next`, run only with no Next process up — passes. Root `tsc` — the
+  pre-existing `seed-demo-record.ts` error only. `migrate.ts` — ten migrations, 010 applied, PASS.
+- Headless Chromium on the production build, nothing generated, tokenized or published: hash field
+  equals the report on screen; typing a title changes both preview titles; a client-side switch
+  between two reports moves the hash field and drops the first report's draft without a reload;
+  untokenized report shows the disabled Publish with its reason; `/markets` short titles and five demo
+  bands; `/markets/31` unchanged; no console errors on any page.
+- ⚠️ **Not verifiable without spending:** the ready-to-publish state (every tokenized report is already
+  published), the Publishing… transition, a saved description, and the minting indicator.
+- ⚠️ **Seen, not fixed:** some `/markets` cards show "—" for pools — the index's per-card contract
+  reads fail intermittently. It predates this change.

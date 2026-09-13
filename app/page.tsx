@@ -171,6 +171,15 @@ export default async function ReportMarketplace() {
                   </strong>
                 </div>
                 <p>By {report.analyst.slice(0, 18)}…</p>
+                {/* ⚠️ The author's listing description (migration 010), written once at publish.
+                    **A report without one shows nothing here** — no placeholder and no directive in
+                    its place — so a card with none reads exactly as it did before 010. Clamped to
+                    three lines inline, since `globals.css` is not in this task's files. */}
+                {report.description && (
+                  <p style={{display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden'}}>
+                    {report.description}
+                  </p>
+                )}
 
                 {/* ⚠️ **THE RECORD, WHERE THE BUYING DECISION IS MADE.** Renders nothing when the
                     report has no graded claim — which is most of them, and an absent grade is not a

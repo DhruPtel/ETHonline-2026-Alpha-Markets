@@ -55,6 +55,14 @@ export const presetById = (id: string): Preset | undefined => PRESETS.find((p) =
  *  `validateSpec` refuses — settlement re-reads it, and a deployment that stops answering voids. */
 export const DEMO_SLUG = 'aave-v3-ethereum';
 
+/** The metric as a word, for short labels — the Start button's next question and a market card's title. */
+export const METRIC_WORD: Readonly<Record<string, string>> = {
+  totalDepositBalanceUSD: 'deposits',
+  totalBorrowBalanceUSD: 'borrows',
+  dailyDepositUSD: 'daily deposits',
+  dailyBorrowUSD: 'daily borrows',
+};
+
 /**
  * ⚠️ **How many demo markets may be open for staking at once, and this is the limit a judge
  * actually hits.** Not the seventh-run message — a judge can pick any question again, because a new
@@ -130,6 +138,35 @@ export function illustrativeTrueShare(ps: readonly Participant[]): number {
 }
 
 // ─── The bands ───────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The pools a demo market DISPLAYS: the contract's real pools plus the ten illustrative participants.
+ *
+ * ⚠️ **One function for the market page and its card on `/markets`**, so the five bands a card draws
+ * are the five the page draws. Two copies of an illustration is how a card and its page come to
+ * disagree about a number neither of them settles on.
+ * ⚠️ **Display only.** `payoutOf` reads the contract, which knows none of the participants.
+ */
+export function displayPools(chainMarketId: string, poolTrue: bigint, poolFalse: bigint): {
+  readonly showTrue: bigint; readonly showFalse: bigint; readonly showTruePct: number | null;
+} {
+  // Two-decimal USDC to 18-dp wei on the string — never through a float.
+  const wei = (usdc: string): bigint => {
+    const [whole, frac = ''] = usdc.split('.');
+    return BigInt(whole!) * 10n ** 18n + BigInt(`${frac}00`.slice(0, 2)) * 10n ** 16n;
+  };
+  const ps = participantsFor(chainMarketId);
+  const showTrue = poolTrue + ps.filter((p) => p.side).reduce((a, p) => a + wei(p.amountUsdc), 0n);
+  const showFalse = poolFalse + ps.filter((p) => !p.side).reduce((a, p) => a + wei(p.amountUsdc), 0n);
+  const total = showTrue + showFalse;
+  return {showTrue, showFalse, showTruePct: total > 0n ? Number((showTrue * 1000n) / total) / 10 : null};
+}
+
+/** ⚠️ Five, matching `--band-a…e` in `globals.css`. Index order is table order, top to bottom. */
+export const BAND_KEYS = ['a', 'b', 'c', 'd', 'e'] as const;
+
+/** The seed for a band's illustrative line, shared so a card and its page draw the same shape. */
+export const bandSeed = (chainMarketId: string, threshold: string): string => `${chainMarketId}/band/${threshold}`;
 
 export interface Band {
   /** ⚠️ A decimal STRING, and the live one is the market's own threshold character for character. */

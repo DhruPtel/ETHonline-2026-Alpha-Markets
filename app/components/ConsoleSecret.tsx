@@ -44,10 +44,13 @@ import {createContext, useContext, useState, type ReactNode} from 'react';
  * The form and the Marketplace preview are siblings inside `.tokenize-grid`, so neither can hold
  * this — the same reason the secret lives here.
  *
- * ⚠️ **NONE of these three is persisted by publishing.** `/api/console/tokenize` accepts
- * `{reportHash, confirm}` and nothing else. See the form's own notes.
+ * ⚠️ **Only the description is persisted, and only by publishing** (migration 010). The title and
+ * price edit the preview; `/api/console/tokenize` still accepts `{reportHash, confirm}` and nothing else.
+ *
+ * ⚠️ **`hash` is the report the draft was typed for.** The provider outlives a generated report — the
+ * page refreshes around it — so a draft typed for the previous report must not follow the next one.
  */
-export type Draft = {title: string; description: string; priceHbar: string};
+export type Draft = {hash: string; title: string; description: string; priceHbar: string};
 
 export type RunState = 'idle' | 'running' | 'saved' | 'failed';
 
@@ -109,6 +112,9 @@ type Secret = {
   setTab: (t: 'report' | 'data') => void;
   draft: Draft | null;
   setDraft: (d: Draft) => void;
+  /** ⚠️ A publish press in flight, so the badge in the preview card's heading can say so too. */
+  publishing: boolean;
+  setPublishing: (p: boolean) => void;
 };
 
 const Ctx = createContext<Secret | null>(null);
@@ -120,8 +126,9 @@ export function SecretProvider({children}: {children: ReactNode}) {
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [tab, setTab] = useState<'report' | 'data'>('report');
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [publishing, setPublishing] = useState(false);
   return (
-    <Ctx.Provider value={{secret, setSecret, run, setRun, source, setSource, evidence, setEvidence, tab, setTab, draft, setDraft}}>
+    <Ctx.Provider value={{secret, setSecret, run, setRun, source, setSource, evidence, setEvidence, tab, setTab, draft, setDraft, publishing, setPublishing}}>
       {children}
     </Ctx.Provider>
   );
