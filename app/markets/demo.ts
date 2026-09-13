@@ -1,4 +1,4 @@
-// What the demo surface knows: six questions, ten illustrative participants, and one cap.
+// What the demo surface knows: six questions, ten illustrative participants, the bands, and one cap.
 //
 // ── ⚠️ THE QUESTIONS ARE PINNED, AND PINNED IS THE POINT ────────────────────────────────────────
 //
@@ -8,15 +8,15 @@
 // "clearly true" into a false one on screen. `scripts/ops/demo-market.ts --presets` re-reads the
 // days and prints any drift; it is a check, never a rewrite.
 //
-// ⚠️ **WE KNOW THE ANSWERS AND THE PAGE SAYS SO.** Thresholds were placed around figures we had
-// already read, so that some resolve each way. What a judge does not know is *which* — and that is
-// the only thing this demo ever claimed. Presenting it as suspense it cannot deliver would be worse
-// than the curation.
+// ⚠️ **WE KNOW THE ANSWERS AND THE PAGE SAYS SO.** Thresholds were placed so that some resolve each
+// way. What a judge does not know is *which* — the only thing this demo ever claimed. Presenting it
+// as suspense it cannot deliver would be worse than the curation.
 //
-// ⚠️ **FOUR DIFFERENT SUBJECTS, DELIBERATELY.** Six thresholds on one metric and one day would mean
-// the first reveal answers the other five: a judge who learns deposits were 24.56B on the 11th can
-// compute every remaining question in their head. Spreading the six over two metrics and two days
-// means a reveal spoils at most the one or two questions sharing its subject.
+// ⚠️ **THREE SUBJECTS, DELIBERATELY.** Six thresholds on one metric and one day would mean the first
+// reveal answers the other five: a judge who learns deposits were 24.56B on the 11th can compute
+// every remaining question in their head. The six are spread two apiece over deposits on the 11th,
+// deposits on the 10th and borrows on the 11th, so a reveal spoils only the one other question
+// sharing its subject.
 
 import type { LegalMetric } from '../../src/arc/spec.js';
 
@@ -31,9 +31,10 @@ export interface Preset {
 }
 
 /**
- * ⚠️ **Two clearly true, two clearly false, two within 1% — §2.5's bracket.** The near pair is what
- * makes the demo worth running: a judge with no feel for Aave's balance sheet gets a real coin-flip
- * on those two, and half the value of the exercise is watching WRONG happen to someone.
+ * ⚠️ **Two clearly true, two clearly false, two within 1% — PHASE-8-demo-market §2.5's bracket.**
+ * The near pair is what makes the demo worth running: a judge with no feel for Aave's balance sheet
+ * gets a real coin-flip on those two, and half the value of the exercise is watching WRONG happen to
+ * someone.
  *
  * Figures these were placed against, read 2026-09-13:
  *   aave-v3-ethereum totalDepositBalanceUSD  2026-09-11 → 24,560,910,569.10…
@@ -51,7 +52,7 @@ export const PRESETS: readonly Preset[] = [
 
 export const presetById = (id: string): Preset | undefined => PRESETS.find((p) => p.id === id);
 
-/** The one deployment every preset names. ⚠️ It must be `live` in `config/protocols.ts` or
+/** The one deployment every preset names. ⚠️ It must be `live` in `src/config/protocols.ts` or
  *  `validateSpec` refuses — settlement re-reads it, and a deployment that stops answering voids. */
 export const DEMO_SLUG = 'aave-v3-ethereum';
 
@@ -64,19 +65,16 @@ export const METRIC_WORD: Readonly<Record<string, string>> = {
 };
 
 /**
- * ⚠️ **How many demo markets may be open for staking at once, and this is the limit a judge
- * actually hits.** Not the seventh-run message — a judge can pick any question again, because a new
- * market about the same question at a later `closeTime` is a **different market** and the contract's
- * one-claim-per-author rule is untouched by committing to it.
+ * ⚠️ **How many demo markets may be open for staking at once — the limit a judge actually hits.** A
+ * judge can play any question again, because a new market about the same question at a later
+ * `closeTime` is a **different market** and the contract's one-claim-per-author rule is untouched by
+ * committing to it. What stops that looping is this cap and the cost behind it: every creation is a
+ * real `createMarket` plus a real `commitPrediction` paid by the analyst, about 0.02 USDC a time.
  *
- * What stops that looping is this cap and the gas behind it: every creation is a real
- * `createMarket` plus a real `commitPrediction` paid by the analyst, about 0.02 USDC a time.
- *
- * ⚠️ **SIX, AND NO LONGER REACHED BY ONE PRESS.** It was sized for a seed that opened all six preset
- * questions at once. Seeding now opens one market per press, so six is only met by six starts inside
- * one staking window. Still one number: **at most six demo markets open for staking at once**, about
- * 0.12 USDC of the analyst's at risk at full stretch. Seed and reset both respect it, and both
- * refusals name it and say when the next slot frees.
+ * ⚠️ **SIX, AND NO LONGER REACHED BY ONE PRESS.** It was sized for a seed that opened all six presets
+ * at once; seeding now opens one market per press, so six is only met by six starts inside one staking
+ * window — about 0.12 USDC of the analyst's at risk at full stretch. Seed and reset both respect it,
+ * and both refusals name it and say when the next slot frees.
  */
 export const MAX_OPEN_DEMO_MARKETS = 6;
 
@@ -98,13 +96,12 @@ export interface Participant {
  *
  * ⚠️ **THEY ARE NOT REAL AND THE IDENTITY ITSELF SAYS SO.** A handle like `sim-03` cannot be
  * mistaken for a staker; a plausible `0x9f3c…` could, and a badge beside it would be one refresh
- * away from being missed. The same standard the seeded grades keep — distinguishable by the absence
- * of chain evidence — with the marker moved into the name so it cannot be separated from the row.
+ * away from being missed. The marker is in the name so it cannot be separated from the row.
  *
  * ⚠️ **NO MONEY IS EVER DERIVED FROM THEM.** They give the pool a *shape* — a TRUE/FALSE ratio — and
- * the page's only figure denominated in USDC is the real payout from the real pool. Two money
- * numbers that ought to agree is exactly how they stop agreeing, which is the rule `score.ts` and
- * `/markets` already keep for trading return and pools.
+ * nothing settles or pays on them: the payout a judge is shown is `payoutOf` on the real pool. Two
+ * money numbers that ought to agree is exactly how they stop agreeing, which is the rule `score.ts`
+ * and `/markets` already keep for trading return and pools.
  *
  * ⚠️ **Deterministic, so the shape does not shuffle on re-render.** A pool that moved every time the
  * page was refreshed would read as live activity, which is the one impression this must not give.
@@ -216,8 +213,8 @@ export function bandsFor(
   };
 
   const base = BigInt(marketThreshold.split('.')[0] ?? marketThreshold);
-  // ⚠️ Integer maths on the threshold — it is a 11-digit decimal string and `Number()` would start
-  // losing digits well before the end of it.
+  // ⚠️ Integer maths on the threshold. `validateSpec` puts no length limit on the decimal string, and
+  // `Number()` loses digits past ~15 significant figures.
   const at = (permille: bigint): string => ((base * permille) / 1000n).toString();
   const rows: {threshold: string; isMarket: boolean}[] = [
     {threshold: at(940n), isMarket: false},

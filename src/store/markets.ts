@@ -1,28 +1,27 @@
-// The row shapes of Phase 4's eight tables, and the plain reads over them. What `tokens.ts` is for
-// `report_tokens`.
+// Row shapes and plain reads for six of Phase 4's eight tables — `markets`, `claims`, `stakes`,
+// `settlement_evidence`, `spend_ledger` and `payouts`. What `tokens.ts` is for `report_tokens`.
+// `binding_evidence` and `scores` are read and written where they are used, in `arc/` and `app/`.
 //
 // ⚠️ **The two reconciliation queries are NOT here — they are in `outstanding.ts`.** This file had
-// grown to 215 lines against a ~120 guideline, and the seam was named twice before it was taken:
-// every read here is a SELECT and a mapper, while those two carry real logic (a LEFT JOIN, a
-// three-predicate window) and answer a different kind of question. `MarketRow` and `toMarket` are
-// exported for that module and for no other reason — they are the seam, not a public API.
+// grown to 215 lines against a ~120 guideline: every read here is a SELECT and a mapper, while those
+// two carry real logic (a LEFT JOIN, a three-predicate window) and answer a different kind of
+// question. `MarketRow` and `toMarket` are exported for that module and for no other reason — they
+// are the seam, not a public API.
 //
 // ⚠️ **This module is READ-ONLY, and that is a decision rather than an unfinished state.** Every
-// write in this phase is a chain call with a row on either side of it — Unit 7 inserts a market
-// before `createMarket` and updates it after, Unit 8 stores evidence before `resolve` commits to its
-// hash irreversibly. A writer here would be a second place that could put a row in the database
-// without the transaction it describes, which is the ordering those units exist to get right.
-// `tokenize/ats.ts` writes `report_tokens` in the same call that deploys the proxy for the same
-// reason, and `tokens.ts` beside it stayed read-only.
+// write in this phase is a chain call with a row on either side of it — `arc/market.ts` inserts a
+// market before `createMarket` and updates it after, `arc/settle.ts` stores evidence before `resolve`
+// commits to its hash irreversibly. A writer here would be a second place that could put a row in
+// the database without the transaction it describes, which is the ordering those files exist to get
+// right. `tokenize/ats.ts` writes `report_tokens` in the same call that deploys the proxy for the
+// same reason, and `tokens.ts` beside it stayed read-only.
 //
-// ⚠️ **The shared client from `db.ts`, never a memoized one of this module's own.** Three modules
-// each kept their own until 2026-09-08, so a request touching all three opened three connections
-// against a Neon pool that caps them — and a connection-limit failure presents as a *timeout*, not
-// as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
+// The shared client from `db.ts` — see there for why never one of this module's own.
 //
 // ⚠️ **Amounts stay strings, all the way out of this file.** The driver returns NUMERIC as a
 // JavaScript string for the same reason it returns BIGINT as one — the value can exceed
-// `Number.MAX_SAFE_INTEGER`, and an 18-dp USDC amount does so at about 9.22 USDC. `reports.ts`
+// `Number.MAX_SAFE_INTEGER`, which an 18-dp USDC amount does at about 0.009 USDC (a BIGINT column
+// would overflow at about 9.22 USDC, which is why these are NUMERIC — migration 005). `reports.ts`
 // coerces `block` at exactly one place and calls it display-only; there is no equivalent here,
 // because every number in these tables is money and money is never a float in this project.
 // Callers that need arithmetic use `BigInt(...)`.
@@ -215,10 +214,13 @@ export async function settlementEvidenceFor(marketId: string): Promise<Settlemen
  * ⚠️ **`COALESCE` because SUM over no rows is NULL, not zero**, and a spend guard that reads null as
  * "no limit reached" is a guard that does nothing on the first run of the day. Returned as a string
  * for the same reason every other amount is: 18-dp USDC passes `Number.MAX_SAFE_INTEGER` at about
- * 9.22 USDC.
+ * 0.009 USDC.
  *
  * ⚠️ **Gas counts.** On Arc USDC is the native token, so a resolve spends while staking nothing —
  * and so does a transaction that reverts. `kind` is not filtered here on purpose.
+ *
+ * ⚠️ **No spend cap reads this today.** Its only caller is `scripts/demo/markets-schema.ts`, and
+ * nothing writes `spend_ledger`.
  */
 export async function spentSince(
   actor: string,

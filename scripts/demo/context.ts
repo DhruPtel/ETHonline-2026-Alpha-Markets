@@ -9,7 +9,7 @@
 // ⚠️ **WHY IT SEEDS FIXTURES.** `scores` is empty in real running: Unit 15's proof seeded and removed
 // its own, and `payouts` still has no writer. So there is no settled record to build a block from,
 // and "the context block built from the real scores table" needs rows in that table to be real about.
-// The fixtures mirror chain markets 2–5 exactly as Unit 15's proof does — a correct forecast, an
+// The fixtures mirror chain markets 2–4 the way Unit 15's proof does — a correct forecast, an
 // incorrect one, and a void — are scored through `scoreMarket()` rather than inserted into `scores`
 // by hand, and are removed in a `finally`.
 //

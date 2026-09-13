@@ -163,13 +163,6 @@ export interface MarketSpec {
 const DECIMAL = /^\d+(\.\d+)?$/;
 
 /**
- * Validate a spec, or throw a sentence saying why not.
- *
- * ⚠️ **Throws rather than returning a result**, matching `analyst()` and `isinFor()`: every caller
- * is on a path that ends in money on a public chain, and there is no sensible way to continue
- * without a settleable question.
- */
-/**
  * The deployment-and-metric half of a subject, checked once for both callers.
  *
  * ⚠️ **Shared so `validateSpec` and `metricFromFactId` cannot disagree about what is settleable.**
@@ -206,6 +199,13 @@ function assertSubject(slug: string, metric: string): void {
   }
 }
 
+/**
+ * Validate a spec, or throw a sentence saying why not.
+ *
+ * ⚠️ **Throws rather than returning a result**, matching `analyst()` and `isinFor()`: every caller
+ * is on a path that ends in money on a public chain, and there is no sensible way to continue
+ * without a settleable question.
+ */
 export function validateSpec(input: Omit<MarketSpec, 'schema'>): MarketSpec {
   assertSubject(input.slug, input.metric);
 
@@ -260,16 +260,17 @@ export function holds(spec: MarketSpec, observed: Decimal): boolean {
 // ─── The FactId mapping — attachment seam 4 ──────────────────────────────────────────────────────
 
 /**
- * Turn a report's `subject.headline` into the deployment and metric a market would settle on.
+ * Turn a fact id into the deployment and metric a market would settle on.
  *
  * ⚠️ **This is the only place a `FactId` is taken apart.** `Fact` has no field-name column and
  * cannot get one — `Report` is hashed and four of those hashes are already in ATS creation events
  * on Hedera.
  *
- * The two shapes `execute.ts` mints:
+ * The shapes it distinguishes:
  *
- *   `{slug}.{field}`             a protocol figure — settleable
- *   `{slug}.{marketId}.{field}`  a per-market figure — ⚠️ NOT settleable, see below
+ *   `{slug}.{field}`             a protocol figure, what `execute.ts` mints through `figureRef` — settleable
+ *   `metric.{field}`             `compose()`'s sentinel for a metric across deployments — ⚠️ NOT settleable
+ *   `{slug}.{marketId}.{field}`  a per-market figure — ⚠️ NOT settleable; nothing mints one today
  */
 export function metricFromFactId(factId: string): { readonly slug: string; readonly metric: LegalMetric } {
   const parts = factId.split('.');
@@ -287,8 +288,8 @@ export function metricFromFactId(factId: string): { readonly slug: string; reado
 
   const [slug, metric] = parts as [string, string];
 
-  // ⚠️ A load-bearing sentinel, not a deployment. `compose.ts:224` mints `metric.{field}` when a
-  // report's headline is about a metric ACROSS deployments and no single one leads. Such a report
+  // ⚠️ A load-bearing sentinel, not a deployment. `compose.ts compose()` mints `metric.{field}` when
+  // a report's headline is about a metric ACROSS deployments and no single one leads. Such an id
   // names no deployment to settle against, so it cannot back a market.
   if (slug === 'metric') {
     throw new Error(
@@ -366,21 +367,21 @@ export function questionCore(
 // **Why it has to exist.** The deployed contract refuses the demo outright: `_open` requires
 // `now < closeTime` for both `commitPrediction` and `stake`, and `createMarket` requires
 // `closeTime < observationEnd`. For a genuinely past day `observationEnd` is behind us, so
-// `closeTime` is further behind, so **staking always reverts**. The contract's own header says it
-// stores the three timestamps and never checks them against the day the question names, and that
-// `Policy about closeTime versus the observed day lives in spec.ts`. This is that policy, written
+// `closeTime` is further behind, so **staking always reverts**. The contract never checks the
+// timestamps against the day the question names — its `createMarket` comment says so, and that
+// "Policy about `closeTime` versus the observed day lives in `spec.ts`". This is that policy, written
 // down for the one case where it is knowingly inverted.
 //
 // **So a demo market is a past-day spec carried on future times.** Staking works because `closeTime`
 // is ahead of now; settlement works because `settle()` reads the day the spec names, which finished
 // hours ago. The judge is betting on a settled race — that is the point, and it is why nothing built
 // on this may ever be presented as a forecast or folded into the analyst's record.
-// `rehearsal.ts::pastPosted` is the read-side half that keeps it out.
+// `rehearsal.ts pastPosted()` is the read-side half that keeps it out.
 //
 // ⚠️ **STILL PURE — no clock.** Every rule below is arithmetic over the arguments, so this cannot
 // check that `closeTime` is a couple of minutes from *now*; it guarantees the SHAPE (past-posted,
-// and settleable the instant the reveal runs) and the caller owns the TIMING. `scripts/ops/
-// demo-market.ts` is where the two meet.
+// and settleable the instant the reveal runs) and the caller owns the TIMING — `app/markets/
+// actions.ts` and `scripts/ops/demo-market.ts`, both through `market.ts prepareDemo()`.
 
 /**
  * ⚠️ **How long past `observationEnd` a demo market may be voided by anyone, replacing
@@ -388,22 +389,22 @@ export function questionCore(
  *
  * The two-day rule exists because the resolver is a **daily cron with no retry**, so one transient
  * miss would void a real forecast for a reason unrelated to its question. **A demo market is
- * resolved by hand, on the spot, seconds after `observationEnd`** — and the day it measures finished
- * hours ago, so a snapshot missing at reveal time will still be missing in two days. There is no
- * transient miss to wait out, and waiting two days would only mean a judge who staked on a dead day
- * cannot get their money back until Thursday.
+ * resolved by its reveal, seconds after `observationEnd`** — and the day it measures finished hours
+ * ago, so a snapshot missing at reveal time will still be missing in two days. There is no transient
+ * miss to wait out, and waiting two days would only keep a judge who staked on a dead day from their
+ * refund for those two days.
  *
  * ⚠️ **Fifteen minutes is sized by the reveal path, not chosen round.** From `observationEnd` the
- * reveal runs `settle()` (a subgraph read), `recordSettlement`, `resolve.ts::prepare()` (three
- * `eth_call`s) and a Circle submit that returns at SENT and is then waited on for a receipt for up
- * to 120s — about three minutes in the worst realistic case. This is five times that.
+ * reveal runs `settle()` (a subgraph read), `recordSettlement`, `resolve.ts prepare()` (two
+ * `eth_call`s and a `getBlock`) and a Circle submit that returns at SENT and is then waited on for a
+ * receipt for up to 120s — about three minutes in the worst realistic case. This is five times that.
  *
  * ⚠️ **A short deadline cannot turn a reveal into a void, and that was checked rather than assumed.**
- * `resolve()` carries no deadline guard at all, and `resolve.ts`'s guard 8 — the only thing that ever
- * votes for a void — fires solely on `evidence.outcome === null`, a MISSING_OBSERVATION. A market
- * with a real outcome resolves whether or not its deadline has passed. What the window actually
- * buys is margin against the permissionless `voidMarket`, which nobody is watching a demo market to
- * call.
+ * The contract's `resolve()` carries no deadline guard at all, and `resolve.ts`'s guard 8 — the only
+ * thing in this project that ever votes for a void — fires solely on `evidence.outcome === null`, a
+ * MISSING_OBSERVATION. A market with a real outcome resolves whether or not its deadline has passed;
+ * `scripts/ops/demo-market.ts --retire` voids through that same guard, so it cannot reach one either.
+ * What the window buys is margin against a stranger calling the permissionless `voidMarket` on chain.
  */
 export const DEMO_RETIREMENT_SECONDS = 900;
 

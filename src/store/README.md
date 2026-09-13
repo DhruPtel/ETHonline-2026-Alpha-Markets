@@ -4,10 +4,30 @@ Neon Postgres, through the `postgres` client with no ORM. A report's narration i
 and the model call that wrote it is not deterministic, so **a lost report cannot be regenerated.**
 This directory is the only place a report exists.
 
+```mermaid
+flowchart LR
+  REP(["Report"]) --> CAN["domain/canonical.ts<br/>RFC 8785 · lifecycle field atsTokenAddress stripped"]
+  CAN --> SHA["SHA-256"]
+  subgraph ROW["one reports row"]
+    direction TB
+    HASH["hash · primary key"]
+    JSON["canonical_json · TEXT, never jsonb<br/>facts, checks, narration: the only copy"]
+    COLS["analyst · directive · block · observed_at<br/>copied out for queries · the JSON is authoritative"]
+    SIDE["context_digest · title · description · published_at<br/>written after save · outside the hash"]
+  end
+  SHA --> HASH
+  CAN --> JSON
+  HASH --> KEYED["tables that point at a report by its hash<br/>report_tokens · token_transfers · quotes · purchases<br/>claims · binding_evidence"]
+  JSON -->|"load()"| CHK{"re-hash the stored bytes<br/>and re-canonicalize them"}
+  CHK -->|"either differs"| NO(["throws · never served"])
+  CHK -->|"both match"| OK(["Report"])
+  EV["settlement_evidence<br/>raw TEXT beside its evidence_hash<br/>the same rule, keyed by market"]
+```
+
 | file | what it holds |
 |---|---|
 | `db.ts` | The two connections. `DATABASE_URL` is Neon's **pooled** endpoint, for request paths. `DATABASE_URL_DIRECT` is the **direct** endpoint, for migrations only. Clients are created lazily, so a missing variable fails the request that needs it rather than every cold start. |
-| `reports.ts` | `save`, `load`, `list`, `listPublished`, `publish`, `unpublish`, and the title and description writes. The canonical JSON is stored as TEXT, never jsonb, because jsonb reorders keys and normalises numbers. `load` re-derives the hash and refuses any row whose bytes no longer match its key. |
+| `reports.ts` | `save`, `load`, `list`, `listPublished`, `publish`, `unpublish`, and the title and description writes. The canonical JSON is stored as TEXT, never jsonb, because jsonb reorders keys and normalises numbers. `load` re-derives the hash and re-canonicalizes the stored bytes, and throws if either no longer matches. |
 | `tokens.ts` | Which report has an ATS token, and where it lives |
 | `markets.ts` | Row shapes and reads for markets, claims, stakes, settlement evidence, payouts and spend |
 | `outstanding.ts` | The two "what work is outstanding now" queries the crons ask: markets awaiting a commit, and markets awaiting resolution |

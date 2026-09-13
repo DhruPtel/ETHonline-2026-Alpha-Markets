@@ -1,11 +1,15 @@
 // Unit 7's run script. Create a market and commit the analyst's prediction to it.
 //
-//   npx tsx --env-file=.env scripts/ops/commit-market.ts --dry-run   refusals + the plan, spends NOTHING
-//   npx tsx --env-file=.env scripts/ops/commit-market.ts             creates and commits, SPENDS
+//   npx tsx --env-file=.env scripts/ops/commit-market.ts --dry-run       refusals + the plan, spends NOTHING
+//   npx tsx --env-file=.env scripts/ops/commit-market.ts                 creates and commits, SPENDS
+//   npx tsx --env-file=.env scripts/ops/commit-market.ts --create-only   creates, no claim, SPENDS gas
 //
-// ⚠️ **THIS SPENDS REAL USDC.** Gas on Arc is USDC and the commit stakes more of it. `--dry-run`
-// runs every refusal case and prints the exact plan without touching a chain, which is how you see
-// what is about to happen before it happens.
+// Knobs come from the environment: `MARKET_OBSERVED_DAY` and `MARKET_METRIC`, both below.
+// `--wrong-wallet-child` is internal — the script re-invokes itself with it.
+//
+// ⚠️ **THIS SPENDS REAL USDC BY DEFAULT.** Gas on Arc is USDC and the commit stakes more of it.
+// `--dry-run` runs every refusal case and prints the exact plan without sending anything, which is
+// how you see what is about to happen before it happens.
 //
 // ⚠️ **Every refusal below is built to fail at the guard it names.** That has bitten three tests this
 // phase — a made-up proxy failing at read 1, `NotResolver` firing before `AlreadySettled`,
@@ -26,13 +30,11 @@ import { closePool, db } from '../../src/store/db.js';
 
 const DRY = process.argv.includes('--dry-run');
 const WRONG_WALLET_CHILD = process.argv.includes('--wrong-wallet-child');
-// ⚠️ **STOPS AFTER `createMarket`, LEAVING A MARKET WITH NO CLAIM.** The harness's normal job is to
-// create AND commit, which is right for verifying the whole path — and wrong when what is needed is
-// an **open market the browser's commit control can act on**. The contract allows one claim per
-// author per market, so a market this script has already committed to refuses every later commit
-// from the same analyst. `--create-only` is the one-line difference: same `prepare()`, same refusals,
-// same `create()`, and then it stops before the money goes in. **No stake is placed** — the 0.01
-// USDC enters at commit, which is the press this exists to enable.
+// ⚠️ **`--create-only` STOPS AFTER `createMarket`, LEAVING A MARKET WITH NO CLAIM** — an open market
+// the browser's commit control can act on. The contract allows one claim per author per market, so a
+// market this script has already committed to refuses every later commit from the same analyst. Same
+// `prepare()`, same refusals, same `create()`, then it stops. **No stake is placed**: the 0.01 USDC
+// enters at commit, which is the press this exists to enable.
 const CREATE_ONLY = process.argv.includes('--create-only');
 const EXPLORER = 'https://testnet.arcscan.app';
 
@@ -99,25 +101,22 @@ if (!latestFigure) { console.error('\nSTOP  no daily snapshot in the last 7 days
 // 1% under the latest snapshot: a real question the current series answers TRUE.
 const threshold = ((BigInt(latestFigure.split('.')[0]!) * 99n) / 100n).toString();
 
-// ⚠️ **The observed day cannot be in the past, and that is structural rather than a choice.**
-// `questionCore` requires `closeTime <= dayStart(observedDay)` and the contract's `_open` requires
-// `closeTime > now`, so `dayStart(observedDay) > now` always. **A commit through market.ts is always
-// a forecast** — the rehearsal shape Unit 6 drove is unreachable from here, because Unit 6 built its
-// markets through ethers and bypassed `spec.ts` entirely.
 // ⚠️ **THE OBSERVED DAY IS THE ONE KNOB, AND IT DECIDES WHETHER THE MARKET IS STAKEABLE.**
 // `questionCore` requires `closeTime <= dayStart(observedDay)` — the past-posting rule — and the
-// contract's `_open` refuses once `block.timestamp >= closeTime`. So a market that accepts a stake
-// is one whose observed day has **not started yet**, and its staking window is everything between
-// now and the minute before that day opens.
+// contract's `_open` refuses once `block.timestamp >= closeTime`. So a commit that lands through
+// `market.ts` is always a forecast: its observed day has **not started yet**, and its staking window
+// is everything between now and the minute before that day opens. The rehearsal shape Unit 6 drove is
+// unreachable from here, because Unit 6 built its markets through ethers and bypassed `spec.ts`.
 //
-// ⚠️ Read from the environment rather than argv **because this script re-invokes itself** for the
-// wrong-wallet refusal test; `process.env` is inherited by that child and argv is not, so the two
-// would otherwise disagree about which day they are planning.
+// ⚠️ Read from the environment rather than argv for the same reason as `METRIC`: the wrong-wallet
+// child inherits `process.env` and not argv, and the two would otherwise plan different days.
 //
 //   MARKET_OBSERVED_DAY=2026-09-14 npx tsx --env-file=.env scripts/ops/commit-market.ts --dry-run
 //
-// The literal default is the day this harness was written against and is left alone so a bare run
-// still verifies what it always verified.
+// ⚠️ **The literal default, 2026-09-12, is the day this harness was written against, and it is now in
+// the past.** `prepare()` has no `closeTime > now` check, so a dry run still plans — but a spending
+// run would land `createMarket` and then fail at commit with `StakingClosed`. Set
+// `MARKET_OBSERVED_DAY` to a day that has not started before spending.
 const OBSERVED_DAY = process.env.MARKET_OBSERVED_DAY ?? '2026-09-12';
 const CLOSE = dayStart(OBSERVED_DAY) - 60;                 // one minute before the day opens
 const RESOLVE_DEADLINE = dayStart(OBSERVED_DAY) + 86_400 * 3;

@@ -120,7 +120,7 @@ export async function POST(
       );
     }
 
-    // ⚠️ `market.ts:195`'s id rule, spelled out because that helper is private: `c/` plus 24 hex of
+    // ⚠️ `market.ts idFor()`'s rule, spelled out because that helper is private: `c/` plus 24 hex of
     // `hashCanonical({marketId, author})`. A retry lands on the same id and does nothing.
     const claimId = `c/${hashCanonical({ marketId: market.id, author }).slice(0, 24)}`;
     await db()`

@@ -1,4 +1,4 @@
-// The connections, and nothing else. No queries live here — `save`, `load` and `list` are Unit 5.
+// The connections, and nothing else. No queries live here; they are in the modules beside it.
 //
 // Two endpoints and one shared client:
 //
@@ -84,10 +84,9 @@ let client: ReturnType<typeof pooled> | null = null;
 /**
  * How many pooled clients this process has constructed.
  *
- * ⚠️ **Nothing branches on it and, as of 2026-09-09, nothing reads it either** — it has no caller in
- * `src/`, `app/` or `scripts/`. Kept rather than deleted because the number it counts is the thing
- * this section of the file exists to keep at one, and a leak (see `tokenize/ats.ts`) is invisible
- * without it. Removing it is a code change and belongs in its own commit.
+ * ⚠️ **Nothing branches on it; `scripts/demo/markets-schema.ts` asserts it is exactly one.** The
+ * number it counts is the thing this section of the file exists to keep at one, and a leak (see
+ * `tokenize/ats.ts`) is invisible without it.
  */
 let clientsCreated = 0;
 export const pooledClientsCreated = (): number => clientsCreated;
@@ -106,10 +105,10 @@ export function db(): ReturnType<typeof pooled> {
 /**
  * Close the shared client. **For scripts, which have to exit — a route handler must never call it.**
  *
- * ⚠️ **Idempotent, because it has more than one caller now.** `reports.ts`, `tokens.ts` and
- * `quotes.ts` all re-export this as their own `close`, and a script that closes two of them would
- * otherwise call `end()` twice on the same client. The reference is cleared before awaiting, so a
- * second call is a no-op rather than a second `end()`.
+ * ⚠️ **Idempotent, because it has more than one caller.** `reports.ts`, `markets.ts`, `tokens.ts` and
+ * `quotes.ts` all re-export this as their own `close`, and several scripts import it directly, so a
+ * script that closes two of them would otherwise call `end()` twice on the same client. The
+ * reference is cleared before awaiting, so a second call is a no-op rather than a second `end()`.
  */
 export async function closePool(): Promise<void> {
   if (!client) return;

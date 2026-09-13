@@ -79,6 +79,12 @@ export async function GET(): Promise<NextResponse> {
             process.env.HEDERA_SELLER_ID?.trim() ? ` → ${process.env.HEDERA_SELLER_ID.trim()}` : ''}`,
           HEDERA_SELLER_KEY: envState('HEDERA_SELLER_KEY'),
           DATABASE_URL: envState('DATABASE_URL'),
+          // ⚠️ The three report generation needs, and the reason they are here: a deployed generation
+          // that fails could be a blank key or the 60-second function ceiling, and without these the
+          // only way to tell was to spend a generation finding out. Model, Graph gateway, archive RPC.
+          ANTHROPIC_API_KEY: envState('ANTHROPIC_API_KEY'),
+          GRAPH_API_KEY: envState('GRAPH_API_KEY'),
+          ETHEREUM_RPC_URL: envState('ETHEREUM_RPC_URL'),
         },
       },
     }, { status: ok ? 200 : 503 });

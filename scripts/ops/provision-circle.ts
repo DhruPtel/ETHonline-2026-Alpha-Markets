@@ -1,6 +1,6 @@
 // One-time setup: produce the "Entity Secret Ciphertext" Circle's console asks for.
 //
-//   npx tsx --env-file=.env scripts/provision-circle.ts
+//   npx tsx --env-file=.env scripts/ops/provision-circle.ts
 //
 // Circle's console has a Register form that wants the 32-byte entity secret encrypted with Circle's
 // entity public key, and the console does not generate it. This does — and stops there. Registration

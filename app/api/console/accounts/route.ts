@@ -1,32 +1,32 @@
 // GET /api/console/accounts — who the console signs as, and what each of them holds.
 //
-// ⚠️ **LOCKED as of 2026-09-11 — operator-only.** It answers *which of our server-held keys are
-// provisioned, and what do our signing accounts hold*, and that is an operator question with no
-// upside in answering it to strangers once `/console` is linked from the nav.
+// ⚠️ **Operator-only by intent, open in fact.** It answers *which of our server-held keys are
+// provisioned, and what do our signing accounts hold* — an operator question with no upside in
+// answering it to strangers. Locked on 2026-09-11; its `locked()` call has been commented out since
+// 2026-09-12 with the rest of the console (`../lock.ts`). Nothing in `app/` fetches it today.
 //
 // ⚠️ **The honest severity, because the reason this was flagged is weaker than it was written.**
-// `app/api/holdings/route.ts` calls this "a configuration disclosure on a public one", and measured
-// against the route it overstates: the only non-public thing here is two **presence booleans**
-// (`keySet` for `HEDERA_SELLER_KEY` and `HEDERA_BUYER_KEY`) — never a value. Everything else is a
-// Hedera account id or an on-chain balance, both public. Meanwhile **`/api/health` is public by
-// design and reports strictly more**: absent / EMPTY / set for four variables including
-// `HEDERA_SELLER_KEY` and `DATABASE_URL`, with finer granularity than this route has.
+// `app/api/holdings/route.ts` calls this a configuration disclosure, and measured against the route
+// it overstates: the only non-public thing here is two **presence booleans** (`keySet` for
+// `HEDERA_SELLER_KEY` and `HEDERA_BUYER_KEY`) — never a value. Everything else is a Hedera account id
+// or an on-chain balance, both public. Meanwhile **`/api/health` is public by design and reports
+// strictly more**: absent / EMPTY / set for seven variables including `HEDERA_SELLER_KEY` and
+// `DATABASE_URL`.
 //
 // ⚠️ **So it WAS locked for a different and better reason: a route whose safety rests on an argument
 // about a DIFFERENT route is a route nobody can reason about locally.** If `/api/health`'s env block
-// is ever trimmed — and it arguably should be — this would silently become the most disclosing
-// endpoint in the app, with nothing here to say so. Locked, that question never has to be asked
-// again. It is one import and two lines.
+// is ever trimmed — and it arguably should be — this silently becomes the most disclosing endpoint in
+// the app, with nothing here to say so.
 //
-// ⚠️ **There is no wallet connection anywhere in this build, and that is the thing this route
-// exists to make obvious.** Every operation signs server-side from a key in `.env`: the analyst
-// from `HEDERA_SELLER_KEY`, the buyer from `HEDERA_BUYER_KEY`. A browser that shows spend buttons
-// and never mentions an account invites the reader to assume a wallet is attached. Two accounts,
-// named, with both address forms, is the correction.
+// ⚠️ **The analyst and the buyer connect no wallet, and this route exists to make that obvious.**
+// Both sign server-side from a key in `.env`: the analyst from `HEDERA_SELLER_KEY`, the buyer from
+// `HEDERA_BUYER_KEY`. A browser that shows spend buttons and never mentions an account invites the
+// reader to assume a wallet is attached. Two accounts, named, with both address forms, is the
+// correction. (Staking is the exception: a visitor signs from their own wallet on `/markets/[id]`.)
 //
 // ⚠️ **Its own route rather than part of `/api/console/state`, because it costs weight.** Reading a
 // balance means `ethers` and an RPC provider; `state` is a database read at ~1.75 MB traced and
-// should stay that way. This one is called when the panel wants it.
+// should stay that way.
 //
 // ⚠️ **Holdings are read from the CHAIN, never from `report_tokens.transfer_tx`.** The database
 // records what we last sent; the chain records what is. SM-07's finding was that a status-1 receipt
@@ -69,12 +69,9 @@ interface Account {
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
-  // ⚠️ Operator-only. See the header — and note this takes `request` now, which it did not before.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **UNLOCKED since 2026-09-12, and open on the public deployment.** `locked(request)` refused
+  // without the `x-console-secret` header; it is commented out, not deleted. `../lock.ts` and
+  // `tracking/DECISIONS.md` 2026-09-12 say what puts it back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 

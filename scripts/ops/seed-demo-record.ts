@@ -5,59 +5,52 @@
 //   npx tsx --env-file=.env scripts/ops/seed-demo-record.ts --remove   ← take them out again
 //
 // ⚠️ **SPENDS NOTHING AND TOUCHES NO CHAIN.** No provider, no Circle client, no transaction. Store
-// rows only. Nothing is staked, committed, resolved or voided anywhere.
+// rows only — the bare run writes `markets`, `claims` and `scores`, and `--remove` deletes them.
+// Nothing is staked, committed, resolved or voided anywhere.
 //
 // ⚠️ **THESE ROWS PERSIST.** Every fixture this phase used removed itself in a `finally`; this one
 // does not, which is the whole point. It still ships `--remove`, because demo rows that cannot be
-// taken out again are worse than none — that is an operator's control, not the script tidying up
-// behind itself.
+// taken out again are worse than none.
 //
 // ── ⚠️ HOW A DEMO GRADE IS TOLD FROM A REAL ONE — BY ABSENCE, NOT BY A LABEL ─────────────────────
 //
-// The schema has no `is_demo` column and this script may not add one, so the distinction cannot be a
-// flag. **It is better than a flag anyway: a demo grade is a grade with nothing on chain behind it.**
-// Four independent columns say so, and every one of them is an absence rather than an assertion:
+// The schema has no `is_demo` column and this script may not add one. **A demo grade is a grade with
+// nothing on chain behind it**, and four independent columns say so, each an absence:
 //
 //   `markets.chain_market_id`   **NULL** — it never landed, so there is no market id to name.
 //   `markets.contract_address`  **NULL** — no deployment issued it.
 //   `markets.resolve_tx`        **NULL** — nothing settled it on chain.
-//   `claims.chain_claim_id`     **NULL** — no `Committed` event carries it.
+//   `claims.chain_claim_id`     **NULL** — no `PredictionCommitted` event carries it.
 //
 // ⚠️ **A label can be copied; a settlement transaction cannot be faked into existence.** A real grade
-// carries a chain market id and a transaction hash that resolves on the Arc RPC. A demo grade carries
-// neither and cannot be made to. That is the check, and it is arithmetic on the data rather than
-// trust in a naming convention — the same reasoning the rehearsal rule uses.
-//
-// The ids are `m/demo-*` and `c/demo-*` as the human-readable convention on top of that, so
-// `--list`, a `LIKE 'm/demo-%'` query and this script all agree about which rows are which.
+// carries a chain market id and a transaction hash that resolves on the Arc RPC; a demo grade carries
+// neither. The ids are `m/demo-*` and `c/demo-*` as a readable convention on top, so `--list`, a
+// `LIKE 'm/demo-%'` query and this script all agree about which rows are which.
 //
 // ⚠️ **`claims.amount` is `1000000000000` — 0.000001 USDC, the smallest the schema permits.**
 // `CHECK (amount > 0 AND amount % 1000000000000 = 0)` forbids zero, which would have been the honest
-// figure since nothing was staked. The minimum is the closest available, and it is six orders of
-// magnitude below any real position here (0.01 and 1.00 USDC), so it reads as what it is at a glance.
+// figure since nothing was staked. The minimum is four orders of magnitude below the smallest real
+// position here (0.01 USDC), so it reads as what it is at a glance.
 //
 // ── ⚠️ WHAT THIS LOOKS LIKE ON EACH SURFACE, INCLUDING THE ONE THAT READS ODDLY ──────────────────
 //
 //   `/analyst` graded table   Market `—`, claim `—`, staked `0.000001 USDC`, settlement
 //                             **"settled, no transaction recorded"**. ⚠️ That copy was written to
 //                             flag a *bug* — a settled market whose transaction went missing. On a
-//                             demo row the sentence is literally true and there is no bug. Naming it
-//                             here because the page cannot be changed to say so.
-//   `/markets`                They appear under **"Not on chain"**, which is exactly right. ⚠️ That
-//                             section's copy says a market "waits here until the commit cron reaches
-//                             it", which is not true of these — they are never going on chain.
+//                             demo row the sentence is literally true and there is no bug.
+//   `/markets`                Not listed: since 2026-09-13 the page does not render markets that
+//                             never landed on chain.
 //   marketplace + report page The green / terracotta / grey markers, which is the point.
 //   the context block         Real lines with real directives and real subjects.
 //
 // ── ⚠️ THEY ARE FORECASTS BY ARITHMETIC, WHICH IS WHAT MAKES ANY OF THIS RENDER ─────────────────
 //
 // **`observationEnd > createdAt` or every surface excludes them and the exercise renders blank.**
-// `isRehearsal()` is the test everywhere now, so a fixture created *after* its observation window
-// closed — the obvious way to write one — would be silently dropped from the record, the markers and
-// the planning prompt, and the page would look exactly as empty as before.
-//
-// So `created_at` is set **before** `observation_end`: created 2026-09-05, observing through
-// 2026-09-11. Asserted below rather than assumed, because getting it backwards fails silently.
+// `isRehearsal()` is the test everywhere, so a fixture created *after* its observation window closed
+// — the obvious way to write one — would be silently dropped from the record, the markers and the
+// planning prompt. So `created_at` is set **before** `observation_end`: created 2026-09-05, observing
+// through 2026-09-11. Asserted below, because getting it backwards fails silently. Staking closes
+// 2026-09-09, before the observed day, so `pastPosted()` is false as well.
 //
 // ── ⚠️ THE CONSEQUENCE WORTH SAYING OUT LOUD ────────────────────────────────────────────────────
 //

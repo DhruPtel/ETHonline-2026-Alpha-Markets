@@ -1,6 +1,6 @@
 // POST /api/console/generate — the report pipeline, streamed a stage at a time.
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// Called by the console's Ask Atlas panel, `app/components/AtlasPanel.tsx`.
 //
 // ⚠️ **The same sequence `scripts/ops/report.ts` runs, in the same order, with the same outcomes.**
 // compose → execute → narrate → validate → save. The three not-a-report outcomes of `execute`
@@ -11,23 +11,23 @@
 // ⚠️ **NDJSON, one JSON object per line, not SSE.** SSE would buy an EventSource client and a
 // framing format for a stream this reads once and appends to a terminal pane. Lines are enough.
 //
-// ── The 300-second cliff, stated rather than discovered ──────────────────────────────────────────
+// ── ⚠️ The function ceiling, stated rather than discovered ───────────────────────────────────────
 //
-// ⚠️ Vercel caps a function at 300s and this route asks for all of it. The arithmetic is tight and
-// it is emitted as the first event so it is on screen rather than in a comment:
+// ⚠️ **This declares 300 seconds and Vercel Hobby silently clamps it to 60.** Only locally is it 300.
 //
-//     compose   ~5s      one model call, unbudgeted
-//     execute   ≤240s    DEFAULT_BUDGET.maxWallClockMs — execute stops ITSELF at this and returns
-//                        status 'budget', which is a clean reported outcome, not a crash
-//     narrate   ~9s      one model call, unbudgeted
+//     compose   one model call, unbudgeted — ~14–24s, measured 2026-09-12
+//     execute   ≤240s  DEFAULT_BUDGET.maxWallClockMs — execute stops ITSELF at this and returns
+//                      status 'budget', which is a clean reported outcome, not a crash
+//     narrate   one model call, unbudgeted — ~30–45s, measured 2026-09-12
 //     save      ~1s
-//     ────────  ≤255s against a 300s ceiling
 //
-// So the budget's own ceiling fits. What does not fit is a slow compose or narrate stacked on top of
-// a 240s execute. **When that happens Vercel kills the function mid-stream: the response ends with
-// no `done` event, and nothing was saved** — `save()` is the last step, so the model tokens are
-// spent and no report exists. The client is written to detect a stream that ends without a terminal
-// event and say precisely that, because the failure is otherwise indistinguishable from a hang.
+// Locally the budget's own ceiling fits unless a slow compose or narrate stacks on a 240s execute.
+// Deployed, even a healthy run sits on the line: one took 58.0s and another 60.45s on 2026-09-12
+// (lessons.md). **When the function is killed mid-stream the response ends with no `done` event, and
+// nothing was saved** — `save()` is the last step, so the model tokens are spent and no report exists.
+// `AtlasPanel` treats a stream that ends without `done` as a truncation and says so, because the
+// failure is otherwise indistinguishable from a hang. ⚠️ The `limits` event's `functionCapMs` is the
+// local 300,000, not the deployed 60,000.
 
 import Anthropic from '@anthropic-ai/sdk';
 // ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
@@ -45,19 +45,16 @@ import { requiredEnv as env } from '../../../../src/config/env.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/** The whole of it. See the arithmetic above — this is the ceiling the budget is measured against. */
+/** ⚠️ Clamped to 60 on Vercel Hobby; 300 only locally. See the header. */
 export const maxDuration = 300;
 
 /** The analyst this console publishes as — the same one line `scripts/ops/report.ts` carries. */
 const ANALYST_ID = 'alpha-1';
 
 export async function POST(request: Request): Promise<Response> {
-  // ⚠️ **This spends Anthropic budget.** The doorlock that guarded it is unwired below.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **This spends Anthropic budget, and it is UNLOCKED since 2026-09-12 — open on the public
+  // deployment.** `locked(request)` refused without the `x-console-secret` header; it is commented
+  // out, not deleted. `../lock.ts` and `tracking/DECISIONS.md` 2026-09-12 say what puts it back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 
@@ -83,8 +80,8 @@ export async function POST(request: Request): Promise<Response> {
         });
 
         // ── The analyst's own record ────────────────────────────────────────────────────────────
-        // ⚠️ **The same four lines `scripts/ops/report.ts` carries, in the same order, against the
-        // same `ANALYST_ID` — two callers, one behaviour.** If the CLI and this route supplied
+        // ⚠️ **The same calls `scripts/ops/report.ts` makes, in the same order, against the same
+        // `ANALYST_ID` — two callers, one behaviour.** If the CLI and this route supplied
         // different history, two reports written the same day from one directive could see
         // different pasts and nothing would say why.
         //
@@ -92,9 +89,10 @@ export async function POST(request: Request): Promise<Response> {
         // digest answers "what history did this plan see"; rebuilding it after the fact answers a
         // different question.
         //
-        // ⚠️ **A database read, and it is small enough not to matter against the ceiling** — one
-        // indexed SELECT with `LIMIT 5`, measured at single-digit to low-tens of milliseconds
-        // against a generation that takes 34–47 seconds. It is emitted below rather than assumed.
+        // ⚠️ **A database read, small against the ceiling** — one SELECT. When it read five rows it
+        // measured single-digit to low-tens of milliseconds against a generation of 34–47 seconds;
+        // `context.ts build()` now scans up to 200 and filters in memory. The time is emitted below
+        // rather than assumed.
         //
         // ⚠️ **`null` stays silent.** No settled claims means no block and no added prompt bytes.
         const tContext = Date.now();
@@ -174,8 +172,7 @@ export async function POST(request: Request): Promise<Response> {
         //
         // ⚠️ Inside the same `try` as everything else, so a failure here reports as `stage: error`
         // with `saved: false` — which under-reports, since the report IS saved. Said rather than
-        // hidden; splitting the catch is a change to this route's error contract and was not asked
-        // for.
+        // hidden; splitting the catch would change this route's error contract.
         await recordContextDigest(hash, context);
           // ⚠️ Beside the report, never inside it. A null title — the digit guard rejected it, or
           // the narrator gave none — is a no-op; NULL already means "no title".

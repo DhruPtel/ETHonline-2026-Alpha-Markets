@@ -18,12 +18,12 @@ import {render} from '../../src/agent/narrate.js';
  * tokenize section below it, as in the design — tokenize is a section of this
  * page, not a route of its own.
  *
- * A server component. The three interactive panels are client components.
+ * A server component; the panels and the preview's live pieces are client components.
  */
 
 // ---------------------------------------------------------------------------
-// Demo content. Swap this const for the database query; the markup below reads
-// from it and from nothing else.
+// Static content: labels and no-report placeholders. Everything about an actual report — the
+// document, its token, its evidence, the unlisted roster — is read from the store below.
 // ---------------------------------------------------------------------------
 type Workspace = {
   atlas: AtlasData;
@@ -34,7 +34,7 @@ type Workspace = {
 
 const WORKSPACE: Workspace = {
   atlas: {
-    // ⚠️ Invented, like the rest. The panel shows the saved report's own hash once there is one.
+    // A placeholder. The panel shows the saved report's own hash once a run saves one.
     run: 'no run yet',
     idleMessage: 'Ready for your next question.',
     promptLimit: 1000,
@@ -57,6 +57,8 @@ const WORKSPACE: Workspace = {
     ],
   },
   listing: {
+    // ⚠️ Only `category` (the form's inert chip) and `publishState` (the badge's no-report text) are
+    // read. The other fields are mock-up values nothing renders.
     title: 'Lending protocols / Q2 2026',
     category: 'Lending',
     description: 'Comparative financial analysis of leading lending protocols.',
@@ -79,18 +81,17 @@ const WORKSPACE: Workspace = {
     preview: 'bars',
   },
   steps: [
-    // ⚠️ **STEP 03 HAS NOW BEEN WRONG IN BOTH DIRECTIONS, AND THIS RECORDS WHY.** It first read
+    // ⚠️ **STEP 03 HAS BEEN WRONG IN BOTH DIRECTIONS, AND THIS RECORDS WHY.** It first read
     // "Publish · Make it available" while no publish step existed, so it promised a control that was
-    // not there. I then corrected it to "Listed · Automatic — minting is what lists it", which was
-    // true of a marketplace that rendered every row in the store. **Migration 009 makes that false
-    // again**: `/` lists published reports only, so publishing is a decision and there is a control
-    // for it below. ⚠️ Step 02's hint survives both reversals because it was never about publishing:
-    // `/api/console/tokenize` accepts `{reportHash, confirm}` and nothing else, so the title,
-    // description and price are a preview of the card and are never stored.
+    // not there. Then "Listed · Automatic — minting is what lists it", true only of a marketplace
+    // that rendered every row in the store. **Migration 009 made that false again**: `/` lists
+    // published reports only, so publishing is a decision with a control below — and since
+    // 2026-09-13 it needs a minted token. Step 02's hint changed with migration 010, when the
+    // description began to be saved at publish.
     //
-    // ⚠️ **The `complete` flags are now READ FROM STATE rather than hardcoded** — they were `true,
-    // false, false` on every render regardless of what had happened, which is decoration pretending
-    // to be a status. Filled at the render site below.
+    // ⚠️ **The `complete` flags here are ignored** — they were `true, false, false` on every render
+    // regardless of what had happened, which is decoration pretending to be a status. The render site
+    // below derives them from state.
     {number: '01', title: 'Report', hint: 'The research being listed', complete: false},
     {number: '02', title: 'Listing', hint: 'The description is saved when you publish', complete: false},
     {number: '03', title: 'Publish', hint: 'Puts it in the marketplace · needs a minted token', complete: false},
@@ -99,7 +100,8 @@ const WORKSPACE: Workspace = {
 
 // ── ⚠️ THE REPORT THE PANEL SHOWS ────────────────────────────────────────────────────────────────
 //
-// **The most recently saved report in the store, rendered by `narrate.ts`'s `render()`.**
+// **The report `?report=` names, or else the most recently saved one, rendered by `narrate.ts`'s
+// `render()`.**
 //
 // ⚠️ **PHASE-6 D4 IS WRONG AS WRITTEN AND THIS REPLACES IT.** D4 said this panel should build
 // `PaperBlock[]` from the fact table "with no parser", to avoid a second renderer. **Building blocks
@@ -114,8 +116,9 @@ const WORKSPACE: Workspace = {
 // one producer, shared with the bought body on `/report/[hash]`. There is no parser and no second
 // answer to what a figure looks like: `show()` inside `render()` is the only one.
 //
-// ⚠️ **A run does not push its report here by itself.** The stream is client-side and this read is
-// server-side, so a new report appears on the next request — reload.
+// ⚠️ **A new report reaches this read through the router, not the stream.** The stream is
+// client-side and this read is server-side; when a run saves, `AtlasPanel` calls `router.refresh()`
+// — or points `?report=` at the new hash — and this component runs again.
 
 // ⚠️ **Per request, never prerendered.** Without this Next renders `/console` once at build time
 // and the document panel freezes on whatever report was newest when the deploy ran — so a report
@@ -212,13 +215,11 @@ async function latestDoc(
     markdown: render(report, hash),
     meta: {
       hash,
-      // ⚠️ **Eleven reports pre-date migration 008 and have no title.** Rather than a blank heading,
-      // those get the directive shortened at a word boundary — the same words, just the front of
-      // them — and the sheet says the heading was derived. ⚠️ **The full directive stays on the
-      // sheet either way**: it is what was asked, and a title that replaced it would lose the
-      // question.
-      // ⚠️ The title is a column, so it is read alongside the report rather than from `load()`,
-      // which returns the hashed object and knows nothing about it.
+      // ⚠️ **Reports from before migration 008 have no title** — eleven, checked against the live
+      // database — and neither do some saved before `recordTitle` was called. Rather than a blank
+      // heading, those get the directive shortened at a word boundary — the same words, just the
+      // front of them — and the sheet says the heading was derived. ⚠️ **The full directive stays on
+      // the sheet either way** — see `ConsoleViewer`.
       heading: title ?? shortenDirective(report.subject.directive),
       derived: title === null,
       directive: report.subject.directive,
@@ -253,15 +254,12 @@ export default async function Console({
   const refused = loaded !== null && 'refused' in loaded ? loaded.refused : null;
   const doc = loaded !== null && 'markdown' in loaded ? loaded : null;
 
-  // ⚠️ **Built on the SERVER so the evidence is in the first bytes**, not filled in after hydration.
-  // A judge opening `/console` cold sees the block populated; a grep of the served HTML finds the
-  // values. Every field is read off the stored record — no query runs here.
   // ⚠️ **What the tokenize form works on: the report on screen.** Same hash, same document — so the
   // form never asks anyone to find a 64-character string that is already rendered above it.
-  // ⚠️ **CORRECTION to what I recorded last task.** I said `report_tokens` had no transaction
-  // columns; it has three — `tokensFor`'s `ReportToken` interface only SELECTs four, which is what
-  // misled me. So a report tokenized in an earlier session can show its full receipt after all.
-  // Read here rather than through `tokenFor`, the way this repo's pages write their own joins.
+  // ⚠️ **`report_tokens` has the three transaction columns; `tokenFor` just does not SELECT them.**
+  // `ReportToken` carries four fields, which once led to recording that a token minted in an earlier
+  // session could not show its full receipt. It can: the columns are read here directly, the way
+  // this repo's pages write their own joins.
   const token = doc ? await tokenFor(doc.meta.hash) : null;
   const [txs] = doc && token
     ? await db()<{deploy_tx: string | null; grant_role_tx: string | null; issue_tx: string | null}[]>`
@@ -273,9 +271,7 @@ export default async function Console({
     // ⚠️ The marketplace card's own subtitle, so the console's preview card is the card a buyer sees.
     subtitle: `${doc.meta.analyst.slice(0, 10)}… · block ${doc.meta.block.toLocaleString('en-US')}`,
     factCount: doc.meta.factCount,
-    // ⚠️ **HBAR, not USDC.** `pricing.ts` records why a dollar price cannot simply be typed in:
-    // `defaultMoneyConversion` resolves USD through a `DEFAULT_ASSETS` table with no HBAR entry, so
-    // a "$0.50" price throws rather than converting. The USDC cutover belongs to mainnet.
+    // ⚠️ **HBAR, not USDC** — a dollar price throws on testnet; `pricing.ts` records why.
     priceHbar: REPORT_PRICE_HBAR,
     token: token
       ? {
@@ -289,28 +285,28 @@ export default async function Console({
       : null,
   };
 
+  // ⚠️ The grid placement shared by the publish control and the buyer link — the note at
+  // `PublishControl` below says why it exists. One object, so they cannot drift apart at the
+  // breakpoint where the card is a grid.
+  const PLACE = {gridColumn: 2} as const;
+
   // ── ⚠️ PUBLISHING: A SERVER ACTION, NOT A ROUTE ───────────────────────────────────────────────
   //
   // ⚠️ **A deliberate first for this repo, and the constraint forced it rather than taste.** Every
-  // other mutation here is an API route under `app/api/`; this unit may touch `app/console/` and
-  // nothing else, so a route was not available. A `'use server'` function reached by a plain `<form
-  // action={…}>` is the mechanism Next 16 provides for exactly this, it needs no client component
-  // and no new dependency, and the form works without JavaScript.
+  // other mutation here is an API route under `app/api/`; the unit that built this could touch
+  // `app/console/` and nothing else, so a route was not available. A `'use server'` function reached
+  // by a plain `<form action={…}>` is the mechanism Next 16 provides for exactly this, it needs no
+  // new dependency, and the form works without JavaScript.
   //
-  // ⚠️ **It is NOT behind `locked()`** — and neither is any other console route today; the doorlock
-  // has been unwired since 2026-09-12 (see `app/api/console/lock.ts`). ⚠️ **Unlike its neighbours
-  // this action spends nothing**: it writes one timestamp. `generate` burns Anthropic budget and
-  // `tokenize` mints for ~7.7 HBAR; publishing is free and reversible only in the sense that it
-  // cannot be reversed — see `publish()`'s own note.
+  // ⚠️ **It is NOT behind `locked()`** — neither is any console route today (see `lock.ts`).
+  // ⚠️ **Unlike its neighbours this action spends nothing**: it writes the description and one
+  // timestamp. It cannot be undone from the console — `unpublish()` exists for our own test data
+  // only, through `scripts/ops/unpublish.ts`; see its note in `src/store/reports.ts`.
   //
-  // ⚠️ **`refresh()`, and its absence is why a press looked like nothing happened.** This said Next
-  // re-renders the route when an action resolves. It does not — a server action updates the page only
-  // when it asks to — so the landmark was written and the card kept saying "Not listed", and a button
-  // that does nothing gets pressed twice. Both pages are `force-dynamic`, so a refresh is all it takes.
-  // ⚠️ See the control in the card below for why this exists. One object, three call sites, so the
-  // three states of the control cannot drift apart at the breakpoint where the card is a grid.
-  const PLACE = {gridColumn: 2} as const;
-
+  // ⚠️ **`refresh()`, and its absence is why a press looked like nothing happened.** A server action
+  // updates the page only when it asks to, so the landmark was written, the card kept saying "Not
+  // listed", and a button that does nothing gets pressed twice. `/` and `/console` are both
+  // `force-dynamic`, so a refresh is all it takes.
   async function publishReport(formData: FormData): Promise<void> {
     'use server';
     const hash = String(formData.get('hash') ?? '');
@@ -335,6 +331,9 @@ export default async function Console({
   // marketplace is the place that sells things, and it stays the only one.
   const unlisted = (await list(500)).filter((r) => r.publishedAt === null);
 
+  // ⚠️ **Built on the SERVER so the evidence is in the first bytes**, not filled in after hydration.
+  // A judge opening `/console` cold sees the block populated; a grep of the served HTML finds the
+  // values. Every field is read off the stored record — no query runs here.
   const reportEvidence: Evidence | null = doc && {
     kind: 'report',
     // A report may span several deployments; the row says how many rather than picking one.
@@ -358,9 +357,8 @@ export default async function Console({
     // `useSecret` 500'd the page the moment it did.
     <SecretProvider>
     <main className="console-page">
-      {/* ⚠️ The doorlock's value is typed in the dark Atlas panel and used by the light viewer's
-          Source data tab. They are not siblings, so it lives in a context whose provider
-          **renders no DOM element at all** — see `ConsoleSecret.tsx`. */}
+      {/* ⚠️ The viewer and the Atlas panel share run state, evidence, the open tab and the
+          doorlock's value through the provider above — see `ConsoleSecret.tsx`. */}
       <div className="workspace">
         <ConsoleViewer doc={doc} refused={refused} />
         <AtlasPanel atlas={atlas} reportEvidence={reportEvidence} />
@@ -391,9 +389,9 @@ export default async function Console({
 
         <div className="tokenize-grid">
           <div>
-            {/* ⚠️ The flags describe this report, not a mock-up: 01 is done when a document is
-                loaded, 02 when the listing preview has something to preview, 03 when the landmark
-                is set. A status indicator that never changes is decoration. */}
+            {/* ⚠️ The flags describe this report, not a mock-up: 01 and 02 are done when a document
+                is loaded, 03 when its `published_at` landmark is set. A status indicator that never
+                changes is decoration. */}
             <div className="publish-steps">
               {steps.map((step, i) => (
                 <div
@@ -424,8 +422,8 @@ export default async function Console({
               roster={
                 // ── ⚠️ THE ROSTER, AND IT IS NOT THE CONTROL ─────────────────────────────────────
                 // Navigation among drafts, so it belongs under the form that targets a report — each
-                // link loads that report into this console. Still not a second marketplace: headings
-                // only, no cards, no prices, no previews.
+                // link loads that report into this console. See `unlisted` above for why it is not a
+                // second marketplace.
                 unlisted.length > 0 ? (
                   <details className="integration-detail">
                     <summary>
@@ -475,25 +473,21 @@ export default async function Console({
             />
 
             {/* ── ⚠️ THE PUBLISH CONTROL, IN THE CARD THAT SHOWS WHAT IT CREATES ─────────────── */}
-            {/* ⚠️ **Inserted into the card's existing sequence; nothing already in it moved.** The
-                badge above, the thumbnail, the listing text, the flow strip and
-                the notice are all where they were.
-
-                ⚠️ **`gridColumn: 2` is not decoration.** At ≤1180px `.listing-preview` becomes a
+            {/* ⚠️ **`gridColumn: 2` is not decoration.** At ≤1000px `.listing-preview` becomes a
                 two-column grid and the reference places its own control with
                 `.listing-preview > .btn { grid-column: 2 }` — a **direct-child** selector. A server
                 action needs a real `<form>`, and a `<form>` wrapper breaks that selector: the button
                 is no longer a direct child, and the form itself would auto-place into column 1,
-                colliding with the thumbnail that spans rows 2–7. The inline placement puts the form
+                colliding with the thumbnail at `grid-row: 2 / 7`. The inline placement puts the form
                 where the reference puts the button. It is inert at wider widths, where the card is
                 not a grid at all.
 
-                ⚠️ **It stays a server action and a real no-JS form.** The served markup is
-                `<form action="" encType="multipart/form-data" method="POST">` with the action id and
-                the hash as hidden inputs — no fetch, no client component, and it works with
-                JavaScript off. Turning it into a fetch to fit the card would trade that away for
-                nothing. */}
-            {/* ⚠️ **THE WHITE BUTTON IS PUBLISH IN ALL THREE STATES.** It briefly became
+                ⚠️ **It stays a server action and a real no-JS form**, now rendered by the client
+                `PublishControl` so it can carry the typed description and show the press. The served
+                markup is `<form action="" encType="multipart/form-data" method="POST">` with the
+                action id and hidden inputs — no fetch, and it works with JavaScript off. Turning it
+                into a fetch to fit the card would trade that away for nothing. */}
+            {/* ⚠️ **THE WHITE BUTTON IS PUBLISH IN EVERY STATE.** It briefly became
                 "See it as a buyer does" for a published report, which made the card's one white
                 control stop being the publish control — and because `/console` with no `?report=`
                 loads the MOST RECENT report, which is usually the one just published, the publish
@@ -548,9 +542,10 @@ export default async function Console({
                 **uploading a report is not built**, because an uploaded PDF has no canonical form
                 and so nothing to hash.
 
-                ⚠️ **The one-way reason is load-bearing and survives the move from the section that
-                had room for it.** Shorter here, same claim: the landmark records that this report
-                was listed, and a settled purchase cannot be un-made by hiding the row.
+                ⚠️ **The one-way reason is load-bearing**: the landmark records that this report was
+                listed, and a settled purchase cannot be un-made by hiding the row. "There is no
+                unpublish" is true of the console; `scripts/ops/unpublish.ts` can unlist our own test
+                data (DECISIONS.md 2026-09-13).
                 ⚠️ `.notice` is `display:flex`, so the prose is ONE `<span>` — this file has shipped
                 the scattered-column version before. */}
             <p className="notice">

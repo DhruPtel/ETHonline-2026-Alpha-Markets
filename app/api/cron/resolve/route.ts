@@ -1,31 +1,29 @@
 // GET /api/cron/resolve — the analyst settles, on a schedule, with nobody watching.
 //
-// ⚠️ **THIS CLOSES A4**: *"programmable money flows — conditional, automated, multi-step."* The
-// condition is real and nobody triggers it. A market becomes settleable when its observation day has
-// ended **and** the subgraph has published a snapshot for that day, and both of those happen to us
-// rather than because of us. The scheduled run finding that work and putting the outcome on chain is
-// the whole of the claim — **and, like Unit 10, the evidence is the `vercel-cron/1.0` line in the
-// Vercel log, not this file.**
+// ⚠️ **THIS CLOSES A4**: *"programmable money flows — conditional, automated, multi-step."* A market
+// becomes settleable when its observation day has ended **and** the subgraph has published a snapshot
+// for that day; both happen to us rather than because of us. **As with `/api/cron/commit`, the
+// evidence is the `vercel-cron/1.0` line in the Vercel log, not this file.**
 //
-// **Thin on purpose: auth, find work, call Units 8 and 9, report.** Every check that could stop a
-// settlement already lives in `resolve.ts::prepare()` — ten guards, in the contract's own order,
-// each one reached off-chain before it could cost gas.
+// **Thin on purpose: auth, find work, call `settle.ts` and `resolve.ts`, report.** Every check that
+// could stop a settlement already lives in `resolve.ts::prepare()` — ten guards, each one reached
+// off-chain before it could cost gas.
 //
 // ── ⚠️ THE ORDERING IS THE IRREVERSIBLE PART ─────────────────────────────────────────────────────
 //
 // `settle()` → `recordSettlement()` → `prepare()` → `resolveMarket()` / `voidMarket()`, and the
 // first arrow is the one that matters. `prepare()` takes `evidenceHash` **off the stored row** and
-// never recomputes it, so the bytes have to be written before it runs. A route that called
-// `prepare()` first would commit 32 bytes on chain to a record nobody kept — and once that hash is
-// on chain it cannot be amended. `settle.ts`'s header calls that worse than no evidence at all.
+// never recomputes it, so the bytes have to be written before it runs. Calling `prepare()` first
+// would commit 32 bytes on chain to a record nobody kept — and once that hash is on chain it cannot
+// be amended. `settle.ts`'s header calls that worse than no evidence at all.
 //
 // ── ⚠️ Reconciliation, never a cursor ────────────────────────────────────────────────────────────
 //
 // Vercel's cron delivery is best-effort **in both directions**: a run can silently not happen, and
 // the same run can arrive twice. So the question is always *what is outstanding now*, asked from
-// scratch — no high-water mark to get wrong. A duplicate delivery is safe because `recordSettlement`
-// is idempotent on `market_id`, and because `prepare()` reads the chain before planning: a market
-// the previous delivery already settled comes back as `reconcile` and spends nothing.
+// scratch. A duplicate delivery is safe because `recordSettlement` is idempotent on `market_id`, and
+// because `prepare()` reads the chain before planning: a market the previous delivery already
+// settled comes back as `reconcile` and spends nothing.
 //
 // ── ⚠️ THREE OUTCOMES THAT ARE NOT FAILURES, AND THEY MUST NOT READ AS FAILURES ──────────────────
 //
@@ -37,40 +35,33 @@
 //   2 · **`MISSING_OBSERVATION`** — the read succeeded and the day has no row. Recorded as evidence
 //       (the record of having looked and found nothing is what defends a void to somebody who was
 //       not there), then retried daily, and voided **only** past `resolveDeadline`. `prepare()`
-//       owns that deadline comparison, against the chain clock rather than ours.
-//   3 · ⚠️ **A market that never landed on chain.** `marketsAwaitingResolve` filters on
-//       `resolved_at IS NULL AND voided_at IS NULL AND observation_end <= asOf` and has **no
-//       `landed_at` predicate**, so from 2026-09-13T00:00:00Z it returns the seeded store-only
-//       market `m/9e1469c4…` alongside markets 6 and 7 — for good, since its staking window shut at
-//       23:59Z on the 11th and it can never be committed.
+//       owns that deadline comparison, against the chain clock rather than ours. ⚠️ Classified from
+//       this run's own `settlement.kind`, never from a message: a `ResolveRefused` after it is guard
+//       8 declining to void early.
+//   3 · ⚠️ **A market that never landed on chain.** `marketsAwaitingResolve` has **no `landed_at`
+//       predicate**, so from 2026-09-13T00:00:00Z it returns the seeded store-only market
+//       `m/9e1469c4…` alongside markets 6 and 7 — for good, since its staking window shut at 23:59Z
+//       on the 11th and it can never be committed.
 //
-// ⚠️ **Case 3 is refused in THIS FILE rather than at `prepare()`'s guard 2, and that is deliberate.**
-// The brief expected the refusal to come back from `prepare()`; it would, and it spends nothing
-// either way. Two reasons it is better here:
+// ⚠️ **Case 3 is refused in THIS FILE rather than at `prepare()`'s guard 2, deliberately.** Guard 2
+// would refuse it too, and neither spends. Two reasons it is better here:
 //
-//   · **Unit 10 set the precedent one layer up.** `marketsAwaitingCommit` had no `closeTime`
-//     predicate, so the commit route checks `closeTime` off the row it already holds rather than
-//     modifying `prepare()`. This is the identical shape: the route owns the predicate its find-work
-//     query lacks. `Market.chainMarketId` is on the row `marketsAwaitingResolve` already returned.
+//   · **The commit cron set the precedent.** `marketsAwaitingCommit` has no `closeTime` predicate, so
+//     that route checks `closeTime` off the row it already holds rather than modifying `prepare()`.
+//     Same shape: the route owns the predicate its find-work query lacks.
 //   · ⚠️ **It keeps a genuine refusal legible.** `ResolveRefused` carries a sentence and no code, so
 //     if guard 2 could fire here, telling it apart from **guard 5 — the stored evidence no longer
 //     hashes to the stored hash** — would mean string-matching another module's prose. Getting that
-//     wrong reports tamper detection as a routine skip. Refusing case 3 before `prepare()` runs
-//     makes guard 2 unreachable from this route, so every `ResolveRefused` that does fire is worth
-//     an operator's attention. **That is the same trap that has broken five negative tests this
-//     phase: a refusal firing for the wrong reason looks exactly like a passing one.**
+//     wrong reports tamper detection as a routine skip. With guard 2 unreachable from this route,
+//     every `ResolveRefused` that does fire is worth an operator's attention. **That is the trap that
+//     broke five negative tests in this phase: a refusal firing for the wrong reason looks exactly
+//     like a passing one.**
 //
 // It also spares a Graph query and keeps `settlement_evidence` meaning *evidence behind a
 // settlement* rather than *a day we happened to read*.
 //
-// ⚠️ **Case 2 is still classified from this route's own state, not from a message.** After
-// `settle()` returns, the run knows `kind === 'MISSING_OBSERVATION'`; a `ResolveRefused` following
-// that is guard 8 declining to void early. Nothing is parsed.
-//
-// ── ⚠️ One market's outcome never decides another's ──────────────────────────────────────────────
-//
-// Markets 6 and 7 settle in the same run and are independent questions. Every market gets its own
-// try/catch, and the run reconciles everything it can reach.
+// ⚠️ **One market's outcome never decides another's.** Every market gets its own try/catch, and the
+// run reconciles everything it can reach.
 //
 // ⚠️ **`maxDuration = 60`, and 60 is the real Hobby ceiling** — a route declaring nothing gets
 // roughly ten seconds, and a declared `300` is silently clamped with no API that will say so.
@@ -78,17 +69,16 @@
 // ⚠️ **`resolve.ts::landed()` waits up to 120 seconds for a receipt, which is longer than this
 // function may live, and that is survivable rather than fixed.** If the wait is cut off, Circle has
 // already sent the transaction and it still lands; what is missing is our `UPDATE`. The next run's
-// `prepare()` reads the chain, sees it settled, and returns `action: 'reconcile'` — which is exactly
-// the hole Unit 9 built that action for. **So the failure mode of running out of clock is a late
-// landmark, never a lost settlement.** Bounding that wait belongs to `resolve.ts`, which this unit
-// may not modify.
+// `prepare()` reads the chain, sees it settled, and returns `action: 'reconcile'` — the hole that
+// action was built for. **So running out of clock costs a late landmark, never a lost settlement.**
+// Bounding that wait belongs to `resolve.ts`.
 //
 // ── ⚠️ GRADING RUNS HERE, AND IT MAY NEVER FAIL A SETTLEMENT ─────────────────────────────────────
 //
-// Nothing called `scoreSettled()` before this, so a market could resolve on chain and no grade was
-// ever written — and `agent/context.ts`, which tells the next report how the last ones did, reads
-// that table and had never had a row. **This route is where the loop closes**, because it is the
-// only place that knows a market just settled.
+// **This route is where the loop closes**: it is the only unattended caller that knows a market just
+// settled. Without it a market could resolve on chain with no grade written, and `agent/context.ts` —
+// which tells the next report how the last ones did — reads that table. (`scripts/ops/score.ts` runs
+// the same `scoreSettled()` by hand.)
 //
 // ⚠️ **In its own `try`, after the resolve pass, and its failure is REPORTED rather than thrown.**
 // The resolve is the irreversible on-chain act; the grade is derived from it. A scoring bug must not
@@ -96,12 +86,11 @@
 // `scoring.status: 'failed'` beside a `summary` that still says what settled — **both facts in one
 // response**, which is the only way an operator reading this once at 02:00Z can tell them apart.
 //
-// ⚠️ **AND IT RUNS ON THE NOTHING-OUTSTANDING PATH TOO, which is not an ornament.** Suppose the
-// grade fails on the day market 6 resolves. Tomorrow `marketsAwaitingResolve` returns nothing —
-// market 6 is settled now — so an early return that skipped grading would strand that failure
-// forever, and the cheapest possible bug would cost the record permanently. `scoreSettled()` is
-// reconciliation from scratch with no cursor, so running it on the quiet path is what makes a missed
-// grade self-heal on the next run. **Every path through this function grades.**
+// ⚠️ **AND IT RUNS ON THE NOTHING-OUTSTANDING PATH TOO.** If the grade fails on the day market 6
+// resolves, tomorrow `marketsAwaitingResolve` returns nothing — market 6 is settled — so an early
+// return that skipped grading would strand that failure forever. `scoreSettled()` is reconciliation
+// from scratch with no cursor, so running it on the quiet path makes a missed grade self-heal on the
+// next run. **Every path through this function grades.**
 //
 // ⚠️ **Budget-guarded for the same reason the resolve loop is.** Grading is database-only and fast,
 // but if the resolve pass has already spent its budget, starting it risks the 60-second ceiling
@@ -196,8 +185,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const asOf = new Date(started);
   const outstanding = await marketsAwaitingResolve(asOf);
 
-  // ⚠️ **Nothing outstanding is the normal case and is not an error** — it is every day but two, and
-  // it is Saturday's rehearsal of this exact path with no money at stake.
+  // ⚠️ **Nothing outstanding is the normal case and is not an error.**
   if (outstanding.length === 0) {
     // ⚠️ **Grades anyway.** A grade that failed on the day a market settled would never be retried
     // if this path skipped it — the market is settled by then, so it is never outstanding again.

@@ -21,15 +21,14 @@ import {
 } from './Icons.js';
 
 /**
- * The document viewer: the Report / Source data tabs, the zoom and page
- * controls, the report sheet and the edit toolbar. Client-only — tabs, zoom and
- * the page number are all browser state.
+ * The document viewer: the Report / Source data tabs, the zoom and page controls, the paginated
+ * report sheet and the edit toolbar. Client-only — tabs, zoom and the page number are browser state.
  *
  * The sheet is scaled to the column by useFitPanel.
  */
 /**
  * One row of the roster. ⚠️ **`schemaVersion` is what the deployment REPORTED**, not what
- * `config/protocols.ts` declares — that file's own header says the declared value *"is not
+ * `config/protocols.ts` declares — that field's own doc says the declared value *"is not
  * authoritative"* and that `adapter.ts` dispatches on the live one. A column filled from config
  * would restate our assumption; this is evidence.
  */
@@ -147,9 +146,8 @@ export function ConsoleViewer({
   const [zoom, setZoom] = useState(BASE_ZOOM);
 
   // ── The roster ────────────────────────────────────────────────────────────────────────────────
-  // ⚠️ **The secret is still read and still sent, and it is currently always `''`.** The six console
-  // routes have `locked()` commented out, so the header is ignored — but keeping the send means
-  // re-wiring the lock is a change in `lock.ts`'s callers and nothing here. See DECISIONS.md.
+  // ⚠️ **The secret is still read and sent, and it is always `''` while `SecretField` is hidden.**
+  // The routes ignore the header; keeping the send means re-wiring the lock needs nothing here.
   const {secret, run, setSource, setEvidence, tab, setTab} = useSecret();
   const router = useRouter();
   const [roster, setRoster] = useState<Roster | null>(null);
@@ -175,6 +173,8 @@ export function ConsoleViewer({
       // ⚠️ 401 and 500 are different facts. `lock.ts` runs `requiredEnv` BEFORE it compares, so:
       //   500 = the server's own CONSOLE_SECRET is absent or blank — nothing you type can help
       //   401 = the server has one and this is not it
+      // ⚠️ Both assume the lock is wired. While it is not, the route answers its own failures as 409
+      // or 502, so a 500 here is a crash, and the CONSOLE_SECRET message below would misname it.
       if (res.status === 500) {
         throw new Error(
           'The server has no CONSOLE_SECRET. Nothing you type here will work until it does — ' +
@@ -203,12 +203,10 @@ export function ConsoleViewer({
       if (j.stop || j.fail) throw new Error(String(j.stop ?? j.fail));
       if (!res.ok) throw new Error(`The route answered HTTP ${res.status}.`);
       const rows = j.roster as RosterRow[];
-      // ⚠️ Block and time come off the responses' own `_meta`, never off our clock — which is what
-      // makes them move between presses and what makes them evidence rather than decoration.
       const blocks = rows.map((r) => r.block).filter((b): b is number => b !== null);
-      // ⚠️ The evidence record, published to the Atlas panel's Query Evidence block. Every field
-      // comes off the response — `block` and `fetchedAt` from the subgraph's own `_meta`, never our
-      // clock — which is what makes them evidence rather than decoration.
+      // ⚠️ The evidence record, published to the Atlas panel's evidence block. Every field comes off
+      // the response — blocks and `fetchedAt` from each subgraph's own `_meta`, never our clock —
+      // which is what makes them move between presses and makes them evidence rather than decoration.
       const ev = j.evidence as Record<string, unknown>;
       setSource({
         subgraph: String(j.subgraph),
@@ -260,26 +258,27 @@ export function ConsoleViewer({
 
   // ⚠️ **Guards, so that no single chunk can be taller than a sheet.** A chunk is the smallest thing
   // `pack()` can place, so one that exceeds the page budget sits alone on a sheet it overflows and
-  // `useFitPanel` shrinks that sheet — which is the whole fault this fixes. The budget is ~506px
-  // (840 less ~334 of chrome); a table row measures ~31px and a heading ~56, so **12 rows is ~428px**
-  // and **900 characters of prose is ~370px**, both comfortably inside it.
-  // ⚠️ These two numbers are arithmetic; the packing that uses them is measured.
-  // ⚠️ **Three parts, titled but NOT numbered.** The reference numbers "1. Executive summary /
-  // 2. Revenue quality / 3. Outlook" because those are an essay's three arguments, and numbering
-  // says read them in order. This document has three structural parts — the figures, where they came
-  // from, and the analyst's opinion — and they are always these three, in this order, in every
-  // report the pipeline makes. **Numbering fixed furniture is ceremony**; titling it is navigation.
+  // `useFitPanel` shrinks that sheet. The budget is ~506px (840 less ~334 of chrome); a table row
+  // measures ~31px and a heading ~56, so **12 rows is ~428px** and **900 characters of prose is
+  // ~370px**, both comfortably inside it. These two numbers are arithmetic; the packing is measured.
+  //
+  // ⚠️ **Two parts, titled but NOT numbered** — "Figures" and "Assessment". The reference numbers
+  // "1. Executive summary / 2. Revenue quality / 3. Outlook" because those are an essay's arguments,
+  // and numbering says read them in order. This document's parts are fixed structure — the figures
+  // with their provenance line, then the analyst's opinion — in every report the pipeline makes.
+  // **Numbering fixed furniture is ceremony**; titling it is navigation.
   //
   // ⚠️ Classified by what each chunk STARTS with, which is string inspection of a known generator's
   // output — the same basis `markdown.tsx` works on. Nothing parses markdown here.
-  // ⚠️ **FIX 1 — the provenance line is a CAPTION, not a section.** It was its own part with its own
-  // `h2`, so `pack()` treated it as an item; the table filled page one and the caption was pushed to
-  // page two, which then held a masthead, a title block and one line. **It is attached to the table's
-  // own chunk here**, so it can never separate from the figures it describes.
+  // ⚠️ **The provenance line is a CAPTION, not a section.** It was its own part with its own `h2`, so
+  // `pack()` treated it as an item; the table filled page one and the caption was pushed to page two,
+  // which then held a masthead, a title block and one line. **It is attached to the table's own chunk
+  // here**, so it can never separate from the figures it describes.
   const parts = doc
     ? chunk(doc.markdown)
-        // The `# directive` and `Report hash …` lines move into `.paper-title` above, whole and
-        // unchanged. They are not dropped — they are where the design puts a document's identity.
+        // The `# directive` and `Report hash …` lines move into `.paper-title` above — the directive
+        // as its standfirst, the hash whole in the byline. Not dropped: that is where the design puts
+        // a document's identity.
         .filter((c) => !c.startsWith('# ') && !c.startsWith('Report hash '))
         .reduce<string[]>((acc, c) => {
           // The provenance line rides with the last table chunk rather than standing alone.
@@ -304,8 +303,8 @@ export function ConsoleViewer({
 
   useLayoutEffect(() => {
     if (!doc || pages !== null) return;
-    // ⚠️ **`el` IS the `.report-paper` article — the ref sits on it.** This previously read
-    // `el.querySelector('.report-paper')`, which searches DESCENDANTS only, found nothing, and
+    // ⚠️ **`sheet` IS the `.report-paper` article — the ref sits on it.** This previously read
+    // `.querySelector('.report-paper')` on it, which searches DESCENDANTS only, found nothing, and
     // returned here. `pages` then stayed null forever: the sheet rendered every chunk, the toolbar
     // said 1 / 1, the article grew far past 840px, and `useFitPanel` scaled the whole document down
     // to fit. **The document was never paginated at all** — the shrinking was the symptom.
@@ -320,7 +319,7 @@ export function ConsoleViewer({
     // the chrome: padding, masthead, the title block and the footer.
     const chromeHeight = sheet.getBoundingClientRect().height - body;
     const available = Math.max(120, PAGE_HEIGHT - chromeHeight);
-    // ⚠️ **FIX 3 — continuation pages do not carry the title block, so they have more room.**
+    // ⚠️ **Continuation pages do not carry the title block, so they have more room.**
     // Measured rather than assumed: the title block's own height is handed back to pages two onward.
     const titleBlock = sheet.querySelector('.paper-title') as HTMLElement | null;
     const extra = titleBlock ? titleBlock.getBoundingClientRect().height : 0;
@@ -340,16 +339,17 @@ export function ConsoleViewer({
     setZoom((z) => Math.min(130, z + 10));
   }
 
+  // ⚠️ The next three are empty stubs from the design export. Their buttons are live and do nothing.
   function onExpand() {
-    // Widens the workspace to give the sheet the full column.
+    // Would widen the workspace (`.workspace.expanded` exists in globals.css).
   }
 
   function onEditParagraph() {
-    // Opens the selected paragraph for editing in place.
+    // Would open the selected paragraph for editing. Not built.
   }
 
   function onAddNote() {
-    // Attaches an analyst note to the open report.
+    // Would attach an analyst note to the open report. Not built.
   }
 
   function onReadSource() {
@@ -384,8 +384,8 @@ export function ConsoleViewer({
           </div>
 
           {/* ⚠️ The slot the mockup filled with `lending-protocols-q2-2026.pdf`. There is no file —
-              a report is a row in Neon — so it carries the document's NAME, which is the directive
-              the analyst was given. Before a report exists it says so. */}
+              a report is a row in Neon — so it carries the document's heading: the narrator's
+              title, or one derived from the directive. Before a report exists it says so. */}
           <span className="file-name">{doc ? doc.meta.heading : 'No report yet'}</span>
 
           <div className="viewer-tools">
@@ -425,8 +425,8 @@ export function ConsoleViewer({
 
         {tab === 'report' ? (
           <div className="tab-panel document-stage">
-            {/* ⚠️ **FIX 4 — the panel says what the run is doing, so the previous report never
-                passes for the new one.** While a run is in flight the sheet below is explicitly
+            {/* ⚠️ **The panel says what the run is doing, so the previous report never passes for
+                the new one.** While a run is in flight the sheet below is explicitly
                 labelled as the earlier report; when a run dies the panel says nothing was saved
                 rather than sitting on a spinner or quietly showing a stale document as the result. */}
             {run === 'running' && (
@@ -453,10 +453,8 @@ export function ConsoleViewer({
                         <span className="brand"><BrandMark /><span>ALPHA MARKETS</span></span>
                         <span>RESEARCH REPORT</span>
                       </header>
-                      {/* ⚠️ A refusal names what it refused. Falling back to the newest report would
-                          be a page ignoring what was asked for — and the tokenize form below targets
-                          whatever is in this panel, so a silent fallback would aim a spend control at
-                          the wrong report. */}
+                      {/* ⚠️ A refusal names what it refused, never falls back to the newest report —
+                          `latestDoc` in `app/console/page.tsx` says why. */}
                       <div className="paper-title">
                         <span className="eyebrow">
                           {refused ? 'REPORT NOT LOADED' : 'NOTHING GENERATED YET'}
@@ -475,18 +473,17 @@ export function ConsoleViewer({
                     </article>
                   ) : (
                     /* ⚠️ **The reference's document shape, filled with the real report.**
-                       `.paper-title` carries the eyebrow, the directive at display size, a subtitle
-                       and the byline; `h2`s title the three parts; `markdown.tsx` renders each
-                       part's own content. ⚠️ **Nothing the report says changes** — the heading is
-                       still the directive and the hash is still whole, both moved into the title
-                       block the design put them in. */
+                       `.paper-title` carries the eyebrow, the heading at display size, the directive
+                       and the byline; `h2`s title the two parts; `markdown.tsx` renders each part's
+                       own content. ⚠️ **Nothing the report says is dropped** — the directive and the
+                       whole hash moved into the title block the design put them in. */
                     <article className="report-paper" ref={pages === null ? probeRef : undefined}>
                       <header className="paper-masthead">
                         <span className="brand"><BrandMark /><span>ALPHA MARKETS</span></span>
                         <span>RESEARCH REPORT</span>
                       </header>
 
-                      {/* ⚠️ **FIX 3 — the title block is page one's only.** Every sheet repeating the
+                      {/* ⚠️ **The title block is page one's only.** Every sheet repeating the
                           eyebrow, a 42px headline, the directive and the byline cost ~190px on every
                           page, which is what left page two three-quarters empty. Continuation sheets
                           carry the masthead — it is the letterhead and a loose sheet needs it — and
@@ -516,7 +513,7 @@ export function ConsoleViewer({
                         const part = parts[i]!;
                         return (
                           <div data-chunk={i} key={i}>
-                            {/* ⚠️ **FIX 2 — a split section says it is split, at both ends.** A
+                            {/* ⚠️ **A split section says it is split, at both ends.** A
                                 three-page assessment with no marker reads as three unrelated blocks
                                 of prose. `.muted` is the design's own quiet register. */}
                             {part.title ? <h2>{part.title}</h2> : null}
@@ -564,12 +561,11 @@ export function ConsoleViewer({
                 before that the empty state owns the press. */}
             <div className="section-title">
               {/* ⚠️ The heading that sat between the eyebrow and the chips is gone. It carried no
-                  margin — the reset zeroes `h1,h2,h3,h4,p` — but it did occupy ~31px of line box,
-                  and with it removed the eyebrow and the chip row had nothing between them and
-                  collided. **So the eyebrow joined the chips in the row that already exists**:
-                  `.button-row` is `flex; gap: 10px; align-items: center`, which spaces them without
-                  a new rule and reads as a label in front of the values it labels. Before a read
-                  the row is the eyebrow alone, exactly as it was. */}
+                  margin — the reset zeroes `h1,h2,h3,h4,p` — but occupied ~31px of line box, and
+                  with it removed the eyebrow and the chip row collided. **So the eyebrow joined the
+                  chips in the row that already exists**: `.button-row` is `flex; gap: 10px;
+                  align-items: center`, which spaces them without a new rule. Before a read the row is
+                  the eyebrow alone. */}
               <p className="button-row">
                 <span className="eyebrow">THE GRAPH / LENDING DEPLOYMENTS</span>
                 {roster && (
@@ -592,8 +588,8 @@ export function ConsoleViewer({
             {error && <p className="notice"><span>{error}</span></p>}
 
             {/* ⚠️ **The button IS the empty state, not a control beside it.** `.empty-state` is a
-                centred dashed block with its own h2/p rules — defined in globals.css and unused
-                until now. A first-time reader sees the heading, one sentence, and the press. */}
+                centred dashed block with its own h2/p rules in globals.css. A first-time reader sees
+                the heading, one sentence, and the press. */}
             {!roster && !error && (
               <div className="empty-state">
                 <h2>Nothing read yet</h2>
@@ -638,8 +634,7 @@ export function ConsoleViewer({
                       {roster.rows.map((row) => (
                         <tr key={row.slug}>
                           <td>{row.slug}</td>
-                          {/* ⚠️ The version the deployment REPORTED, never the one config declares.
-                              config records what we expected; this records what is true. */}
+                          {/* ⚠️ The version the deployment REPORTED — see `RosterRow`. */}
                           <td>{row.schemaVersion ?? '—'}</td>
                           <td>
                             {row.answering ? (

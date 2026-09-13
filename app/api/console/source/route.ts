@@ -1,75 +1,64 @@
-// POST /api/console/source — one real query against The Graph, and the evidence record for it.
+// POST /api/console/source — which deployments answer right now, and one real query's evidence record.
 //
-// ⚠️ **The only route in this repo that serves Graph data outside a generation run.**
-// `/api/console/state` reads the store, `/api/health` reads the facilitator, and
-// `settlement_evidence` is settlement-only with three rows. Without this the console's Source data
-// tab and its Query Evidence block have nothing to show but the mockup's `DEMO-lending-eth` and
-// `24,800,000`, and there is nothing to press.
+// ⚠️ **The console's only live Graph read outside a generation run.** `/api/console/state` reads the
+// store and `/api/health` reads the facilitator. Without this the Source data tab has nothing live to
+// show and nothing to press.
 //
 // ⚠️ **IT READS. NOTHING ELSE.** No write, no chain call, no row persisted, no token spent. If this
 // file ever finds itself importing `store/` or `arc/`, something has gone wrong.
 //
-// ⚠️ **WAS locked with Unit 2's `locked()`; temporarily unwired 2026-09-12.** It spends
-// `GRAPH_API_KEY` quota, which is why it was locked and why it will be again before submission.
+// ⚠️ **It spends `GRAPH_API_KEY` quota, which is why it was locked with `locked()`.** Unlocked since
+// 2026-09-12 with the rest of the console; see the handler.
 //
-// ── ⚠️ The two choices, and why ──────────────────────────────────────────────────────────────────
+// ── ⚠️ THE ROSTER, and what it is for ────────────────────────────────────────────────────────────
 //
-// **Document: `balance-sheet`.** The menu has three. `markets` is one row per market and is walked
-// to exhaustion — a deployment with 1,700 markets costs seven queries and returns a table nothing
-// could render in a side panel. `financial-snapshots` is one row per day and needs a window the
-// operator would have to supply. `balance-sheet` is **one row per deployment, one query**, about
-// eighteen fields: legible in the space the reference allows, and cheap.
+// **The Source data panel is a MENU, not a proof.** Someone opening the console needs to know what
+// they can ask about before they write a directive: which deployments exist, whether they are
+// answering right now, and how current they are. DECISIONS.md 2026-09-12: this replaced a
+// single-deployment 21-field `balance-sheet` read, which answered a question nobody had yet asked.
+// That detail view is gone and would come back as a second request against a roster row.
+//
+// ⚠️ **The schema-version column is read from the RESPONSE, never from config.** `protocols.ts`
+// says `declaredSchemaVersion` is *"what Messari's config DECLARES, which is not authoritative"* and
+// that `adapter.ts` dispatches on the version reported live. A column filled from config restates
+// our own assumption; filled from `lendingProtocols[0].schemaVersion` it is evidence.
+//
+// ⚠️ **The roster document is two fields, and that is the trick.** `name` and `schemaVersion` are
+// the two that every version answering the Unit 3 sweep already served, so **one document covers
+// 3.1.0, 3.0.1, 3.0.0, 2.0.1 and 1.3.0 with no per-version branch.** `scripts/ops/sweep-protocols.ts`
+// uses the same probe for the same reason. The flagship read below uses it too.
+//
+// ── ⚠️ The flagship read, and the choices around it ──────────────────────────────────────────────
 //
 // **Deployment: `aave-v3-ethereum` by default.** It is the flagship at ~$24.8B, it is what markets
 // 6 and 7 settle against, and its `liveSchemaVersion` matches what config declares. ⚠️ `protocols.ts`
 // records that its **revenue is poisoned** — one day in Jul 2024 booked $1.63e15 and the cumulative
-// never recovered — while *"balances and flows are clean across 1,300+ days"*. The balance-sheet
-// document returns both, so the response carries three revenue fields that are known-wrong on this
-// deployment. **The panel says so rather than hiding them**: a console that quietly dropped columns
-// would be teaching an operator to trust a number this project has already established is bad.
+// never recovered — while *"balances and flows are clean across 1,300+ days"*. The roster document
+// reads no revenue field; `revenueAvailability` is returned so a panel can warn before anyone trusts
+// a number this project has already established is bad.
 //
 // ⚠️ **The slug is an optional parameter, not a fixed constant.** `querySubgraph` already refuses an
 // unknown slug with a `CONFIG` error naming `config/protocols.ts`, so an operator can point this at
-// any of the 29 registered deployments and a typo fails loudly rather than silently.
+// any of the 28 registered deployments and a typo fails loudly rather than silently.
 //
 // ⚠️ **Tier `record`, never `record+raw`.** PHASE-4's rule: *record by default, record+raw for
 // settlement-backing queries only, and the tier is set by the caller, never inferred.* A console
 // panel is not settlement-backing. `record+raw` would mean storing a full response payload for a
 // browser click.
 //
-// ⚠️ **This gives `buildEvidence` its second caller.** PHASE-4 open item: *"the builder exists and
-// its only caller is a demo script."* Closed by using it rather than by writing anything.
-
-// ── ⚠️ THE ROSTER — added 2026-09-12, and what it is for ────────────────────────────────────────
-//
-// **The Source data panel is a MENU, not a proof.** Someone opening the console needs to know what
-// they can ask about before they write a directive: which deployments exist, whether they are
-// answering right now, and how current they are. Four columns — deployment, schema version,
-// answering, block — and the first three read as the menu.
-//
-// ⚠️ **The schema-version column is read from the RESPONSE, never from config.** `protocols.ts`
-// says `declaredSchemaVersion` is *"what Messari's config DECLARES, which is not authoritative"* and
-// that `adapter.ts` dispatches on the version reported live. A column filled from config restates
-// our own assumption; filled from `lendingProtocols[0].schemaVersion` it is evidence. That is also
-// what makes one query document spanning five live versions legible without being explained.
-//
-// ⚠️ **The roster document is two fields, and that is the trick.** `name` and `schemaVersion` are
-// the two that every version answering the Unit 3 sweep already served, so **one document covers
-// 3.1.0, 3.0.1, 3.0.0, 2.0.1 and 1.3.0 with no per-version branch.** Taken from
-// `scripts/ops/sweep-protocols.ts`, which uses the same probe for the same reason.
-//
-// ── ⚠️ WHY IT IS BOUNDED, AND WHY A LATE DEPLOYMENT IS "NOT ANSWERING" RATHER THAN AN ERROR ──────
+// ── ⚠️ WHY THE ROSTER IS BOUNDED, AND WHY A LATE DEPLOYMENT IS "NOT ANSWERING" RATHER THAN AN ERROR ─
 //
 // Measured 2026-09-12, four runs of all 28 in parallel: **297–690ms.** That is not the number that
-// matters. `client.ts` sets `TIMEOUT_MS = 20_000` and retries **once, only on a timeout**, and
-// `querySubgraphs` is `Promise.all` — so **one hanging indexer costs 40 seconds and sets the floor
-// for the whole request.** Against a 60-second ceiling that is 20 seconds of margin on a surface
-// someone presses casually, and the failure mode is a dead request rather than a slow one.
+// matters. `client.ts` sets `TIMEOUT_MS = 20_000` and retries **once, only on a timeout**, and the
+// roster is one `Promise.all` — so **one hanging indexer costs 40 seconds and sets the floor for the
+// whole request.** Against a 60-second ceiling that is 20 seconds of margin on a surface someone
+// presses casually, and the failure mode is a dead request rather than a slow one.
 //
 // ⚠️ **So the roster has its own budget and a late deployment is reported, not raised.** A partial
 // roster is a useful menu; a timeout is nothing. The budget deliberately **pre-empts `client.ts`'s
 // own retry** — at 10s no second attempt can have run — and that is the right trade here: a menu
-// wants a fast partial answer, and the operator's next press retries anyway.
+// wants a fast partial answer, and the operator's next press retries anyway. ⚠️ The flagship read
+// runs beside the roster and is NOT under that budget.
 
 import { NextResponse } from 'next/server.js';
 // ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
@@ -81,7 +70,7 @@ import { PROTOCOLS } from '../../../../src/config/protocols.js';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 /** ⚠️ 60 is the real ceiling on Hobby; a declared 300 is silently clamped. The roster bounds itself
- *  well inside this — see `ROSTER_BUDGET_MS`. */
+ *  well inside this — see `ROSTER_BUDGET_MS`. The flagship read does not. */
 export const maxDuration = 60;
 
 const DEFAULT_SLUG = 'aave-v3-ethereum';
@@ -89,7 +78,7 @@ const DEFAULT_SLUG = 'aave-v3-ethereum';
 /**
  * ⚠️ **The whole roster answers within this or the stragglers are marked not-answering.**
  * 10s is ~14× the slowest full sweep measured (690ms) and leaves five-sixths of the function
- * ceiling unused. It is a deadline for the *set*, not a per-slug timeout, so the response time is
+ * ceiling unused. It is a deadline for the *set*, not a per-slug timeout, so the roster's time is
  * bounded no matter how many deployments hang.
  */
 const ROSTER_BUDGET_MS = 10_000;
@@ -175,12 +164,9 @@ async function roster(): Promise<{ rows: RosterRow[]; truncated: boolean }> {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **This spends Graph quota.** The doorlock that guarded it is unwired below.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **This spends Graph quota, and it is UNLOCKED since 2026-09-12 — open on the public
+  // deployment.** `locked(request)` refused without the `x-console-secret` header; it is commented
+  // out, not deleted. `../lock.ts` and `tracking/DECISIONS.md` 2026-09-12 say what puts it back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 
@@ -214,7 +200,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       subgraph: chosen,
       subgraphId: config?.subgraphId ?? null,
       network: config?.network ?? null,
-      // ⚠️ Carried through so the panel can warn on the exact fields this deployment gets wrong.
+      // ⚠️ Carried through so a panel can warn on the fields this deployment gets wrong.
+      // `ConsoleViewer` does not read it today.
       revenueAvailability: config?.revenueAvailability ?? null,
       // ⚠️ **The evidence record, whole.** Every field in it comes from the response rather than
       // from anything this route computed.

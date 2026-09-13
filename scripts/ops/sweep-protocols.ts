@@ -1,10 +1,10 @@
-// Unit 5 — the sweep. Asks every deployment in config/protocols.ts whether it answers and
+// Unit 5 — the sweep. Asks every deployment in `src/config/protocols.ts` whether it answers and
 // what it says. It does not judge the numbers; that is triage, Unit 6.
 //
-// ⚠️ The balance-sheet document is INLINE here rather than imported. Unit 4 was never built —
-// `src/graph/queries/` does not exist — so there is nothing to reuse. Inlining keeps this
-// throwaway script from pre-empting Unit 4's still-open decision about how the documents
-// cover five live schema versions. This sweep is what tells us that.
+//   npx tsx --env-file=.env scripts/ops/sweep-protocols.ts               ← prints the table and a config patch
+//   npx tsx --env-file=.env scripts/ops/sweep-protocols.ts --inventory   ← also rewrites docs/protocol-inventory.md
+//
+// Reads the chain head from `ETHEREUM_RPC_URL` when it is set.
 import { writeFileSync } from 'node:fs';
 import { querySubgraphs, type QueryOutcome } from '../../src/graph/client.js';
 import { PROTOCOLS } from '../../src/config/protocols.js';

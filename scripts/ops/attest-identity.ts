@@ -1,18 +1,17 @@
 // Unit 6b — produce the two-way key attestation, then prove it recovers.
 //
-//   npx tsx --env-file=.env scripts/ops/attest-identity.ts           produce (signs) then verify
+//   npx tsx --env-file=.env scripts/ops/attest-identity.ts           signs if none exists, then verifies
 //   npx tsx --env-file=.env scripts/ops/attest-identity.ts --check   verify only, never signs
 //   npx tsx --env-file=.env scripts/ops/attest-identity.ts --force   re-sign over an existing one
 //
-// ⚠️ **Produced once, forever.** Without `--force` this refuses to re-sign an attestation that
-// already verifies — the claim is permanent and a second signature over the same sentence would be
-// new bytes asserting nothing new. `build-contract.ts` is the pattern: produce an artifact, commit
-// it, and keep a check mode that needs no credentials to run.
+// ⚠️ **Produced once, forever.** Without `--force`, an existing `src/arc/attestation.ts` is verified and
+// never re-signed: the claim is permanent, and a second signature over the same sentence would be new
+// bytes asserting nothing new. `build-contract.ts` is the pattern: produce an artifact, commit it, and
+// keep a check mode that needs no credentials to run.
 //
-// ⚠️ **Signing is NOT a transaction.** `POST /v1/w3s/developer/sign/message` returns a signature,
-// not a transaction id — no fee field, no `TransactionState`, nothing to wait for. This script
-// confirms that empirically by reading the analyst's Arc balance either side of the call rather
-// than taking the API shape's word for it.
+// ⚠️ **Signing is NOT a transaction.** `POST /v1/w3s/developer/sign/message` returns a signature, not a
+// transaction id — no fee field, no `TransactionState`, nothing to wait for. This script confirms it by
+// reading the analyst's Arc balance either side of the call rather than trusting the API shape.
 
 import { writeFileSync } from 'node:fs';
 import { ethers } from 'ethers';
@@ -42,8 +41,8 @@ console.log(message.split('\n').map((l) => `     ${l}`).join('\n'));
 // ── Load whatever already exists, without requiring it to ────────────────────────────────────────
 //
 // ⚠️ Imported by runtime URL rather than by a literal specifier, because on the FIRST run the file
-// does not exist yet and a static import of it would not typecheck. Every other reader of the
-// attestation imports it normally — this is the one place with a bootstrap problem.
+// does not exist yet and a static import of it would not typecheck. Nothing in `src/` or `app/`
+// imports the attestation today.
 let existing: IdentityAttestation | null = null;
 try {
   const loaded = await import(OUT.href) as { ANALYST_ATTESTATION: IdentityAttestation };

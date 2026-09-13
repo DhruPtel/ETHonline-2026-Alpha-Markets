@@ -1,19 +1,21 @@
-// The contracts between subsystems, frozen. Every file in Phase 1 means the same thing
-// by these names, and nothing downstream defines its own copy of one.
+// The contracts between subsystems, frozen. Every file means the same thing by these names,
+// and nothing downstream defines its own copy of one.
 //
 // Two shapes carry a report, and the split between them is the design:
 //
-//   Computed — the engine's internal view. Carries HOW WE KNOW each figure.
-//   Report   — what gets hashed and published. Carries WHAT THE FIGURE IS.
+//   Computed — the engine's internal view of one deployment. Carries HOW WE KNOW each figure.
+//   Report   — what gets hashed and published (`types/report.ts`). Carries WHAT THE FIGURE IS.
 //
-// Computed → Report is a projection: keep the values, drop the provenance of judgment.
-// Where a flag says the figure cannot be trusted, it projects to `null`.
+// Computed → Report is a projection: keep the values, and where a flag says the figure cannot
+// be trusted, project it to `null` with a `Withheld` reason.
 //
-// ⚠️ The flags stay OUT of the hash deliberately. If a flag were inside it, revising the
-// adapter's judgement about a deployment would change the hash of a report whose figures
-// never moved — and a market on Arc holding the old hash could no longer verify the report
-// it settles against. The hash commits to the numbers; the flags describe how we came by
-// them. PLAN-v4 §5.10.
+// ⚠️ **The intent was that the flags stay OUT of the hash, and the code does not hold to it.**
+// The reason given: if a flag were inside the hash, revising the adapter's judgement about a
+// deployment would change the hash of a report whose figures never moved, and a market on Arc
+// holding the old hash could no longer verify the report it settles against. But
+// `Fact.corroboration` carries `CorroborationStatus`, `Coverage.completeness` carries
+// `Completeness`, and a withheld revenue figure's rationale names its `RevenueAvailability` —
+// all inside the hash. (This was cited to PLAN-v4 §5.10, which does not discuss flags.)
 
 /**
  * A decimal carried as a string. Never a JS number.
@@ -28,9 +30,9 @@ export type Decimal = string;
 export type Timestamp = string;
 
 // ─── The three flags Phase 0 forced ──────────────────────────────────────────────────────
-// None of these concepts existed when the plan was drafted. Each is three-state where the
-// obvious design is a boolean, and each is three-state because a smoke test said so. They
-// live on `Computed` and never on `Report`.
+// None of these concepts existed when the plan was drafted. Each is a set of named states
+// where the obvious design was a bare boolean, because a smoke test said so. They live on
+// `Computed`; the header says where they also reach `Report`.
 
 /**
  * Whether a deployment's revenue figures can be trusted at all. Four states, and only one
@@ -60,7 +62,7 @@ export type RevenueAvailability = 'usable' | 'poisoned' | 'not_tracked' | 'not_i
  * Whether a figure was checked against the chain, and what the check found.
  *
  * Per MARKET, decided at query time — compound-v3 exposes the write-time field on 3 of its
- * 10 largest markets, compound-v2 and morpho-blue not at all (SM-04). `not_checked` is a
+ * 10 largest markets and compound-v2 not at all (SM-04). `not_checked` is a
  * legitimate answer and the only honest one where the field is missing; it is not a failed
  * `match`. `mismatch` means the two sources disagree — which side is wrong is a separate
  * per-deployment judgement and is not encoded here.
@@ -72,22 +74,22 @@ export type CorroborationStatus = 'match' | 'mismatch' | 'not_checked';
  *
  * About the POPULATION, not the page (PLAN-v4 §5.13): 4,000 markets over 16 pages of 250 is
  * `complete`; stopping at a budget with rows outstanding is `incomplete` however many pages
- * were read. An incomplete population blocks publishing — it is one of the only two blocking
- * conditions, alongside `DATA_ERROR`.
+ * were read. A read with no market walk is `complete` — its population is the one protocol row.
+ *
+ * ⚠️ **PLAN-v4 §5.13 makes an incomplete population a blocking condition alongside `DATA_ERROR`;
+ * the code does not block on it.** `execute` records the unexhausted walk as a `not_checked`
+ * population check and completes normally, so the report is saved; `reconcile` marks tier 0
+ * `not_available`, which can lower the verdict.
  */
 export type Completeness = 'complete' | 'incomplete';
 
-// ─── Verdict, Assessment and the Report itself have MOVED ───────────────────────────────
+// ─── Verdict, Assessment and Report live in `types/report.ts` ───────────────────────────
 //
-// They now live in `types/report.ts`, which is the PUBLIC contract another team's agent has to be
-// able to produce. This file is the internal vocabulary the data layer speaks — `Computed`,
-// `Provenance` and the three flags — and the two are different audiences.
-//
-// Removed from here 2026-09-07: `Report`, `Verdict`, `VerdictCall`, `Confidence`, `LifecycleField`
-// and `HashableReport`. Nothing imported them. **Two `Report` types in one codebase is exactly the
-// drift this file exists to prevent**, and the superseded pair had already diverged — `VerdictCall`
-// here still read `undervalued | fairly_valued | overvalued`, a price judgment on an engine that has
-// no price data.
+// That file is the PUBLIC contract another team's agent has to produce; this one is the internal
+// vocabulary of the data layer. The old copies here were removed 2026-09-07 — nothing imported them,
+// and they had already diverged: `VerdictCall` here still read `undervalued | fairly_valued |
+// overvalued`, a price judgment on an engine with no price data. **Two `Report` types in one
+// codebase is exactly the drift this file exists to prevent.**
 
 // ─── Provenance ──────────────────────────────────────────────────────────────────────────
 
@@ -119,11 +121,11 @@ export interface ComputedFigure {
 }
 
 /**
- * What the engine derives from raw query results.
+ * What the adapter derives from one deployment's raw query results.
  *
- * ⚠️ No `Verdict` here. Computed holds what a deterministic engine can derive; the verdict is
- * a judgement supplied at report assembly. Keeping it out is what lets the engine stay pure
- * (PLAN-v4 §5.14).
+ * ⚠️ No `Verdict` here. The verdict is computed afterwards, deterministically, by
+ * `engine/reconcile.ts` from this, the findings and any corroboration, and `execute` sets it on
+ * the report. Keeping it out is what lets the adapter stay pure (PLAN-v4 §5.14).
  */
 export interface Computed {
   readonly protocol: string;
@@ -138,7 +140,10 @@ export interface Computed {
   readonly figures: Readonly<Record<string, ComputedFigure>>;
   /** Per-deployment, from config. Gates which figures may carry a number into `Report`. */
   readonly revenue: RevenueAvailability;
-  /** Per-population. `incomplete` withholds publication; it does not change the verdict. */
+  /**
+   * Per-population. `incomplete` does not withhold publication (see `Completeness`); it makes
+   * `reconcile`'s tier 0 `not_available`, which can lower the verdict.
+   */
   readonly completeness: Completeness;
   readonly provenance: Provenance;
 }

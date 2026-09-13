@@ -24,7 +24,7 @@ export type LendingType = 'POOLED' | 'CDP';
 export type DeploymentStatus = 'untested' | 'live' | 'lagging' | 'no_indexers' | 'error';
 
 /**
- * Whether this deployment's numbers could back a published figure, from `scripts/triage-protocols.ts`.
+ * Whether this deployment's numbers could back a published figure, from `scripts/ops/triage-protocols.ts`.
  *
  * ⚠️ Not the same question as `status`. `status` asks whether it ANSWERS; this asks whether it is
  * RIGHT. aave-v3 answers beautifully and its cumulative revenue reads $2.79e17.
@@ -81,15 +81,15 @@ export interface ProtocolConfig {
   readonly subgraphId: string;
   readonly network: 'ethereum';
   /**
-   * ⚠️ What Messari's config DECLARES, which is not authoritative. `adapter.ts` dispatches on
-   * the `schemaVersion` the deployment reports LIVE, never on this. This field is for knowing
-   * what we expected, so a disagreement is visible instead of silent.
+   * ⚠️ What Messari's config DECLARES, which is not authoritative. Nothing reads it for behaviour;
+   * it records what we expected, so a disagreement is visible instead of silent.
    */
   readonly declaredSchemaVersion: string;
   /**
-   * The `schemaVersion` the deployment actually SERVES, measured by `scripts/sweep-protocols.ts`.
-   * `null` where the deployment did not answer. This is the value `adapter.ts` dispatch must
-   * agree with; `declaredSchemaVersion` is only what Messari's config claimed.
+   * The `schemaVersion` the deployment actually SERVES, measured by `scripts/ops/sweep-protocols.ts`.
+   * `null` where the deployment did not answer. ⚠️ Nothing dispatches on version yet (`adapter.ts`
+   * says why); `adapt` compares the live value against this and emits an INFORMATIONAL finding
+   * when they differ.
    */
   readonly liveSchemaVersion: string | null;
   /**
@@ -249,10 +249,11 @@ export const PROTOCOLS: readonly ProtocolConfig[] = [
     lastSwept: '2026-09-07',
   },
 
-  // ─── The 23 Messari deployments we have not queried ────────────────────────────────────
-  // `status: 'untested'` and nothing else asserted. We do not know their revenue
-  // availability, their semantics or their lending type, and a plausible guess in this table
-  // is worse than a null — it would be indistinguishable from a measurement.
+  // ─── The other 23 Messari deployments: swept, not studied ─────────────────────────────
+  // The 2026-09-07 sweep and triage filled `status`, `liveSchemaVersion`, `lendingType` and
+  // `triageVerdict`, and nothing else is asserted. Revenue availability, deposit basis,
+  // semantics and corroboration were never measured, and a plausible guess in this table is
+  // worse than a null — it would be indistinguishable from a measurement.
 
   { slug: 'aave-amm-ethereum', subgraphId: '41ooPWnDYKwckqyG1mvg7ZEndy5zMemXinx6uQxscrBS',
     network: 'ethereum', declaredSchemaVersion: '3.1.0', lendingType: 'POOLED',

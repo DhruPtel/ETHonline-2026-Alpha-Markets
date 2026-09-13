@@ -105,13 +105,13 @@ check(result.emittedInfo.slice('alpha:'.length) === plan.reportHash,
 // 2. Issuance, not just deployment.
 check(result.balance === 1n, `balanceOf(${plan.analyst.hederaEvmAddress.slice(0, 10)}…) == 1`, `got ${result.balance}`);
 
-// 4. The row, as the database reports it.
+// 3. The row, as the database reports it.
 const [row] = await pooled()`SELECT * FROM report_tokens WHERE report_hash = ${plan.reportHash}`;
 console.log(`\n── report_tokens`);
 for (const [k, v] of Object.entries(row ?? {})) console.log(`  ${k.padEnd(15)} ${String(v)}`);
 check(row !== undefined, 'row written');
 
-// 5. Cost against SM-07, per step so drift is attributable.
+// 4. Cost against SM-07, per step so drift is attributable.
 console.log(`\n── Cost`);
 let derived = 0n;
 for (const [label, receipt] of result.receipts) {

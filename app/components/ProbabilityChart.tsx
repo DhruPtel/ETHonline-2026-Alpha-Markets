@@ -45,7 +45,8 @@ export function illustrativeSeries(seed: string, endPct: number): Series {
 export type Series = {
   /** Implied probability of TRUE at each sample, oldest first, 0-100. */
   trueLine: number[];
-  /** Sample labels along the x-axis, same length as trueLine. */
+  /** Labels spaced evenly along the x-axis. Not tied to trueLine's length — `illustrativeSeries`
+   *  returns five blanks for 13 points. */
   labels: string[];
 };
 

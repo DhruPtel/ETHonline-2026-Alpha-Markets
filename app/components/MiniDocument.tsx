@@ -1,12 +1,12 @@
 import {FileText, Lock} from './Icons.js';
 
 /**
- * The document thumbnail used by the marketplace cards, the report preview and
- * the market's supporting-research rows. A server component.
+ * The document thumbnail used by the marketplace cards, the console's Marketplace preview and the
+ * market page's supporting-research rows. No client boundary of its own.
  *
- * `preview` picks which of the design's three filler charts is drawn. The
- * design chose it by card index; here it comes from the record, so the markup
- * reads from the data and nothing else.
+ * `preview` picks which of the design's three filler charts is drawn. The design chose it by card
+ * index; ⚠️ every caller passes `'bars'`, because there is no per-report preview data and none is
+ * invented.
  */
 export type PreviewChart = 'bars' | 'table' | 'line';
 

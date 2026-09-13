@@ -6,7 +6,7 @@
 // chain, and a sceptic can read each one without us:
 //
 //   the token carries `alpha:<hash>`      Hedera, in the ATS creation event
-//   the analyst issued that token         Hedera, the issuer address on the proxy
+//   the analyst issued that token         Hedera, the creation event's deployer and the tx signer
 //   an Arc address committed that hash    Arc, in `PredictionCommitted`
 //
 // ⚠️ **The join between the Arc address and the Hedera issuer is `config/analysts.ts` — our file, on
@@ -15,10 +15,10 @@
 //
 // ⚠️ **THIS IS VERIFICATION, NOT ENFORCEMENT, AND THE DIFFERENCE IS THE WHOLE HONEST LIMIT.** The
 // Arc contract never sees these signatures. `commitPrediction` takes a `bytes32` and does not care
-// where it came from, so a commit remains perfectly possible without any attestation existing — a
-// verifier has to *choose* to check this. What it buys is narrow and real: `config/analysts.ts`
-// stops being an assertion and becomes a claim backed by two recoverable signatures. It does not
-// stop anyone doing anything.
+// where it came from, so a commit remains possible without any attestation existing — a verifier has
+// to *choose* to check this. What it buys is narrow and real: `config/analysts.ts` stops being an
+// assertion and becomes a claim backed by two recoverable signatures. It does not stop anyone doing
+// anything.
 //
 // ── Why there is no cross-chain message here, which was investigated rather than dismissed ───────
 //
@@ -41,7 +41,7 @@ import { ARC } from './arc.js';
 /** ⚠️ Bump this and every existing signature stops verifying, which is the intent of a version. */
 export const ATTESTATION_SCHEMA = 'alpha-markets/identity-attestation/v1';
 
-/** Hedera testnet. `tokenize/hedera.ts` holds the same number for the same account. */
+/** Hedera testnet — the number `tokenize/hedera.ts` holds as `HEDERA_TESTNET_CHAIN_ID`. */
 const HEDERA_CHAIN_ID = 296n;
 
 /**
@@ -133,13 +133,13 @@ export function verifyAttestation(a: IdentityAttestation, analyst: AnalystConfig
  * no `TransactionState`, and it returns a signature rather than a transaction id.
  *
  * ⚠️ **`encodedByHex` is deliberately not passed, and there is a trap worth naming here.** It
- * appears three times in the typings and **zero times in either shipped bundle** — which is the
- * exact shape of `generateIdempotencyKey`, the phantom export this project has been caught by. ⚠️
- * **But the conclusion does NOT transfer, and applying the heuristic blindly would be wrong.** That
- * rule is about *functions that must exist to be called*. `encodedByHex` is a request FIELD, and the
- * client spreads its whole input into the HTTP body (`{entitySecretCiphertext, ...s}`), so the
- * bundle never names it and does not need to. It is forwarded. We omit it anyway and sign plain
- * UTF-8, which sidesteps the question rather than answering it.
+ * appears in the typings and **zero times in either shipped bundle** — the exact shape of
+ * `generateIdempotencyKey`, the phantom export this project has been caught by. ⚠️ **But the
+ * conclusion does NOT transfer.** That rule is about *functions that must exist to be called*;
+ * `encodedByHex` is a request FIELD, and the client spreads its whole input into the HTTP body
+ * (`{entitySecretCiphertext, ...s}`), so the bundle never names it and does not need to. It is
+ * forwarded. We omit it anyway and sign plain UTF-8, which sidesteps the question rather than
+ * answering it.
  */
 export async function signAsArc(message: string): Promise<string> {
   const circle = initiateDeveloperControlledWalletsClient({
@@ -155,8 +155,8 @@ export async function signAsArc(message: string): Promise<string> {
 /**
  * Sign as the Hedera identity, with the key that issues report tokens.
  *
- * ⚠️ **The same key and the same assertion `ats.ts:132` already makes.** That file refuses to
- * tokenize when `HEDERA_SELLER_KEY` derives an address other than the analyst row's — so the key
+ * ⚠️ **The same key and the same assertion `ats.ts prepare()` already makes.** That function refuses
+ * to tokenize when `HEDERA_SELLER_KEY` derives an address other than the analyst row's — so the key
  * signing here is, by the same check, the key that issued every token this attestation is about.
  * Asserted rather than assumed, because a signature from the wrong key would recover cleanly and
  * attest to nothing.

@@ -3,10 +3,15 @@
 //   npx tsx --env-file=.env scripts/ops/migrate.ts
 //
 // ⚠️ **This is not a migration framework and should not become one.** No version table, no down
-// migrations, no checksums. Every file in `src/store/migrations/` is written to be idempotent —
-// `CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS` — so re-running is the same as running
-// once, and that property is what a version table would otherwise buy. When a migration needs to be
-// non-idempotent, that is the moment to reconsider, not before.
+// migrations, no checksums: every run applies every file in `src/store/migrations/`. Each is written
+// to be idempotent — `IF NOT EXISTS`, `IF EXISTS`, `ON CONFLICT DO NOTHING` — and that property is what
+// a version table would otherwise buy. When a migration needs to be non-idempotent, that is the moment
+// to reconsider, not before.
+//
+// ⚠️ **Re-running is NOT a pure no-op on a database that has used `unpublish()`.** 009's backfill sets
+// `published_at` again on any unlisted report created on or before 2026-09-12 18:42 UTC that has a
+// token, a settled purchase or an on-chain claim — so it re-lists reports that were deliberately
+// unlisted. See `src/store/README.md`.
 //
 // ⚠️ **Direct connection, never pooled.** Neon's pooled endpoint is PgBouncer in transaction mode and
 // does not carry the session state DDL needs. The failure is not clean: it surfaces as errors about

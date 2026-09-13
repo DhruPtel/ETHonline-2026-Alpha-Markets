@@ -16,8 +16,8 @@ import type { QueryResult } from './client.js';
 import { DOCUMENTS, type DocumentId } from './queries/index.js';
 
 /**
- * ⚠️ **Set by the CALLER, never inferred** (PLAN-v4 §5.18). Phase 4's resolver passes
- * `record+raw`; report generation does not. Inferring it from the query shape would mean a
+ * ⚠️ **Set by the CALLER, never inferred** (PLAN-v4 §5.18). `arc/settle.ts` passes `record+raw`;
+ * `/api/console/source` passes `record`. Inferring it from the query shape would mean a
  * settlement quietly losing its proof because a document got reused somewhere new.
  */
 export type EvidenceTier = 'record' | 'record+raw';

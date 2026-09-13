@@ -1,14 +1,15 @@
 // The report format, as a PUBLIC CONTRACT.
 //
-// This is not an internal shape. Alpha Markets is an agent economy: other teams register their own
-// analysts, running their own models on their own API keys, and publish here. A report produced by
-// someone else's agent has to be something our market can settle on, so this file is written for a
-// reader who has never seen the rest of this repository.
+// This is not an internal shape. Alpha Markets is built as an agent economy: other teams' analysts,
+// running their own models on their own API keys, publishing here. Today there is one analyst
+// (`config/analysts.ts`) and no registration path. A report produced by someone else's agent has to
+// be something our market can settle on, so this file is written for a reader who has never seen the
+// rest of this repository.
 //
 // ── What you need to know to target it ───────────────────────────────────────────────────────────
 //
 //  1. A report is an OBJECT, not prose. Markdown, HTML and a terminal dump are renderings of it.
-//     The hash is over the object, so all three must hash identically — none of them is the report.
+//     The hash is over the object, so no rendering changes it — none of them is the report.
 //
 //  2. Money is a DECIMAL STRING, never a JS number. Source figures carry up to 23 decimal places
 //     and `Number()` rounds them silently. A rounded figure hashes differently from a correct one.
@@ -31,7 +32,7 @@ import type {
 /** Referenced so the import stays honest about what a report is assembled from. */
 export type ComputedInput = Computed;
 
-/** A stable handle for one measured figure, unique within a report — e.g. `"aave-v3.deposits"`. */
+/** A stable handle for one measured figure, unique within a report — e.g. `"aave-v3-ethereum.totalDepositBalanceUSD"`. */
 export type FactId = string;
 
 /** §5.13. Only `DATA_ERROR` gates anything; the other three are reported and never suppress. */
@@ -60,12 +61,17 @@ export interface Finding {
 export interface Subject {
   /** The original plain-English directive, verbatim. */
   readonly directive: string;
-  /** Deployment slugs the report covers, after exclusions. */
+  /**
+   * Deployment slugs the plan asked for, BEFORE exclusions. A deployment dropped at execution is
+   * listed in `Report.exclusions` and stays here; count `facts` to see which ones answered.
+   */
   readonly deployments: readonly string[];
   /**
-   * ⚠️ The figure the report is ABOUT. Under PLAN-v4 §5.13 (amended 2026-09-07) a `DATA_ERROR`
-   * blocks the figure it touches; if it touches THIS figure the whole report is blocked, because a
-   * balance overview whose balance is in error is not a report with a caveat — it is not a report.
+   * ⚠️ The figure the report is ABOUT, as `"{slug}.{field}"` — or `"metric.{field}"` when the
+   * question is about a metric across the whole set. Under PLAN-v4 §5.13 (amended 2026-09-07) a
+   * `DATA_ERROR` blocks the figure it touches; if it touches a headline that names a deployment the
+   * whole report is blocked, because a balance overview whose balance is in error is not a report
+   * with a caveat — it is not a report.
    */
   readonly headline: FactId;
 }
@@ -94,12 +100,15 @@ export interface Withheld {
 }
 
 /**
- * One measured figure. **The fact table is the only place a digit exists in a report** — narration
- * references facts by id and never carries numbers of its own.
+ * One measured figure. **The fact table is the only source of a figure in a report** — narration
+ * references facts by id rather than carrying numbers of its own.
  */
 export interface Fact {
   readonly id: FactId;
-  /** Human label, e.g. "Total deposits". Never contains a number. */
+  /**
+   * Human label, e.g. "aave-v3-ethereum — Total deposits". Never a figure — but it can contain
+   * digits that are part of a name (`v3`, a market such as `RWA015-A`).
+   */
   readonly label: string;
   /** Decimal string, or `null` when withheld. Read `withheld` for why. */
   readonly value: Decimal | null;
@@ -208,7 +217,7 @@ export type Confidence = 'low' | 'medium' | 'high';
  * has to know which of the two it is settling on.
  */
 export interface Assessment {
-  /** ⚠️ Prose. Contains no digits — every figure is referenced through `basis`. */
+  /** ⚠️ Prose. Every figure in it is a `{fact:ID}` placeholder, never a typed number. */
   readonly summary: string;
   /** The measured figures this opinion rests on, so a reader can check the reasoning. */
   readonly basis: readonly FactId[];
@@ -223,9 +232,10 @@ export type SectionId = 'subject' | 'figures' | 'checks' | 'exclusions' | 'verdi
 
 export interface Paragraph {
   /**
-   * ⚠️ Every figure is a `{fact:ID}` placeholder. A validator rejects any digit sequence in this
-   * string that is not inside one, which is what makes an invented number impossible rather than
-   * unlikely — types cannot enforce it.
+   * ⚠️ Every figure is a `{fact:ID}` placeholder. Types cannot enforce that, so a validator
+   * (`agent/validate.ts`) flags any digit sequence outside one that the report's own identifiers do
+   * not account for. ⚠️ It warns today rather than rejecting, so an invented number is reported,
+   * not prevented.
    */
   readonly text: string;
   /** Fact ids referenced by the placeholders in `text`. */
@@ -260,7 +270,7 @@ export interface Report {
   /** The block every figure was read at. One report, one moment. */
   readonly block: number;
   readonly observedAt: Timestamp;
-  /** The fact table, keyed by `FactId`. The only place a digit exists. */
+  /** The fact table, keyed by `FactId`. The only source of a figure. */
   readonly facts: Readonly<Record<FactId, Fact>>;
   readonly checks: readonly CheckResult[];
   readonly exclusions: readonly Exclusion[];
@@ -343,14 +353,17 @@ export interface ReportPlan {
   readonly subject: Subject;
   readonly reads: readonly PlannedRead[];
   readonly checks: readonly PlannedCheck[];
-  /** Why this scope answers the directive. Read by a human reviewing the plan before it runs. */
+  /**
+   * Why this scope answers the directive, and which reading of an ambiguous one was taken. Nothing
+   * reviews it before the plan runs, and it is not carried into `Report`.
+   */
   readonly rationale: string;
 }
 
 /**
- * ⚠️ A first-class outcome, not an error. A directive that names no subject, no answerable question
- * or no deployment gets this back with the specific gap named — never a confident essay built on a
- * guess about what was meant.
+ * ⚠️ A first-class outcome, not an error: the specific gap named, never a confident essay built on
+ * a guess. Today only a deployment that is not configured or not answering produces one (`missing:
+ * ['deployment']`); the planner no longer refuses a vague directive — see `agent/compose.ts`.
  */
 export interface Clarification {
   readonly missing: readonly ('subject' | 'deployment' | 'question' | 'scope')[];

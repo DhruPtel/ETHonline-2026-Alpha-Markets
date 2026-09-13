@@ -32,7 +32,8 @@ const denied = new Set<string>(LIFECYCLE);
 
 /**
  * Remove lifecycle fields at every depth. Recursive rather than top-level to match SM-01 exactly —
- * the recorded hashes below are only reproducible if this behaves identically.
+ * the hashes SM-01 recorded (`scripts/smoke/01-canonicalize.ts`, re-checked by
+ * `scripts/demo/canonical.ts`) only reproduce if this behaves identically.
  */
 const strip = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(strip);
@@ -79,7 +80,7 @@ export function reportHash(report: Report): string {
   return hashCanonical(report);
 }
 
-/** The same hash as raw bytes, for the `bytes32` the Arc contract and the ATS event take. */
+/** The same hash as raw bytes — the `bytes32` Arc takes. The ATS event carries it as hex text. */
 export function reportHashBytes(report: Report): Uint8Array {
   return Uint8Array.from(Buffer.from(reportHash(report), 'hex'));
 }

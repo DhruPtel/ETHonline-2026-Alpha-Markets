@@ -24,8 +24,8 @@
 // point; using is not. Every value below is computed locally.
 //
 // ⚠️ **The facilitator config here is DISPOSABLE and inline on purpose.** `src/payments/server.ts`
-// is Unit 12 and has requirements this probe does not — a health route, a feePayer assertion, an
-// ATS resolver check. Do not lift this into a module.
+// (Unit 12) replaced it for the real gate, with requirements this probe does not have — a health
+// route, a feePayer assertion, an ATS resolver check. Do not lift this into a module.
 
 import { NextResponse, type NextRequest } from 'next/server.js';
 import { withX402, x402ResourceServer } from '@x402/next';
@@ -71,11 +71,12 @@ const handler = async (_request: NextRequest): Promise<NextResponse> =>
  *
  * `x402ResourceServer` calls `process.exit` on a permanent config mismatch. At module scope on
  * Vercel that is a cold-start crash loop on every request to this route, and it reads like a
- * platform outage rather than a config error. `scripts/smoke/05-x402-purchase.ts` builds it at
- * module scope (line 241) and awaits `initialize()` at line 245 — that is the line not to copy.
+ * platform outage rather than a config error. `scripts/smoke/05-x402-purchase.ts` builds its
+ * `seller` at module scope and awaits `seller.initialize()` at top level — that is the shape not to
+ * copy.
  *
  * `withX402` takes the server eagerly, so the wrapping happens per-request here too. That is fine
- * for a probe and is not a pattern to carry into Unit 12.
+ * for a probe and is not a pattern for a real gate; `src/payments/gate.ts` builds once and memoizes.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {

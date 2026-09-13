@@ -5,7 +5,7 @@
 // a zero token price against a non-zero balance — is a real `DATA_ERROR` on Aave and a false
 // positive on Morpho, because Morpho derives deposit USD from the loan token rather than from price
 // x balance. `depositBasis` in config is what makes one rule give both answers correctly. A slug
-// test would mean adding a 29th protocol requires editing this file.
+// test would mean adding a protocol requires editing this file.
 //
 // ⚠️ **Pure. No I/O.** Corroboration is an adapter that hands the engine observations (§5.14).
 //
@@ -14,8 +14,9 @@
 // A `DATA_ERROR` blocks the FIGURE named in `appliesTo`. It blocks the REPORT only when that figure
 // is the report's declared subject — compound-v3 has one bad market out of ten, and discarding nine
 // sound markets and a meaningful protocol total to suppress one figure would make the engine less
-// useful than the model already is without it. `publish.ts` owns that comparison; this file names
-// the figure so it can be made.
+// useful than the model already is without it. `agent/execute.ts` owns that comparison — it withholds
+// a blocked figure, and returns `blocked` when that figure is the headline; this file names the
+// figure so it can be made.
 //
 // Only `DATA_ERROR` blocks anything. A `SIGNAL` — borrows exceeding deposits — is a finding about
 // the protocol and the thing a report exists to surface, not a reason to withhold.
@@ -26,7 +27,10 @@ import type { ProtocolConfig } from '../config/protocols.js';
 import type { MarketRow } from '../graph/queries/index.js';
 import { compare, ratio, sum } from './ops.js';
 
-/** `"{slug}.{field}"`. ⚠️ `assemble.ts` must mint fact ids the same way or blocking cannot match. */
+/**
+ * `"{slug}.{field}"`. ⚠️ Every fact id must be minted through this — `agent/execute.ts` and
+ * `agent/compose.ts` call it, and `arc/spec.ts` round-trips ids through it — or blocking cannot match.
+ */
 export const figureRef = (slug: string, field: string): string => `${slug}.${field}`;
 
 export interface InvariantInput {
@@ -109,6 +113,6 @@ export function check({ config, computed, markets }: InvariantInput): Finding[] 
   return out;
 }
 
-/** The figures a `DATA_ERROR` makes unreportable. `publish.ts` checks the subject against this. */
+/** The figures a `DATA_ERROR` makes unreportable. `agent/execute.ts` checks every figure, headline included, against this. */
 export const blockedFigures = (findings: readonly Finding[]): string[] =>
   [...new Set(findings.filter((f) => f.severity === 'DATA_ERROR').map((f) => f.appliesTo))];

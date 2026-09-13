@@ -2,15 +2,15 @@
 //
 // ⚠️ **Plain `withX402`, default `authorization` flow, exactly as the plan specifies.** Verified
 // against the installed 2.25.0 on 2026-09-08 and **not to be re-opened**: `withX402` *is*
-// `withX402FromHTTPServer` (`@x402/next/dist/esm/index.js:452` constructs the HTTP server and
-// delegates), and eight of the nine hook-registration methods live on `x402ResourceServer`, which
+// `withX402FromHTTPServer` (`withX402` in `@x402/next/dist/esm/index.js` constructs the HTTP server
+// and delegates), and eight of the nine hook-registration methods live on `x402ResourceServer`, which
 // plain `withX402` already takes as its third argument. Only `onProtectedRequest` needs the other
 // wrapper, and that is for serving a re-reader without charging — which Phase 3 does not do (§5.19:
 // "serve once").
 //
-// ⚠️ **Never `paymentProxy`.** It charges for failed responses — measured, `x402-next-2.25.md`. The
-// `authorization` flow cancels settle when the handler fails, and that is the only refund substitute
-// that exists: Hedera has no refund primitive on any chain today.
+// ⚠️ **Never `paymentProxy`.** It charges for failed responses — measured, `docs/research/x402-next-2.25.md`.
+// The `authorization` flow cancels settle when the handler fails, and that is the only refund
+// substitute that exists: Hedera has no refund primitive on any chain today.
 //
 // ⚠️ **Three branches, not seven.** Unpaid → 402; paid and verified → serve; anything else is the
 // wrapper's. The four Own-tier rows of §5.19 are out of scope because the tier is cut, so `balanceOf`
@@ -20,7 +20,8 @@
 // working as designed — a throwing handler means settle never runs and nobody is charged — but it
 // means a settle that fails *after* a good handler leaves the buyer with the report and the seller
 // with nothing. That is the accepted trade against `paymentProxy`, which would charge for failures
-// instead. Noted, not solved here; Unit 17's `recover.ts` is what reconciles the ambiguous rows.
+// instead. ⚠️ Not solved anywhere: nothing reconciles those ambiguous rows — recovery (PHASE-3
+// Unit 17) was not built, and there is no `recover.ts`.
 
 import { NextResponse, type NextRequest } from 'next/server.js';
 import { withX402 } from '@x402/next';
@@ -61,7 +62,8 @@ const transactionOf = (p: PaymentPayload): string => (p.payload as { transaction
 /**
  * The gated handler. ⚠️ **It only ever reads an already-persisted body (§5.7).** If it ever
  * generated one, the ~120-second Hedera validity window would land on the critical path and "charged
- * with nothing delivered" would become reachable. Generation is `scripts/ops/report.ts`'s job.
+ * with nothing delivered" would become reachable. Generation is `scripts/ops/report.ts` and
+ * `app/api/console/generate`.
  */
 async function serveReport(request: NextRequest): Promise<NextResponse> {
   const hash = hashFromPath(new URL(request.url).pathname);
@@ -115,7 +117,7 @@ export function gate(): (request: NextRequest) => Promise<NextResponse> {
           if (!report) throw new Error(`no report ${hashFromPath(ctx.path)} to price`);
           return analystByArcAddress(report.analyst).hederaAccountId;
         },
-        // ⚠️ The price is the QUOTE's, frozen before the challenge — not the constant. Unit 13 reuses
+        // ⚠️ The price is the QUOTE's, frozen before the challenge — not the constant. `quote()` reuses
         // a live quote rather than minting one per request, so this does not grow the table.
         price: async (ctx: HTTPRequestContext) => {
           const q = await quote(hashFromPath(ctx.path));
@@ -172,9 +174,9 @@ export function gate(): (request: NextRequest) => Promise<NextResponse> {
         WHERE payment_id = ${paymentId} AND settled_at IS NULL`;
     });
 
-  // ⚠️ `delivered_at` stays null in this unit, deliberately. Delivery is only true once the response
-  // reaches the buyer, which a server cannot observe — that gap is exactly what §5.9's
-  // payment-identifier retry exists for, and Unit 17 is what resolves it.
+  // ⚠️ `delivered_at` is never written, deliberately. Delivery is only true once the response reaches
+  // the buyer, which a server cannot observe — that gap is exactly what §5.9's payment-identifier
+  // retry exists for, and the recovery that would resolve it (PHASE-3 Unit 17) was not built.
   gated = withX402(serveReport, routes, server);
   return gated;
 }

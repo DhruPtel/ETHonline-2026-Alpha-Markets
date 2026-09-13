@@ -1,29 +1,23 @@
 // Which report has a token, and where it lives on Hedera.
 //
 // ⚠️ **A separate file from `reports.ts`, deliberately.** That file is proved — a real 140-fact report
-// round-trips through it with its identity intact — and Unit 8's brief kept out of it on purpose.
-// `report_tokens` is a different table with a different lifecycle: a report exists the moment it is
-// generated, and a token exists only if someone later paid 7.7 HBAR to mint one. Joining them inside
-// `reports.ts` would make every read of a report also a read about its token.
+// round-trips through it with its identity intact. `report_tokens` is a different table with a
+// different lifecycle: a report exists the moment it is generated, and a token exists only if someone
+// later paid 7.7 HBAR to mint one. Joining them inside `reports.ts` would make every read of a report
+// also a read about its token.
 //
 // ⚠️ **This module is read-only; the table has two writers, and neither is here.** `tokenize/ats.ts`
 // inserts the row in the same call that deploys the proxy, because a row written anywhere else could
 // name an asset nobody minted. `tokenize/transfer.ts` then UPDATEs `transfer_tx` after it has
-// asserted both balances moved. Both write through `db()` directly rather than through a writer on
-// this file.
+// asserted both balances moved. Both write through `db()` directly.
 //
-// ⚠️ **This header used to say "`tokenize/ats.ts` is the only writer", and Unit 10 made that false**
-// on 2026-09-08 without touching this file — `transfer.ts` was the unit's scope and this was not.
-// Corrected 2026-09-09. If a writer is ever added here, it should take both paths, not just the one
-// a brief happens to name.
+// ⚠️ This header once named `ats.ts` as the only writer, and went stale on 2026-09-08 when
+// `transfer.ts` added the second without touching this file. If a writer is ever added here, it
+// should take both paths.
 
 import { closePool, db } from './db.js';
 
-// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
-// three modules each memoized their own, so a request touching all three opened three connections
-// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
-// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
-//
+// The shared client from `db.ts` — see there for why never one of this module's own.
 // For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
 export { closePool as close };
 

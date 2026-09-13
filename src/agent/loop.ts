@@ -1,25 +1,19 @@
 // The tool-use loop, promoted from SM-06. A `while` over `stop_reason === "tool_use"`, not a
 // framework — SM-06 closed in two turns and nothing about that run asked for more machinery.
 //
-// ⚠️ **It does not own the conversation.** `messages[]` goes in and comes back out, so a caller that
-// wanted to spread a long exchange across invocations could persist them between turns.
+// ⚠️ **It does not own the conversation.** `messages[]` goes in and comes back out, so a caller could
+// persist it between turns. **None does, and none is planned:** `src/store/` persists reports, not
+// conversations, and the callers — `scripts/ask.ts` and three demo scripts — hold the array in memory
+// for one process. The report pipeline never enters this file, so §9's 300-second argument does not
+// apply to it.
 //
-// ⚠️ **No caller does, and none is planned.** This header used to end "there is no persistence layer
-// yet; this is the shape it needs", written before Unit 4. `src/store/` now persists *reports*;
-// nothing persists a *conversation*, and nothing needs to — the only caller is `scripts/ask.ts`, a
-// CLI that holds the array in memory for one process. The report pipeline never enters this file at
-// all (see `src/agent/README.md`), so §9's 300-second argument does not apply to it either.
-// Corrected 2026-09-09.
-//
-// ⚠️ **It does not define tools.** Definitions and an executor are parameters, so `tools.ts`
-// (Unit 13) can change the menu without touching the loop.
+// ⚠️ **It does not define tools.** Definitions and an executor are parameters, so `tools.ts` can
+// change the menu without touching the loop.
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MODEL } from '../config/model.js';
 
-// ⚠️ `MODEL` used to be DEFINED here and is now imported. It moved to `config/model.ts` on
-// 2026-09-08 because the report pipeline imported it from this file, and the pipeline does not
-// use this file for anything else. It is not re-exported: importers take it from config.
+// ⚠️ `MODEL` is imported, not defined or re-exported here — `config/model.ts` says why it moved.
 
 /** Why the loop returned. ⚠️ A loop that stops silently is indistinguishable from one that finished. */
 export type StopReason = 'answered' | 'budget' | 'error';
@@ -36,7 +30,7 @@ export const DEFAULT_BUDGET: Budget = { maxTurns: 12, maxToolCalls: 30, maxToken
 
 export interface LoopResult {
   readonly stopReason: StopReason;
-  /** The full conversation, for persisting and resuming. */
+  /** The full conversation, so a caller could persist and resume it. */
   readonly messages: Anthropic.MessageParam[];
   readonly answer: string | null;
   readonly turns: number;

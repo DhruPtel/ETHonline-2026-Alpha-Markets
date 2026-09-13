@@ -2,20 +2,19 @@
 //
 // ⚠️ **`tokenize/ats.ts`'s prepare/spend split, and it matters more here.** On Hedera a reverted
 // deploy cost HBAR; on Arc gas IS USDC, so a reverted call spends the same asset the analyst is
-// staking. Everything that can refuse runs in `prepare()`, which touches nothing and costs nothing.
-// `create()` and `commit()` are the only functions that can spend.
+// staking. Everything that can refuse runs in `prepare()` or `prepareDemo()`, which touch nothing and
+// cost nothing. `create()` and `commit()` are the only functions that can spend.
 //
 // ⚠️ **Two chain writes, so a run can die between them** — the same shape as `ats.tokenize()`'s
-// deploy → grantRole → issue. The market row records which landed, both idempotency keys live on
-// their rows so they survive a cold start and come back in on retry, and **nothing retries blindly**:
-// a row that already carries a `chain_market_id` is returned rather than re-created.
+// deploy → grantRole → issue. The rows record which landed and **nothing retries blindly**: a row that
+// already carries a `chain_market_id` or `chain_claim_id` is returned rather than sent again, and a
+// retry that does send reuses the same idempotency key because the key is derived from the call.
 //
 // ⚠️ **The plan is serializable, and that is a real difference from Hedera.** `ats.prepare()` returns
 // an `ethers.Wallet`, so a `TokenPlan` cannot cross HTTP and the console has to prepare twice. A
-// Circle signer is an API call with no local object, so a `MarketPlan` is data all the way down and
-// survives a request boundary intact. ⚠️ It does NOT survive time: `binding` records what the
-// admission check saw at `checkedAt`, so a plan left sitting should be re-prepared rather than
-// submitted.
+// Circle signer is an API call with no local object, so a `MarketPlan` is data all the way down. ⚠️ It
+// does NOT survive time: `binding` records what the admission check saw at `checkedAt`, so a plan left
+// sitting should be re-prepared rather than submitted.
 
 import { createHash } from 'node:crypto';
 import { ethers } from 'ethers';
@@ -31,7 +30,7 @@ import { db } from '../store/db.js';
 import { requiredEnv } from '../config/env.js';
 import { type Report } from '../types/report.js';
 
-/** ⚠️ Refusals from `prepare()`. Distinct from `BindingRefused`, which 6c throws for its own. */
+/** ⚠️ Refusals from `prepare()`. Distinct from `BindingRefused`, which `admission.ts` throws for its own. */
 export class MarketRefused extends Error {
   constructor(why: string) { super(why); this.name = 'MarketRefused'; }
 }
@@ -54,34 +53,30 @@ const GAS_HEADROOM = ethers.parseUnits('0.05', 18);
 //
 // **The rule: what settlement would decide for the most recent finished day.** `decideSide` calls
 // `settle()` — the same function, the same series, the same `holds()` — against the latest day that
-// has a snapshot, and the analyst predicts that answer still holds on the observed day.
+// has a snapshot, and the analyst predicts that answer still holds on the observed day. ⚠️
+// **`settle()` is CALLED, never reimplemented**: a second copy of the window arithmetic, the
+// freshness rule and the comparison would be two reads of one series that could disagree — the bug
+// below, wearing a different file name.
 //
 // ⚠️ **THIS IS A CORRECTION, AND THE FIRST VERSION WAS WRONG IN A WAY THAT PASSED ITS TESTS.** It
 // read the figure out of the report: `facts['{slug}.{metric}']`. That figure comes from the
 // **`balance-sheet`** document — the protocol entity's live state. Settlement reads
 // **`financialsDailySnapshots`**. Same metric NAME, different entity, and they disagree — 24.634B
 // against 24.517B for the same day. **The analyst was deciding from one series and being scored on
-// another**, which is a mismatch that happened to work rather than decision logic tied to a real
-// signal. Market 6 is the cost. See `tracking/lessons.md`.
+// another.** Market 6 is the cost; see `tracking/lessons.md`.
 //
-// ⚠️ **`settle()` is CALLED, never reimplemented.** Two reads of one series that could disagree is
-// the bug being fixed; a second copy of the window arithmetic, the freshness rule and the comparison
-// would be the same bug wearing a different file name.
-//
-// ⚠️ **THE REPORT IS STILL THE JUSTIFICATION AND NOTHING ABOUT THAT CHANGED.** The claim is bound to
-// a tokenized report, admission still checks it, and the report is still what a reader is being
-// asked to trust. What moved is only where the NUMBER comes from. The report must still speak to the
-// figure the market asks about — a report with nothing to say about it is not a justification for
-// this market — and both figures are recorded side by side, so a divergence is visible rather than
-// silently resolved in favour of whichever was read second.
+// ⚠️ **THE REPORT IS STILL THE JUSTIFICATION.** The claim is bound to a tokenized report, admission
+// still checks it, and the report must still have measured the figure the market asks about. Only
+// where the NUMBER comes from moved — and both figures are recorded side by side, so a divergence is
+// visible rather than silently resolved in favour of whichever was read second.
 //
 // ⚠️ **Deterministic, and no second model call — taken deliberately.** A 60-second Vercel function
 // cannot afford another round trip to a model, and a deterministic rule is **auditable in a way a
 // model call is not**: anyone holding the spec can recompute the side and get the same answer.
 //
-// ⚠️ **The honest cost:** the analyst still cannot predict a REVERSAL — it can only ever forecast
-// that the latest answer persists. That is a real limitation of the rule, and it is why the
-// threshold, chosen when the market is created, is where the judgement actually lives.
+// ⚠️ **The honest cost:** the analyst cannot predict a REVERSAL — only that the latest answer
+// persists. That is why the threshold, chosen when the market is created, is where the judgement
+// actually lives.
 
 /** ⚠️ A week. A deployment with no snapshot for seven days is not one a market could settle on. */
 const MAX_LOOKBACK_DAYS = 7;
@@ -96,7 +91,7 @@ export interface SideDecision {
   /** What the REPORT said about the same metric. Recorded for comparison, not used for the side. */
   readonly reportFigure: string;
   readonly reportObservedAt: string;
-  /** ⚠️ Recorded, never enforced. See `prepare()` on why there is no staleness refusal. */
+  /** ⚠️ Recorded, never enforced. See `planWith` step 1 on why there is no staleness refusal. */
   readonly reportAgeHours: number;
   readonly reason: string;
 }
@@ -106,9 +101,11 @@ const utcDay = (msAgo: number): string => new Date(Date.now() - msAgo).toISOStri
 export async function decideSide(report: Report, spec: MarketSpec): Promise<SideDecision> {
   // ── The report must speak to the figure the market asks about ──
   //
-  // ⚠️ Still routed through `metricFromFactId`, which round-trips the id through `figureRef` and
-  // refuses a per-market figure or the `metric.` sentinel — a report whose headline names no single
-  // deployment cannot back a market, because settlement re-reads one deployment.
+  // ⚠️ The id is built from the SPEC, not from the report's headline. When this was written every
+  // stored report's headline was the `metric.` sentinel (a metric across deployments), which
+  // `metricFromFactId` refuses — so requiring the headline to be the subject would have refused every
+  // report. The market's own `{slug}.{metric}` still goes through `metricFromFactId`, the one check
+  // that knows what is settleable, rather than being trusted as built.
   const factId = `${spec.slug}.${spec.metric}`;
   metricFromFactId(factId);
 
@@ -247,17 +244,16 @@ export async function prepare(input: PlanInput & {
  * `demoQuestionCore`: a boolean that switches off past-posting prevention is one somebody passes by
  * accident, and two names cannot be confused at a call site.
  *
- * ⚠️ **It runs every one of `prepare`'s nine guards, in the same order, and that is the point of
+ * ⚠️ **It runs every one of `planWith`'s nine guards, in the same order, and that is the point of
  * routing through here rather than hand-building a `MarketPlan` in a script.** Guard 8 is the
  * admission check — the thing that stops a commit against a report that was never tokenized — and a
- * demo path that skipped it would be a second, weaker way onto the chain. The only thing that
- * differs is which function builds step 3's `QuestionCore`.
+ * demo path that skipped it would be a second, weaker way onto the chain. Only the function that
+ * builds step 3's `QuestionCore` differs.
  *
  * ⚠️ **`decideSide` still runs, and for a demo market it reads a DIFFERENT day than settlement
- * will.** The rule is "what settlement would decide for the most recent finished day", so the
- * analyst's side comes from yesterday while the question is about a day further back. That is not a
- * fault to fix here: the analyst is not forecasting, and the side it takes may well be wrong — which
- * is the honest thing for a demo whose answer was published before anyone staked.
+ * will** — the side comes from yesterday while the question is about a day further back. That is not
+ * a fault to fix here: the analyst is not forecasting, and a wrong side is the honest outcome for a
+ * demo whose answer was published before anyone staked.
  */
 export async function prepareDemo(input: PlanInput & {
   readonly closeTime: number;
@@ -279,9 +275,8 @@ export async function prepareDemo(input: PlanInput & {
  * claim id is the market and the author, which mirrors the contract's one-claim-per-author rule.
  *
  * ⚠️ **`buildCore` is a callback so the NUMBERED GUARD ORDER below does not move.** Validating the
- * spec in each wrapper instead would hoist step 2 above step 1, and this file's own header plus four
- * broken negative tests say what that costs: a refusal that fires one guard above the one being
- * tested looks exactly like a passing test.
+ * spec in each wrapper instead would hoist step 2 above step 1 — and a refusal that fires one guard
+ * above the one being tested looks exactly like a passing test, which is how four negative tests broke.
  */
 async function planWith(
   input: PlanInput,
@@ -299,9 +294,9 @@ async function planWith(
   // analyst staking on work it published last week, which is a real capability to remove on a hunch.
   //
   // ⚠️ Adding a threshold "because it sounds prudent" is how an arbitrary number becomes a rule
-  // nobody can justify later. **The age is recorded on the decision and printed instead** — visible
-  // to an operator before spending, and available to Unit 15 when it scores. Visibility without
-  // prohibition; if a limit is ever wanted, it should come from a scoring result rather than taste.
+  // nobody can justify later. **The age is recorded on the decision instead** — `scripts/ops/
+  // commit-market.ts` prints it before spending; nothing persists it. Visibility without prohibition;
+  // if a limit is ever wanted, it should come from a scoring result rather than taste.
   const report = await load(input.reportHash);
   if (!report) throw new MarketRefused(`no report ${input.reportHash} in the store.`);
 
@@ -312,7 +307,7 @@ async function planWith(
   //     `demoQuestionCore` refuses one before that day was settleable.
   const core = buildCore(spec);
 
-  // 4 · the analyst row resolves AND matches the Circle wallet (Unit 4's guard throws on mismatch).
+  // 4 · the analyst row resolves AND matches the Circle wallet (`analystIdentity()` throws on mismatch).
   const identity = await analystIdentity();
   const analyst = analystByArcAddress(identity.address);
   if (report.analyst.toLowerCase() !== analyst.arcAddress.toLowerCase()) {
@@ -322,7 +317,7 @@ async function planWith(
     );
   }
 
-  // 5 · the side, from the report's own figure. Throws rather than guessing.
+  // 5 · the side, from the latest finished day's snapshot (`decideSide`). Throws rather than guessing.
   const decision = await decideSide(report, spec);
 
   // 6 · the amount is a legal stake before the contract is asked to say so.
@@ -344,8 +339,8 @@ async function planWith(
     );
   }
 
-  // 8 · ⚠️ THE ADMISSION CHECK. Unit 6c, and the reason it precedes this unit: a commit not bound to
-  // a tokenized report is the thing the product claims it never makes. Free, and it throws its own.
+  // 8 · ⚠️ THE ADMISSION CHECK (`admission.ts`). A commit not bound to a tokenized report is the thing
+  // the product claims it never makes. Free, and it throws its own.
   const binding = await checkBinding(input.reportHash);
 
   // 9 · the balance covers the stake plus Circle's measured premium.
@@ -362,9 +357,9 @@ async function planWith(
     marketId, claimId, contractAddress,
     reportHash: input.reportHash, spec, core, decision,
     amount: amount.toString(), analyst, binding,
-    // ⚠️ Read defensively. `Verdict.call` is null on a metric-across-deployments report — which
-    // `metricFromFactId` already refuses in step 5, so this should be unreachable. "Should be" is
-    // not a reason to write `.call!`.
+    // ⚠️ Read defensively. `Verdict.call` is null on a metric-across-deployments report, and nothing
+    // above refuses one — step 5's `metricFromFactId` checks the market's `{slug}.{metric}`, not the
+    // report's headline — so null is an ordinary value here. Never `.call!`.
     verdict: report.verdict.call ?? null,
   };
 }
@@ -374,11 +369,11 @@ async function planWith(
 const iface = new ethers.Interface(ALPHA_MARKET_ABI);
 
 /**
- * ⚠️ Unit 4's `submit()` returns at **`SENT`**, so the transaction is not mined when the hash
- * arrives — Unit 6's script died on exactly this, reading a receipt that did not exist yet. Circle
- * returns no logs at all, so the only way to an event is: wait for the hash, fetch the receipt over
- * the Arc RPC ourselves, decode with the committed ABI. **This unit owns the off-chain half of that
- * seam**, which is why `claimId` is emitted rather than merely returned.
+ * ⚠️ `submit()` returns at **`SENT`**, so the transaction is not mined when the hash arrives — Unit
+ * 6's script died on exactly this, reading a receipt that did not exist yet. Circle returns no logs
+ * at all, so the only way to an event is: wait for the hash, fetch the receipt over the Arc RPC
+ * ourselves, decode with the committed ABI. That is why the contract emits `claimId` rather than
+ * merely returning it.
  */
 async function landed(txHash: string, event: string, label: string): Promise<ethers.LogDescription> {
   const receipt = await arcProvider().waitForTransaction(txHash, 1, 120_000);
@@ -394,8 +389,8 @@ async function landed(txHash: string, event: string, label: string): Promise<eth
 /**
  * Create the market on chain. ⚠️ **Spends.**
  *
- * The row is written BEFORE the call — 005's design, and what makes a retry idempotent: a run that
- * dies after submitting still leaves a row carrying the idempotency key it used.
+ * The row is written BEFORE the call — 005's design — so a run that dies after submitting still
+ * leaves a row carrying the idempotency key it used, and the retry finds it.
  */
 export async function create(plan: MarketPlan): Promise<{ chainMarketId: string; txHash: string; alreadyLanded: boolean }> {
   await db()`
@@ -416,14 +411,12 @@ export async function create(plan: MarketPlan): Promise<{ chainMarketId: string;
     return { chainMarketId: row.chain_market_id, txHash: row.create_tx ?? '', alreadyLanded: true };
   }
 
-  // ⚠️ **`callData`, not `abiParameters`, and this is the one call in the project that needs it.**
-  // `createMarket` takes a `QuestionCore` STRUCT, and Circle's server-side encoder handles only
-  // "string, integer, boolean, and array" — it refused the tuple with
-  // `ABI_SIGNATURE_PARAMS_MISMATCH`, at validation and before broadcast, so it cost nothing. Every
-  // other analyst write here is flat and still goes the simple way.
+  // ⚠️ **`callData`, not `abiParameters` — the one Circle call in the project that needs it.**
+  // `createMarket` takes a `QuestionCore` STRUCT, which Circle's server-side encoder refused with
+  // `ABI_SIGNATURE_PARAMS_MISMATCH`; see `arc.ts SubmitCall`. Every other analyst write is flat.
   //
-  // ⚠️ Encoded with the COMMITTED ABI, which is the same artifact the prebuild gate pins to the
-  // deployed bytecode — so the bytes we hand Circle are built from the contract that is running.
+  // ⚠️ Encoded with the COMMITTED ABI — the artifact the prebuild gate (`build-contract.ts --check`)
+  // refuses to let drift from `contracts/AlphaMarket.sol`.
   const callData = iface.encodeFunctionData('createMarket', [{
     specHash: `0x${plan.core.specHash}`,
     closeTime: plan.core.closeTime,
@@ -496,7 +489,7 @@ export async function commit(plan: MarketPlan, chainMarketId: string): Promise<{
     UPDATE claims SET chain_claim_id = ${chainClaimId}, commit_tx = ${sent.txHash},
       commit_circle_tx_id = ${sent.circleTransactionId}, committed_at = now()
     WHERE id = ${plan.claimId}`;
-  // ⚠️ The fifth identifier, now that it exists.
+  // ⚠️ The Arc transaction onto the evidence row — its fifth identifier, now that it exists.
   await recordArcTransaction(plan.claimId, sent.txHash);
 
   return { chainClaimId, txHash: sent.txHash, alreadyLanded: false };

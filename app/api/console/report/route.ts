@@ -1,31 +1,29 @@
-// POST /api/console/report — the operator reads a report body without paying. ⚠️ **LOCKED.**
+// POST /api/console/report — the operator reads a report body without paying.
 //
-// ⚠️ **THIS WAS A DOOR AROUND THE PAYWALL AND IT IS NOW BOLTED.** Until 2026-09-11 this route was
-// unauthenticated and returned `render(report)` — **the same string the x402 gate sells** — with no
-// payment, no quote and no challenge. That was survivable only while `/console` was unreachable
-// scaffolding due for deletion. The console is becoming a linked product page, and an open door to
-// the paid body would mean anyone could `curl` for free what a settled payment buys, which makes
-// every settled payment prove nothing. ⚠️ It was not theoretical: Unit 2's own paywall probe used
-// this route as an unauthenticated oracle to pull a paid figure out of the store.
+// ⚠️ **THIS IS A DOOR AROUND THE PAYWALL, AND IT IS OPEN.** It returns `render(report)` — **the same
+// string the x402 gate sells** — with no payment, no quote and no challenge. It was bolted with
+// `locked()` on 2026-09-11 and has been unlocked since 2026-09-12 with the rest of the console, so on
+// the public deployment anyone can `curl` for free what a settled payment buys, which makes every
+// settled payment prove nothing. ⚠️ Not theoretical: before the lock, Unit 2's own paywall probe used
+// this route as an unauthenticated oracle to pull a paid figure out of the store. Nothing in `app/`
+// calls it.
 //
 // ── ⚠️ Why this was LOCKED and not DELETED, and what the alternative actually cost ───────────────
 //
 // Deletion is the tidier position and it was rejected on one fact: **`/report/[hash]` is the
-// PREVIEW.** "The console can link to `/report/[hash]` like everyone else" sounds like a
-// replacement and is not one — that page deliberately never calls `render()`, so it hands back an
-// identity panel and coverage counts, never a body. Deleting this route does not move the capability
-// somewhere else; it removes it, and the only remaining way for the operator to see a report body
-// becomes **paying our own paywall, 0.001 HBAR at a time, to read work we published ourselves.**
+// PREVIEW.** It deliberately never calls `render()`, so it hands back an identity panel and coverage
+// counts, never a body. Deleting this route does not move the capability somewhere else; it removes
+// it, and the only remaining way for the operator to see a report body becomes **paying our own
+// paywall, 0.001 HBAR at a time, to read work we published ourselves.**
 //
-// ⚠️ **The boundary the paywall actually promises is about STRANGERS, and locking keeps it exactly.**
-// `locked()` is fail-closed — `requiredEnv` runs before the comparison, so an absent or blank
-// `CONSOLE_SECRET` yields 500 and never an open door — so a misconfiguration cannot reopen this. The
-// caller that gets through is the operator, which in this project is the publisher, reading back
-// their own published work. **What must never happen is this shape appearing in `app/report/[hash]/`
-// or on any unauthenticated route.** The gate is untouched: `/api/reports/[hash]` still requires a
-// settled payment and is still the only way a stranger sees a figure.
+// ⚠️ **The paywall's promise is about STRANGERS, and only the lock keeps it here.** `locked()` is
+// fail-closed — `requiredEnv` runs before the comparison, so an absent or blank `CONSOLE_SECRET`
+// yields 500, never an open door. Wired, the caller that gets through is the operator, who in this
+// project is the publisher reading back their own work. **What must never happen is this shape
+// appearing in `app/report/[hash]/` or on any unauthenticated route — and unwired, this is one.**
+// `/api/reports/[hash]` itself is untouched and still requires a settled payment.
 //
-// ⚠️ **It exists at all because there is no identity system.** Phase 3 serves a purchase once and
+// ⚠️ **It exists at all because there is no identity system.** A purchase is served once, and
 // `payments/auth.ts` — the unit that would let someone prove which address they are — is the declared
 // cut point. A console that cannot show you the artefact under test is not a test surface.
 //
@@ -45,13 +43,10 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **THE PAYWALL BOUNDARY. This must stay the first statement in this handler.** Everything
-  // below returns the same bytes a settled x402 payment buys.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **THE PAYWALL BOUNDARY, AND IT IS COMMENTED OUT.** Everything below returns the same bytes a
+  // settled x402 payment buys, so when re-wired the lock must be the first statement in this handler.
+  // Unlocked since 2026-09-12 and open on the public deployment; `../lock.ts` and
+  // `tracking/DECISIONS.md` 2026-09-12 say what puts it back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 

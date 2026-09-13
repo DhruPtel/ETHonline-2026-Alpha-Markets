@@ -1,22 +1,20 @@
 'use client';
 
-// Open the demo questions. ⚠️ **It spends, so it says what it costs before it is pressed.**
+// The Start button for one demo market. ⚠️ **It spends, so it says what it costs before it is pressed.**
 //
 // ── ⚠️ NO SECRET, AND THE LIMITS ARE REAL RATHER THAN A PASSWORD ────────────────────────────────
 //
 // The operator-secret field was cut because a real market page has no lock on it and the demo has to
-// look like one. Nothing here brings it back. What bounds this instead:
+// look like one. What bounds a press instead:
 //
 //   · **the cap** — at most `MAX_OPEN_DEMO_MARKETS` demo markets open for staking at once, and
 //     every slot clears itself when its market closes a couple of minutes later;
 //   · **the cost** — about 0.02 USDC of the analyst's own money per market, ~0.12 at full stretch;
-//   · **the plan** — the count and the cost are read from the chain and rendered *before* the
-//     button, so a press is never blind.
+//   · **the plan** — `demoSeedPlan()` (the store's open demo markets against the chain clock, and
+//     the quoted cost) loads before the button is enabled, so a press is never blind.
 //
-// ⚠️ **ONE MARKET PER PRESS.** It used to open every free slot at once, and the section filled with
-// cards nobody was playing — several settled, several waiting, none of them obviously the one to
-// start. A backlog reads as clutter rather than as a thing to play. The next question is named on
-// the button's own line so a judge knows what they are about to open before they open it.
+// ⚠️ **ONE MARKET PER PRESS** — see `seedDemoMarkets` for why. The next question is named on the
+// button's own line so a judge knows what they are about to open before they open it.
 
 import {useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation.js';

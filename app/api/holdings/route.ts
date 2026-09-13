@@ -1,19 +1,19 @@
 // GET /api/holdings — which tokenized reports each account holds, read from the chain.
 //
+// ⚠️ **Nothing in `app/` fetches this today.** It was built so the `/holdings` page could stay a shell
+// without a chain client; `/holdings` now redirects to `/analyst`, which reads the store and the
+// chain directly rather than calling a route on its own server.
+//
 // ⚠️ **A product route, not the console's.** `/api/console/accounts` returns the same balances and
-// could not be reused here: it also reports **which environment keys are set**, which is a useful
-// reading on a throwaway surface and a configuration disclosure on a public one. The console also
-// deliberately shows where the database and the chain *disagree*; a product page has no business
-// airing that. Same measurement, different audience, so the shapes differ — this returns holdings
-// and nothing about how the server is configured.
+// could not be reused here: it also reports **which environment keys are set**, which is an operator
+// reading and a configuration disclosure on a public route. The console also deliberately shows where
+// the database and the chain *disagree*; a product surface has no business airing that. Same
+// measurement, different audience — this returns holdings and nothing about how the server is
+// configured.
 //
 // ⚠️ **`balanceOf` on chain is the authority, never `report_tokens.transfer_tx`.** The column records
 // what we last sent; the chain records what is. A token can also be sent somewhere neither account
 // controls, which the column cannot express and a balance read simply shows as "held by neither".
-//
-// ⚠️ **The weight lives here, not on a page.** Reading a balance means `ethers` and an RPC provider.
-// `/holdings` is a shell that fetches this at runtime, so the page stays at the framework floor
-// instead of carrying a chain client to render a list.
 
 import { NextResponse } from 'next/server.js';
 import { ethers } from 'ethers';

@@ -2,7 +2,7 @@
 //
 //   npx tsx --env-file=.env scripts/demo/score.ts
 //
-// ⚠️ **SPENDS NOTHING AND TOUCHES NO CHAIN STATE.** Two `eth_call`s worth of reading happens in the
+// ⚠️ **SPENDS NOTHING AND TOUCHES NO CHAIN STATE.** Four `eth_call`s of reading happen in the
 // truth check below and nothing else; this unit scores settled state and writes rows.
 //
 // ⚠️ **WHY THIS SEEDS FIXTURES, WHICH THE UNIT BRIEF DID NOT ANTICIPATE.** The brief said chain

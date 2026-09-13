@@ -4,9 +4,9 @@
 //   npx tsx --env-file=.env scripts/ops/score.ts --dry-run        ← lists the work, writes nothing
 //   npx tsx --env-file=.env scripts/ops/score.ts --market=m/…     ← one market
 //
-// ⚠️ **SPENDS NOTHING AND TOUCHES NO CHAIN.** `score.ts` reads settled state that the units which
-// did spend already wrote down, and writes `scores` rows. There is no provider here and no Circle
-// client, which is a property of `score.ts` this script inherits rather than a promise it makes.
+// ⚠️ **SPENDS NOTHING AND TOUCHES NO CHAIN, but the default run WRITES `scores` rows.**
+// `src/arc/score.ts` reads settled state that the units which did spend already wrote down. It has no
+// provider and no Circle client, a property this script inherits rather than a promise it makes.
 //
 // ⚠️ **THIS SCRIPT DOES NOT RESOLVE ANYTHING.** A market becomes gradeable when something puts its
 // outcome on chain and writes the landmark — the resolve cron, or `resolve-market.ts --send`. Run
@@ -16,36 +16,28 @@
 // ── ⚠️ WHY `--dry-run` LISTS ROWS AND NOT VALUES ─────────────────────────────────────────────────
 //
 // It prints **which (market, claim) pairs would be graded and whether each already has a row** — and
-// deliberately **not what the grades would be**. Computing a grade to preview it would mean deriving
-// forecast accuracy outside `scoreMarket()`, which is the one place that owns it, and `score.ts`'s
-// header is explicit about why that is the failure mode: *two numbers that should agree are how they
-// stop agreeing*. A preview that recomputed the answer could disagree with the run that followed it,
-// and nobody could say which was the grade.
+// deliberately **not what the grades would be**. Previewing a grade would mean deriving forecast
+// accuracy outside `scoreMarket()`, the one place that owns it, and `src/arc/score.ts`'s header names
+// that failure mode: *two numbers that should agree are how they stop agreeing*. The real run is safe
+// to just do: it writes to one table, spends nothing, and is idempotent.
 //
-// So the preview answers *how much work is outstanding*, which is what a dry run is actually for
-// here, and the real run is safe to just do: it writes to one table, spends nothing, and is
-// idempotent.
-//
-// ── ⚠️ THE REHEARSAL RULE LIVES HERE, AND IT IS A RECORD FILTER — NEVER A SCORING SKIP ───────────
+// ── ⚠️ THE REHEARSAL RULE IS A RECORD FILTER — NEVER A SCORING SKIP ──────────────────────────────
 //
 // **A market created over a day that had already closed is not a forecast**, because the answer was
-// knowable at commit time. The test is arithmetic and never a name: `observationEnd <= createdAt`.
-// ⚠️ A stored market whose id literally contains "rehearsal" can still be a forecast by that
-// arithmetic, which is exactly why the name is not the test.
+// knowable at commit time. The test is arithmetic and never a name: `isRehearsal()` in
+// `src/arc/rehearsal.ts`, shared with `app/markets/page.tsx`, `/analyst`, the report marker and
+// `agent/context.ts`. ⚠️ A stored id containing "rehearsal" can still be a forecast by that arithmetic.
+// Where a rehearsal is excluded is a decision each surface makes; what a rehearsal IS is not.
 //
-// ⚠️ **THE COMPARISON NO LONGER LIVES HERE.** It is `isRehearsal()` in `src/arc/rehearsal.ts`, which
-// is now the single spelling shared by this script, `app/markets/page.tsx`, `/analyst`, the report
-// marker and `agent/context.ts`. What lives here is still the *policy* — see below — because where a
-// rehearsal is excluded is a decision each surface makes, while what a rehearsal IS is not.
-//
-// ⚠️ **Rehearsals are still SCORED.** `scoreSettled()` is reconciliation from scratch and a function
+// ⚠️ **Rehearsals are still SCORED.** `scoreSettled()` is reconciliation from scratch, and a function
 // that silently skips rows is worse than one that writes them — a skipped row is invisible, a
-// written-and-excluded row is checkable. The exclusion happens **when a record is totalled**, here
-// and on every surface Phase 7 builds, and it is **printed beside the counts rather than applied
-// silently** so a reader who counts the markets themselves can see why their number differs.
+// written-and-excluded row is checkable. The exclusion happens **when the record is totalled**, and
+// it is **printed beside the counts** so a reader who counts the markets themselves can see why their
+// number differs. When this was written the three settled rehearsals carried **zero claims between
+// them**; the rule exists for the next one that carries a claim.
 //
-// Today this is a distinction without rows: the three settled rehearsals carry **zero claims between
-// them**, so nothing scores them either way. The rule exists for the next one that carries a claim.
+// ⚠️ **Only rehearsals are excluded here.** Past-posted demo markets (`pastPosted()`) count as
+// forecasts in this script's record, although `/analyst` and `agent/context.ts` exclude them.
 //
 // ── ⚠️ WHAT A BLANK MEANS, IN EVERY COLUMN THIS PRINTS ───────────────────────────────────────────
 //
@@ -74,8 +66,7 @@ const ONLY = flag('market');
 const usdc = (wei: string): string => ethers.formatUnits(BigInt(wei), 18);
 
 /** ⚠️ The rehearsal test. **Imported, not re-spelled** — `src/arc/rehearsal.ts` is the one place it
- *  lives, and it is arithmetic rather than a name. This was a local arrow function until the rule was
- *  consolidated; same comparison, same results. */
+ *  lives, and it is arithmetic rather than a name. */
 const afterTheFact = (m: Market): boolean => isRehearsal(m.observationEnd, m.createdAt);
 
 const short = (s: string, n = 18): string => (s.length > n ? `${s.slice(0, n)}…` : s);

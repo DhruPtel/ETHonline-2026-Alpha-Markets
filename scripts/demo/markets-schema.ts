@@ -21,7 +21,7 @@
 // `Number()` cannot tell 2500000000000000000 from 2500000000000000001 — and one of those is a legal
 // stake while the other reverts `NotAUsdcUnit`. That is the assertion below.
 //
-// ⚠️ **Writes to a temporary table and drops it.** The seven real tables are not touched: this proof
+// ⚠️ **Writes to a temporary table and drops it.** The eight real tables are not touched: this proof
 // must not leave a market row behind that a cron would later find as work.
 
 import { closePool, db, pooledClientsCreated } from '../../src/store/db.js';

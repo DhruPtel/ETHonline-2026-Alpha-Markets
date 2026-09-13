@@ -8,8 +8,10 @@
 // `verdict.call` are read into a server-side object, counted, and dropped on the floor.
 //
 // ⚠️ **No body field is ever passed as a prop and no body field is ever rendered.** The props handed
-// to `BuyAndRead` are a hash, a price, a heading, the directive, an analyst, a block, a timestamp and
-// six counts. **The sealed block on the sheet is blurred over generated markup, not over report
+// to `BuyAndRead` are a hash, a price, a heading and whether it was derived, the directive, an
+// analyst, a block, a timestamp and seven coverage counts; its children are an evidence panel of
+// identifiers — subgraph, deployment, block, record count, retrieval time, hash. **The sealed block
+// on the sheet is blurred over generated markup, not over report
 // text** — `.mini-copy` bars and a filler chart, with nothing underneath at any opacity. A CSS-hidden
 // table is not a paywall; an absence is. The probe is grepping the served HTML for every figure and
 // for the assessment prose and finding zero, with a control proving the probe finds them elsewhere.
@@ -147,10 +149,11 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
   const slugs = [...new Set(facts.map((f) => f.slug))];
   const deploymentIds = [...new Set(facts.map((f) => f.deployment))];
 
-  // ⚠️ **Sixteen of the nineteen stored reports pre-date migration 008 and have no title.** Those
-  // show the directive shortened at a word boundary rather than a blank heading — the same words,
-  // just the front of them — and the page says the heading was derived rather than written. The full
-  // directive is on the page either way: it is what was asked, and a title cannot replace it.
+  // ⚠️ **On 2026-09-12 sixteen of the nineteen stored reports had no title** — eleven pre-date
+  // migration 008 and the rest were saved without one. Those show the directive shortened at a word
+  // boundary rather than a blank heading — the same words, just the front of them — and the page says
+  // the heading was derived rather than written. The full directive is on the page either way: it is
+  // what was asked, and a title cannot replace it.
   const title = titleRow?.title ?? null;
   const heading = title ?? shortenDirective(report.subject.directive);
 
@@ -189,10 +192,9 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
             is where they choose.
 
             ⚠️ **Deliberately NOT threaded through `BuyAndRead`.** That component's props are the
-            paywall's simplest audit — "a hash, a price, a heading, the directive, an analyst, a
-            block, a timestamp and six counts" — and adding a prop would change the sentence this
-            file's header uses to state the guarantee. Rendering it in the server heading leaves that
-            contract untouched.
+            paywall's simplest audit — the list in this file's header — and adding a prop would
+            change the sentence that states the guarantee. Rendering it in the server heading leaves
+            that contract untouched.
 
             Renders nothing when the report has no graded claim, which is most of them. */}
         {/* ⚠️ Inline rather than a new class: `globals.css` was not in this task's file list, and
@@ -209,17 +211,14 @@ export default async function ReportDetail({params}: {params: Promise<{hash: str
       </div>
 
       {/* ── ⚠️ THE CONSOLE'S SHAPE, BECAUSE THE CONSOLE ALREADY SOLVED IT ──────────────────── */}
-      {/* `.workspace` is the grid, `.viewer` the sheet, `.atlas-console` the dark rail. ⚠️ **There
-          is no reference for this screen and `rebuild/MANIFEST.md` says so**: *"Screen 7, one report
-          … The design reached these three states through a modal on the marketplace, so its export
-          never rendered them."* Only the CSS was lifted, so this borrows the one layout in the repo
-          that was drawn rather than invented.
+      {/* `.workspace` is the grid, `.viewer` the sheet, `.atlas-console` the dark rail — the header
+          says why this borrows the console's layout.
 
-          ⚠️ **HANDED THE PUBLIC FIELDS ONLY** — a hash, a price, a heading, the directive, the
-          analyst, the block, six counts. No figure, no assessment, no section. One client component
-          owns both columns because the bought body replaces the sealed block on the LEFT while the
-          button that buys it is on the RIGHT, and both change on one event. The body reaches the
-          browser only in the JSON returned to that component's own fetch. */}
+          ⚠️ **HANDED THE PUBLIC FIELDS ONLY** — the list in the header. No figure, no assessment, no
+          section. One client component owns both columns because the bought body replaces the
+          sealed block on the LEFT while the button that buys it is on the RIGHT, and both change on
+          one event. The body reaches the browser only in the JSON returned to that component's own
+          fetch. */}
       <BuyAndRead
         reportHash={hash}
         priceHbar={REPORT_PRICE_HBAR}

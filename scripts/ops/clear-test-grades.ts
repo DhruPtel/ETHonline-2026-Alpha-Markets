@@ -21,14 +21,14 @@
 //
 // ── ⚠️ A DELETED GRADE COMES BACK IF SOMETHING RE-GRADES ─────────────────────────────────────────
 //
-// Scores are reconciliation. `scoreSettled()` grades every settled market from scratch; the resolve cron
-// calls it on every run, and so does `score.ts` without `--market`. A demo market still resolved on
-// chain is graded again by either. This script is idempotent, so running it again removes them again;
-// stopping them for good means `scoreSettled()` skipping test markets, which is a change to
-// `src/arc/score.ts` and is not made here.
+// `scoreSettled()` grades every settled market from scratch. The resolve cron calls it on every run
+// that has budget left after resolving, and so does `score.ts` without `--market`, so a demo market
+// still resolved on chain is graded again. This script is idempotent: running it again removes them
+// again. Stopping them for good means `scoreSettled()` skipping test markets, a change to
+// `src/arc/score.ts` that is not made here.
 //
 // ⚠️ **Every deleted row is printed as JSON before it goes**, so the output is the record of what was
-// there — and a row is re-derivable anyway, since `scoreMarket()` recomputes it from chain and store.
+// there — and a row is re-derivable anyway, since `scoreMarket()` recomputes it from the store.
 
 import { db } from '../../src/store/db.js';
 import { close } from '../../src/store/markets.js';

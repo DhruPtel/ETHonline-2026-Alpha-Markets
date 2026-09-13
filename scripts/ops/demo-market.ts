@@ -9,8 +9,11 @@
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --retire           ← plan only, free
 //   npx tsx --env-file=.env scripts/ops/demo-market.ts --retire --send    ← ⚠️ SPENDS
 //
-// ⚠️ **THIS SPENDS REAL MONEY.** Gas on Arc is USDC and `--create --send` also stakes 0.01 USDC of
-// the analyst's own. Every run prints what it is about to do and stops there unless `--send` is given.
+// `--create` also takes `--window=<seconds>` (default 180) and `--day=YYYY-MM-DD` (default two days ago).
+//
+// ⚠️ **THIS SPENDS REAL MONEY.** Gas on Arc is USDC. `--create --send` and `--seed --send` each also
+// stake 0.01 USDC of the analyst's own; `--retire --send` spends one `voidMarket` per market. Every run
+// prints what it is about to do and stops there unless `--send` is given.
 //
 // ── ⚠️ WHAT A DEMO MARKET IS, AND WHY IT IS NOT A FORECAST ──────────────────────────────────────
 //
@@ -26,17 +29,17 @@
 //
 // ── ⚠️ IT GOES THROUGH `prepareDemo`, NOT AROUND IT ─────────────────────────────────────────────
 //
-// The tempting shortcut is to hand-build a `MarketPlan` here and call `create()` directly, saving a
-// change to `market.ts`. That trade is wrong: `prepare`'s guard 8 is the admission check, the thing
-// that stops a commit against a report that was never tokenized, and a demo path that skipped it
-// would be a second, weaker way onto the chain. All nine guards run, in the same order.
+// Hand-building a `MarketPlan` here and calling `create()` directly would save a change to
+// `market.ts`, and skip `prepare`'s guard 8 — the admission check that stops a commit against a
+// report that was never tokenized. A demo path without it would be a second, weaker way onto the
+// chain. All nine guards run, in the same order.
 //
 // ── ⚠️ THE PROTECTED MARKETS ARE EXCLUDED BY ARITHMETIC, NOT BY A DENYLIST ──────────────────────
 //
-// Markets 6, 7, 11 and 12 hold real money. `--retire` cannot reach them because `pastPosted` is
-// false for every one — each closed staking before the day it measures began, which is what makes it
-// a forecast. There is no id list to keep in sync and no flag to get wrong. The run asserts it aloud
-// anyway, because the cost of being wrong is somebody's dollar.
+// Markets 6, 7, 11 and 12 hold real money. `--list` and `--retire` cannot reach them because
+// `pastPosted` is false for every one — each closed staking before the day it measures began, which
+// is what makes it a forecast. `PROTECTED` is not the filter, only an assertion on top of it: the run
+// stops if the predicate ever matches one, because the cost of being wrong is somebody's dollar.
 
 import { ethers } from 'ethers';
 import { analystIdentity, arcProvider } from '../../src/arc/arc.js';
@@ -193,15 +196,16 @@ async function createOne(): Promise<void> {
 }
 
 /**
- * Void demo markets nobody finished. ⚠️ **Spends one `voidMarket` each.**
+ * Void demo markets nobody finished. ⚠️ **Spends one `voidMarket` each, with `--send`.**
  *
- * ⚠️ **This is a BACKSTOP, not the main path, and the distinction decides what it should do.** The
- * resolve cron's find-work query filters only on `observation_end <= asOf` and the two landmarks —
- * no `landed_at`, no `directed_at` — so it picks up any unresolved demo market two minutes after it
- * is created and resolves it normally. The one case it cannot fix is a day with **no snapshot**,
- * where `resolve.ts` guard 8 retries until `resolveDeadline` and voids after it. That is the only
- * thing this reaches, and voiding refunds every staker their own stake — so a judge who staked on a
- * dead day gets their money back in fifteen minutes rather than two days.
+ * ⚠️ **This is a BACKSTOP, not the main path, and the distinction decides what it should do.** A demo
+ * market is normally resolved by the judge's Reveal (`revealDemoMarket`) or by the resolve cron's next
+ * daily run, whose find-work query filters only on `observation_end <= asOf` and the two landmarks —
+ * no `landed_at`, no `directed_at` — so it matches any unresolved demo market once its reveal unlocks.
+ * The one case neither fixes is a day with **no snapshot**: Reveal refuses, and `resolve.ts` guard 8
+ * refuses until `resolveDeadline` and plans a void after it. That is the only thing this reaches, and
+ * voiding refunds every staker their own stake — so a judge who staked on a dead day can be refunded
+ * fifteen minutes after the reveal unlocks (`DEMO_RETIREMENT_SECONDS`) instead of at the next cron run.
  */
 async function retire(): Promise<void> {
   const open = (await demoMarkets()).filter((r) => r.landed_at && !r.resolved_at && !r.voided_at);

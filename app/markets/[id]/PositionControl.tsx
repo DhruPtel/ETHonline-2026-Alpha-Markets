@@ -7,39 +7,37 @@
 // The contract has two calls and they are not interchangeable:
 //
 //   `commitPrediction(marketId, reportHash, side)` creates a claim **carrying a report**. One per
-//     author per market. **The analyst's own USDC, through Circle — no wallet connects.**
+//     author per market.
 //   `stake(marketId, claimId)` joins an existing claim's side and **carries no report**.
-//     **The connected wallet's USDC, signed in MetaMask on Arc.**
 //
-// So this panel picks. Two controls each with their own amount field and their own button meant a
-// person could stake USDC twice, in two places, for what is one action: *put money on this market,
-// backed by a report.*
+// Two controls, each with its own amount field and button, meant a person could stake USDC twice for
+// what is one action — *put money on this market, backed by a report* — so this panel picks:
 //
-//   no claim by this analyst → COMMIT. The chosen report enters the market and becomes the thing
-//                              that gets graded when it settles. The report is the point.
-//   a claim exists           → JOIN. The amount goes onto that claim's side and **the report is
-//                              already fixed by the claim** — `stake()` has no parameter that could
-//                              carry another one.
+//   forecast, no claim  → COMMIT. `commitPrediction` with **the analyst's own USDC, through Circle —
+//                         no wallet connects.** The chosen report enters the market and is what gets
+//                         graded when it settles. The report is the point.
+//   forecast, a claim   → JOIN. `stake()` from **the connected browser wallet, signed on Arc**. The
+//                         report is already fixed by the claim — `stake()` has no parameter that
+//                         could carry another one.
+//   demo market         → the visitor's OWN `commitPrediction` from their wallet: their report, and a
+//                         side derived from the band they pick. Never JOIN — see `joining`.
 //
-// ⚠️ **So in JOIN the dropdown is DISABLED, showing the report the claim cites — not hidden.**
-// Hiding it would make the panel a different shape on different markets and would hide the fact
-// that this position *is* backed by a report. Disabled says both true things at once: here is the
-// research you are backing, and no, you cannot swap it. **An enabled select whose value the call
-// cannot carry would be a lie about what the button does.**
+// ⚠️ **So in JOIN the dropdown is DISABLED, showing the report the claim cites — not hidden.** Hiding
+// it would make the panel a different shape on different markets and hide that this position *is*
+// backed by a report. **An enabled select whose value the call cannot carry would be a lie about what
+// the button does.**
 //
-// ── ⚠️ NO ELIGIBILITY FILTERING ──────────────────────────────────────────────────────────────────
+// ⚠️ **NO ELIGIBILITY FILTERING.** The list is the analyst's tokenized reports, full stop. A report
+// that turns out to be uncommittable is refused by `prepare()` **with the reason**, and a refusal that
+// explains itself beats a shorter list that silently omits things.
 //
-// The list is the analyst's tokenized reports, full stop. A report that turns out to be
-// uncommittable is refused by `prepare()` **with the reason**, and a refusal that explains itself
-// beats a shorter list that silently omits things.
+// ⚠️ **On a forecast the analyst picks the side, never the person.** `decideSide` reads the same
+// daily series settlement will read, which is what makes the score mean anything.
 //
-// ⚠️ **The analyst picks the side, never the person.** `decideSide` reads the same daily series
-// settlement will read, which is what makes the score mean anything.
-//
-// ⚠️ **Two presses in both branches.** The first can only describe or refuse; the second spends.
-// In COMMIT the plan comes from `prepare()` over the route. In JOIN it is computed here from the
-// live pools and the contract's own constants — and then **MetaMask is itself the second
-// confirmation**, showing the amount in the wallet's own words before anything is signed.
+// ⚠️ **Nothing spends on the first press.** In COMMIT the first press returns `prepare()`'s plan over
+// the route and the second spends. In JOIN the first shows a plan computed here from the live pools
+// and the contract's constants, and **the wallet is the second confirmation**, showing the amount in
+// its own words before anything is signed. On a demo the press opens the wallet, which is the confirmation.
 
 import {useEffect, useState} from 'react';
 import {useRouter} from 'next/navigation.js';
@@ -69,7 +67,7 @@ interface Eip1193 {
 
 /** Arc testnet, 5042002. */
 const ARC_CHAIN_ID = '0x4cef52';
-/** ⚠️ `AlphaMarket.sol:93`'s `UNIT_SCALE`: 1e12 wei per 6-decimal USDC unit. */
+/** ⚠️ `AlphaMarket.sol` `UNIT_SCALE`: 1e12 wei per 6-decimal USDC unit. */
 const UNIT_SCALE = 1_000_000_000_000n;
 
 /**
@@ -120,7 +118,7 @@ export function PositionControl({
   chainMarketId: string;
   /** The analyst's tokenized reports. Not filtered further — see the header. */
   reports: AnalystReport[];
-  /** The claim on this market, if there is one. Its presence chooses the call. */
+  /** The claim on this market, if there is one. On a forecast its presence chooses the call. */
   claim: {chainClaimId: string; side: boolean; reportHash: string; reportLabel: string} | null;
   poolTrue: string;
   poolFalse: string;
@@ -217,7 +215,7 @@ export function PositionControl({
               ? 'Choose a report to commit.'
               : null;
 
-  // ── the wallet, for the JOIN branch only ──────────────────────────────────────────────────────
+  // ── the wallet, for JOIN and the demo commit ──────────────────────────────────────────────────
   const eth = (): Eip1193 => {
     const injected = (globalThis as {ethereum?: Eip1193}).ethereum;
     if (!injected) throw new Error('No browser wallet found. Install MetaMask (or any EIP-1193 wallet) and reload.');
@@ -252,7 +250,10 @@ export function PositionControl({
     }
   };
 
-  /** ⚠️ The server records from the `Staked` EVENT, never from this body — only the hash is sent. */
+  /**
+   * ⚠️ The server records from the `Staked` or `PredictionCommitted` EVENT, never from this body —
+   * only the hash is sent.
+   */
   const record = async (h: string): Promise<void> => {
     setStage('waiting for the transaction to be mined…');
     const res = await fetch(`/api/markets/${chainMarketId}/refresh`, {
@@ -303,7 +304,7 @@ export function PositionControl({
         body: JSON.stringify({reportHash: hash, amount: amount.trim(), confirm}),
       });
       // ⚠️ Status and text first — `res.json()` on an empty 500 body throws about JSON, not about
-      // what failed. Same fix the buy and stake controls needed.
+      // what failed. Same fix `BuyControl` needed.
       const text = await res.text();
       let j: Record<string, unknown> = {};
       try {
@@ -365,9 +366,9 @@ export function PositionControl({
 
   /**
    * ⚠️ **The judge's own claim, from the judge's own wallet.** `commitPrediction(marketId,
-   * reportHash, side)` — the one call `PositionControl` did not have: COMMIT above spends the
-   * ANALYST's USDC through Circle and connects no wallet, and JOIN signs from the visitor's wallet
-   * but calls `stake()`, which carries no report. A demo needs both halves at once.
+   * reportHash, side)` — the call neither other branch makes: COMMIT spends the ANALYST's USDC
+   * through Circle and connects no wallet, and JOIN signs from the visitor's wallet but calls
+   * `stake()`, which carries no report. A demo needs both halves at once.
    *
    * ⚠️ **Selector computed with `ethers.id()` and checked, not written from memory.** Two earlier
    * attempts at these by hand were both wrong, and a bad selector presents as an unexplained revert
@@ -483,7 +484,7 @@ export function PositionControl({
         )}
 
         {/* ⚠️ **THE ONE CONTROL A REAL MARKET DOES NOT HAVE.** A forecast waits for the resolver's
-            daily pass; a demo's day finished hours ago, so settlement can run the moment staking
+            daily pass; a demo's day has already finished, so settlement can run the moment staking
             shuts. `revealDemoMarket` refuses anything that is not past-posted, so this cannot reach
             markets 6, 7, 11 or 12 whatever id it is handed. */}
         {demo && shownState === 'closed' && !revealed && (
@@ -546,12 +547,12 @@ export function PositionControl({
     );
   }
 
-  // ── ⚠️ THE DEMO PANEL. Same labels, same classes, same one button as a real market. ───────────
+  // ── ⚠️ THE DEMO PANEL. Same classes and one button, like a real market. ───────────────────────
   //
-  // The only structural difference from a forecast is the **Outcome** control, and it is unavoidable
-  // rather than decorative: `commitPrediction` takes a side and the contract will not guess one. On a
-  // real market the side is either the analyst's (`decideSide` picks it) or the claim's (JOIN reads
-  // it off), so there has never been anything for a visitor to choose.
+  // The structural addition is the **Outcome** control, and it is unavoidable rather than decorative:
+  // `commitPrediction` takes a side and the contract will not guess one. On a real market the side is
+  // either the analyst's (`decideSide` picks it) or the claim's (JOIN reads it off), so there has
+  // never been anything for a visitor to choose.
   if (demo) {
     // ⚠️ `null` on the server and on the hydrating render — see `now` above. `closesAt` is UTC off a
     // stored timestamp, so it is the same string on both sides of hydration.
@@ -577,13 +578,13 @@ export function PositionControl({
             A judge chooses where they think the figure lands. `commitPrediction` takes a side and
             no threshold — the market's own is fixed in its spec — so the side is worked out from
             the band rather than put to them as a second question.
-    
+
             ⚠️ **THE DERIVATION, AND IT IS THE ONE THING HERE THAT COULD BE WRONG SILENTLY.** The
             band label reads "above $B". Picking it means believing the figure clears $B. So:
-    
+
               B ≥ the settling threshold  →  clearing B also clears it  →  **TRUE**
               B <  the settling threshold  →  the figure reaches only this far  →  **FALSE**
-    
+
             It is shown on screen under the picker rather than left implicit, because a judge who
             picks the highest band and is staked the wrong way loses money to a presentation bug. */}
         <label htmlFor="position-outcome">Outcome</label>
@@ -600,8 +601,8 @@ export function PositionControl({
                 style={{justifyContent: 'flex-start', gap: 10, fontWeight: 400}}
                 onClick={() => {
                   setChosenBand(b.threshold);
-                  // ⚠️ Integer compare on the decimal strings — these are 11-digit figures and
-                  // `Number()` starts losing digits before the end of them.
+                  // ⚠️ Integer compare on the decimal strings' whole parts — a threshold string has
+                  // no length limit, and `Number()` loses digits past ~15 significant figures.
                   setSide(BigInt(b.threshold.split('.')[0]!) >= BigInt(questionThreshold!.split('.')[0]!));
                 }}
               >

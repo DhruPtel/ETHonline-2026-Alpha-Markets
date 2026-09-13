@@ -1,37 +1,35 @@
 'use server';
 
-// The two things the demo surface can make happen on chain.
+// The demo surface's server actions: open a market, reveal one, play one again.
 //
 // ── ⚠️ ONE MARKET PER PRESS, AND ONE SEED PATH ─────────────────────────────────────────────────
 //
-// `seedDemoMarkets` is the Start button under the Demo section on `/markets`. One press opens one
-// market on the next preset question — never a batch — so the section holds something to play
-// rather than a backlog. `scripts/ops/demo-market.ts --seed` calls the same function, so the operator
-// and the button cannot drift into two rules. No `CONSOLE_SECRET`: a real market page has no lock on
-// it, and the demo has to look like one.
+// `seedDemoMarkets` is the Start button under the Demo section on `/markets`: one press opens one
+// market on the next preset question. `scripts/ops/demo-market.ts --seed --send` calls the same
+// function, so the operator and the button cannot drift into two rules. No `CONSOLE_SECRET`: a real
+// market page has no lock on it, and the demo has to look like one.
 //
-// ⚠️ **All three exports below SPEND**, and all are ungated, so they are bounded by checks instead.
-// `createDemoMarket` is deliberately **not exported**: an unrestricted "make me a market" reachable
-// from a browser is exactly what should not exist here.
+// ⚠️ **Three of the four exports SPEND and none is gated**, so each is bounded by checks instead;
+// `demoSeedPlan` is a free read. `createDemoMarket` is deliberately **not exported**: an unrestricted
+// "make me a market" reachable from a browser is exactly what should not exist here.
 //
 // ── ⚠️ REVEAL IS UNGATED, AND HERE IS WHY THAT IS SAFE ─────────────────────────────────────────
 //
 // `revealDemoMarket` is the button the judge presses, so it cannot ask them for a secret. It spends
 // ~0.0014 USDC of gas on `resolve`. Three things bound it:
 //
-//   · **It refuses any market that is not past-posted.** `pastPosted()` is checked first and hard.
-//     Markets 6, 7, 11 and 12 are forecasts and this function cannot reach them at any price — the
-//     arithmetic excludes them, not a denylist that could drift.
-//   · **It refuses a market the store already records as settled**, before anything is read.
-//     `recordSettlement` upserts, so a second press — another tab still showing Reveal — would
-//     otherwise overwrite the stored read the chain already committed to. The market page checks
-//     the stored hash against the contract's either way.
+//   · **It refuses any market that is not past-posted**, before anything is read or spent. Markets
+//     6, 7, 11 and 12 are forecasts and cannot be reached through it — the arithmetic excludes them,
+//     not a denylist that could drift.
+//   · **It refuses a market the store already records as settled.** `recordSettlement` upserts, so a
+//     second press — another tab still showing Reveal — would otherwise overwrite the stored read the
+//     chain already committed to. The market page compares the stored hash with the contract's either way.
 //   · **It can only act on markets that already exist**, and creating one is bounded by the cap.
 //
 // ⚠️ **`settle()` → `recordSettlement()` → `prepare()` → `resolveMarket()`, in that order and never
 // another.** `prepare()` takes the evidence hash off the stored row and never recomputes it, so the
-// bytes must be written before it runs. A route that called `prepare()` first would put 32 bytes on
-// chain committing to a record nobody kept, which `settle.ts` calls worse than no evidence at all.
+// bytes must be written before it runs. Calling `prepare()` first would put 32 bytes on chain
+// committing to a record nobody kept, which `settle.ts` calls worse than no evidence at all.
 
 import { ethers } from 'ethers';
 import { MarketRefused, commit, create, prepareDemo } from '../../src/arc/market.js';
@@ -50,7 +48,7 @@ export type DemoResult =
   | {readonly ok: true; readonly chainMarketId: string; readonly note: string; readonly graded?: number}
   | {readonly ok: false; readonly why: string};
 
-/** 0.01 USDC — the analyst's own stake, the smallest whole 6-dp unit markets 7 and 12 used. */
+/** 0.01 USDC — the analyst's own stake, the smallest stake markets 7 and 12 used. */
 const ANALYST_STAKE = ethers.parseUnits('0.01', 18).toString();
 
 /**
@@ -61,12 +59,9 @@ const ANALYST_STAKE = ethers.parseUnits('0.01', 18).toString();
  * signature and no funds of theirs. A judge who does have a wallet commits their own claim beside it,
  * which is why the detail page must cope with a market carrying two.
  *
- * ⚠️ **Not exported.** A `'use server'` module exports only things a browser may call, and an
- * unrestricted "make me a market" is exactly what should not be one. Its two callers — seed and
- * reset — each pick the question themselves, and the cap checked below binds both.
- *
- * ⚠️ **Every market gets the same window, `DEMO_STAKING_SECONDS` off the chain clock.** The seed used
- * to stagger six; one market per press has nothing to stagger.
+ * ⚠️ **Not exported** — a `'use server'` export is callable from a browser. Its two callers, seed and
+ * reset, each pick the question themselves, and the cap checked below binds both. Every market gets
+ * the same window, `DEMO_STAKING_SECONDS` off the chain clock.
  */
 async function createDemoMarket(
   metric: Preset['metric'],
@@ -132,8 +127,8 @@ async function createDemoMarket(
 /**
  * Read the day, record the evidence, put the outcome on chain. ⚠️ **Spends ~0.0014 USDC of gas.**
  *
- * ⚠️ **The past-posted guard is FIRST and is not negotiable.** It is what makes this safe to leave
- * ungated: a forecast market can never be reached through it, whatever id is passed.
+ * ⚠️ **The past-posted guard comes before anything is read or spent, and is not negotiable.** It is
+ * what makes this safe to leave ungated: a forecast can never be reached through it, whatever id is passed.
  */
 export async function revealDemoMarket(chainMarketId: string): Promise<DemoResult> {
   if (!/^\d+$/.test(chainMarketId)) return {ok: false, why: 'Not a market id.'};
@@ -178,10 +173,10 @@ export async function revealDemoMarket(chainMarketId: string): Promise<DemoResul
       return {ok: false, why: `${market.observed_day} has no snapshot for this deployment, so there is no outcome. The market is voidable and every stake is refundable.`};
     }
     await resolveMarket(plan);
-    // ⚠️ Graded here rather than left to the nightly cron, because the judge is watching NOW and the
-    // grade is the last step of the loop. `scoreMarket` writes one row per claim on this market —
-    // the analyst's and, if they staked, the judge's. Task 2's `pastPosted` is what keeps both out
-    // of the forecast record and out of the planning prompt; nothing here needs to remember to.
+    // ⚠️ Graded here rather than left to the resolve cron's `scoreSettled()`, because the judge is
+    // watching NOW and the grade is the last step of the loop. `scoreMarket` writes one row per claim
+    // on this market — the analyst's and, if they committed, the judge's. `pastPosted` keeps both out
+    // of the forecast record and the planning prompt; nothing here needs to remember to.
     const graded = await scoreMarket(market.id);
     return {
       ok: true, chainMarketId,
@@ -199,24 +194,18 @@ export async function revealDemoMarket(chainMarketId: string): Promise<DemoResul
 /**
  * Play the same question again on a fresh market. ⚠️ **Spends ~0.02 USDC of the analyst's money.**
  *
- * ── ⚠️ WHY A RESET IS NEEDED AT ALL, AND WHY IT IS NOT A LOOPHOLE ──────────────────────────────
+ * ⚠️ **WHY A RESET, AND WHY IT IS NOT A LOOPHOLE.** `commitPrediction` reverts `AlreadyCommitted` on a
+ * second claim from one author, and `claims` carries a UNIQUE on `(market_id, author)` — **one claim
+ * per author per market, enforced twice.** So "do it again" cannot mean re-staking this market, and
+ * should not: the answer is on screen now. A new market about the same question with a later
+ * `closeTime` is a **different market**, and committing to it leaves the contract's rule as written.
  *
- * `claimIdOf[marketId][msg.sender] != 0` reverts `AlreadyCommitted`, and `claims` carries a UNIQUE
- * on `(market_id, author)`. **One claim per author per market, enforced twice.** So "do it again"
- * cannot mean re-staking this market, and should not: the answer is on screen now.
- *
- * A new market about the same question with a later `closeTime` is a **different market**, and
- * committing to it leaves the contract's rule exactly as written. Nothing is circumvented.
- *
- * ── ⚠️ IT IS UNGATED, SO IT IS BOUNDED INSTEAD ─────────────────────────────────────────────────
- *
- * Four things hold it in, and they are checks rather than a password:
+ * ⚠️ **UNGATED, SO BOUNDED BY FOUR CHECKS:**
  *
  *   · **Past-posted only.** A forecast can never be replayed through here, at any id.
  *   · **Settled only.** There is nothing to reset about a market still taking stakes, and refusing
  *     it stops this becoming a way to mint markets in a loop.
- *   · **It reuses the existing market's own spec**, so it cannot mint an arbitrary question — only
- *     another copy of one that already exists.
+ *   · **It reuses the existing market's own spec**, so it cannot mint an arbitrary question.
  *   · **The open-market cap**, which is what a judge pressing repeatedly actually hits.
  */
 export async function resetDemoMarket(chainMarketId: string): Promise<DemoResult> {
@@ -242,7 +231,7 @@ export async function resetDemoMarket(chainMarketId: string): Promise<DemoResult
   return createDemoMarket(spec.metric as never, spec.observedDay, spec.threshold, spec.comparison);
 }
 
-/** What a judge is told before they press Open, so the cost is never a surprise. */
+/** What a judge is told before they press Start, so the cost is never a surprise. */
 export interface SeedPlan {
   readonly free: number;
   readonly open: number;
@@ -253,7 +242,10 @@ export interface SeedPlan {
   readonly nextLabel: string | null;
 }
 
-/** Free, read-only. ⚠️ Rendered BEFORE the button so nobody presses a spend blind. */
+/**
+ * Free, read-only. ⚠️ Loaded before the button can be pressed, so nobody presses a spend blind. The
+ * open count is the store's unsettled demo markets, measured against the chain clock.
+ */
 export async function demoSeedPlan(): Promise<SeedPlan> {
   const block = await arcProvider().getBlock('latest');
   const now = block ? block.timestamp : Math.floor(Date.now() / 1000);
@@ -279,9 +271,8 @@ export async function demoSeedPlan(): Promise<SeedPlan> {
  * Which question to open next. ⚠️ **Rotates rather than restarting at the top**, so a judge pressing
  * three times gets three different questions instead of the same one three times.
  *
- * The rule is simply the first preset with no market on chain for it yet; once all six have been
- * used it takes the one whose most recent market is oldest. Both are cheap reads and neither needs a
- * column to remember anything.
+ * The rule: the first preset with no market on chain for it yet; once all six have been used, the one
+ * whose most recent market is oldest. One cheap read, and no column has to remember anything.
  */
 async function nextPreset(): Promise<Preset | null> {
   const rows = await db()<{observed_day: string; threshold: string; created_at: Date}[]>`
@@ -304,19 +295,14 @@ async function nextPreset(): Promise<Preset | null> {
  * analyst's 0.01 stake plus ~0.008–0.009 of gas for `createMarket` and `commitPrediction`, measured
  * off the receipts of markets 28–30.
  *
- * ── ⚠️ ONE MARKET PER PRESS ────────────────────────────────────────────────────────────────────
- *
- * It used to open every free slot at once — six markets staggered a few minutes apart — and the
- * section filled with cards nobody was playing: several already settled, several waiting, none of
- * them obviously the one to start. **A backlog reads as clutter rather than as a thing to play.**
- *
- * So one press opens one market and the judge plays it before opening another. `nextPreset()`
- * rotates the question, so pressing three times gives three different questions.
+ * ⚠️ **ONE MARKET PER PRESS.** It used to open every free slot at once — six markets staggered a few
+ * minutes apart — and the section filled with cards nobody was playing: several already settled,
+ * several waiting, none of them obviously the one to start. **A backlog reads as clutter rather than
+ * as a thing to play.** `nextPreset()` rotates the question, so three presses give three questions.
  *
  * ⚠️ **No secret, by design.** What bounds this is the cap and the cost — at most
  * `MAX_OPEN_DEMO_MARKETS` open at once, about 0.12 USDC of the analyst's money at full stretch, and
- * each slot self-clears when its market closes. A password here would be the thing that was cut.
- *
+ * each slot self-clears when its market closes.
  */
 export async function seedDemoMarkets(): Promise<DemoResult & {opened?: number}> {
   const plan = await demoSeedPlan();

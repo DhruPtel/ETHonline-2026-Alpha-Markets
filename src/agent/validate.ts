@@ -1,11 +1,15 @@
-// Unit 11. The guard that makes an invented figure impossible rather than unlikely.
+// The digit guard: does the narration carry a figure that no fact accounts for?
+//
+// ⚠️ **It reports; it does not block.** Every caller prints the violations and saves the report
+// anyway — DECISIONS.md, "The digit guard warns in Phase 2 and enforces in Phase 3", and enforcement
+// has not landed since. So an invented figure is caught and reported, not prevented.
 //
 // ⚠️ **Pure, and it never repairs.** A validator that silently fixes its input is one you cannot
 // trust, and it would hide exactly the failures this exists to catch. `Report` in, violations out.
 //
 // ⚠️ **Not merged into `narrate.ts`'s presence gate, deliberately.** That gate asks whether a table
-// and a summary came back at all; this asks whether what came back is honest. Same reason the
-// narrator's header gives for keeping generation and checking apart: a bug in one hides in the other.
+// and a summary came back at all; this asks whether what came back is honest. A bug in one would
+// hide in the other.
 //
 // ── The digit policy, and why this one ───────────────────────────────────────────────────────────
 //

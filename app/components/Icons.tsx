@@ -1,10 +1,11 @@
 /**
- * Inline SVG icons. Server components — no icon package, no client boundary.
+ * Inline SVG icons. No icon package and no client boundary of their own — server and client
+ * components both import them.
  *
  * Every path is copied from the lucide icon the design exports used, so the
- * rendered glyphs are unchanged. Size defaults match the design's per-use
- * values; pass `size` to override. `strokeWidth` and the round caps are the
- * lucide defaults the stylesheet was drawn against.
+ * rendered glyphs are unchanged. `size` defaults to 16; call sites pass the
+ * design's per-use sizes. `strokeWidth` and the round caps are the lucide
+ * defaults the stylesheet was drawn against.
  */
 type IconProps = {size?: number; className?: string};
 

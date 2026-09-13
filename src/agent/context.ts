@@ -1,106 +1,74 @@
-// The reward comes back. ⚠️ **This is the unit that closes the loop, and the plan stopped one step
-// short of it: Unit 15 produces the record and nothing read it.**
+// The reward comes back: the analyst's own settled record, placed in the planner's prompt.
 //
 // The analyst stakes its own USDC on its own research so that settlement tells it what worked, and a
 // track record of being right is what makes an agent's reports worth paying for. That only means
-// something if the record reaches the next decision.
+// something if the record reaches the next decision. `arc/score.ts` (PHASE-4 Unit 15) produces the
+// record; this file is what reads it.
 //
 // ── ⚠️ THIS IS NOT MODEL TRAINING. SAY IT PLAINLY SO NOBODY PLANS ONE ────────────────────────────
 //
 // **No weights, no fine-tuning, no gradient, no pipeline, no dataset.** It is a few hundred
-// characters of text placed in a prompt, and it is deleted the moment the request ends. The next
-// request rebuilds it from the database. ⚠️ If anyone reads "the agent learns" here and starts
-// planning a training job, this paragraph is the one to point at.
+// characters of text placed in a prompt and discarded when the request ends; the next request
+// rebuilds it from the database. ⚠️ If anyone reads "the agent learns" here and starts planning a
+// training job, this paragraph is the one to point at.
 //
 // ── ⚠️ WHAT REACHES THE PROMPT — DECIDED, AND NOT TO BE REOPENED ─────────────────────────────────
 //
-// **The last five settled claims, one compact line each: the directive, the market's subject, the
-// side taken, the outcome, and the report's own `assessment.confidence`. Bounded, and nothing else.**
-//
-// Three alternatives were considered and each is rejected for a stated reason:
+// **The last five settled claims, one line each: the directive, the market's subject, the side
+// taken, the outcome, and the report's own `assessment.confidence`. Nothing else.** Rejected:
 //
 //   · **A right/wrong count** is meaningless at n=1 and reads as theatre. "1 correct of 1" teaches a
 //     model nothing it can act on.
-//   · **Per-metric accuracy** is thinner still — with two markets there is at most one observation
-//     per metric.
-//   · ⚠️ **The full reasoning of a report that got it wrong** is the richest signal and the one that
-//     works at n=1 — and it is **rejected on size, not on value.** A report is ~71 KB canonical with
-//     140 facts, and the planner's system prompt already carries every live deployment's
-//     capabilities. **The honest upgrade is the full assessment of ONE wrong report, once there is
-//     more than one to choose from.**
+//   · **Per-metric accuracy** is thinner still — with two markets, at most one observation per metric.
+//   · ⚠️ **The full reasoning of a report that got it wrong** is the richest signal and works at n=1 —
+//     **rejected on size, not on value.** A report is ~71 KB canonical with 140 facts, and the
+//     planner's prompt already carries every live deployment's capabilities. **The honest upgrade is
+//     the full assessment of ONE wrong report, once there is more than one to choose from.**
 //
-// ⚠️ **WHAT THE CHOSEN SHAPE COSTS, STATED RATHER THAN DISCOVERED: the model sees WHAT it got wrong,
-// not WHY.** It can become more or less bold about a metric it has been wrong on; it cannot diagnose
-// its own reasoning. That is a real limitation of this design and not a temporary gap.
+// ⚠️ **What this shape costs: the model sees WHAT it got wrong, not WHY.** It can become more or less
+// bold about a metric it has been wrong on; it cannot diagnose its own reasoning. That is a real
+// limitation of the design, not a temporary gap.
 //
-// ── ⚠️ A VOID IS NOT A WRONG FORECAST ────────────────────────────────────────────────────────────
+// ── ⚠️ A BLANK IS AN ABSENCE, NEVER A VALUE ──────────────────────────────────────────────────────
 //
-// Unit 15 scores a void `forecast_correct = null` deliberately: the data was missing or the
-// deployment was republished, so there was no outcome and the analyst was neither right nor wrong.
-// **A line that presented a void as a loss would teach the model something false**, so a void is
-// rendered as `VOID (no outcome)` and never as an incorrect call.
+// **A void is not a wrong forecast.** Scoring records a void as `forecast_correct = null`: the day
+// had no observation by the resolve deadline, or someone called `voidMarket`, so there was no
+// outcome. A line presenting a void as a loss would teach the model something false, so it reads
+// `VOID (no outcome)`.
 //
-// ── ⚠️ THE TWO BLANK SCORES DO NOT REACH THE PROMPT AT ALL ───────────────────────────────────────
+// **The two blank scores never reach the prompt.** Unit 15 found two of §5.12's three scores blank:
+// reconciliation quality was null on all nine reports stored then (each a metric-across-deployments
+// report, whose `Verdict.call` is null by design), and trading return is null for every real claim
+// because nothing in `src/` writes `payouts`. Neither is in the decided five, so neither becomes a
+// line the model has to interpret. Inside the five, an unreadable assessment contributes no
+// confidence clause rather than a `confidence unknown` the model would weigh as a judgment.
 //
-// Unit 15 found that two of §5.12's three scores are currently blank: **reconciliation quality is
-// null on all nine stored reports** (every one is the metric-across-deployments shape whose
-// `Verdict.call` is null by design) and **trading return is null for every real claim** because
-// `payouts` has no writer. ⚠️ **Neither is in the decided five**, so the blankness never becomes a
-// line the model has to interpret — which is the cheapest possible answer to "make a blank read as
-// absent rather than as zero".
+// **Empty history produces no block, not an empty one.** Most runs have no settled claims for the
+// analyst: `build()` returns `null`, `compose` adds no section, and the system prompt is byte-for-byte
+// what it was without this file. ⚠️ An empty section with a heading is worse than nothing: "you have
+// no track record" is a statement about the analyst that nobody decided to make.
 //
-// Where a blank CAN still occur inside the decided five, it is rendered as an absence and never as a
-// value: a void has no outcome, and a report whose assessment is unreadable contributes no
-// confidence clause rather than a `confidence unknown` that the model would weigh as a judgment.
+// ── ⚠️ REHEARSALS AND PAST-POSTED MARKETS MUST NOT REACH THE PROMPT ─────────────────────────────
 //
-// ── ⚠️ A REHEARSAL IS NOT A FORECAST AND MUST NOT REACH THE PROMPT ──────────────────────────────
+// Both had a **knowable answer when the position was taken**: a rehearsal market covers a day that
+// had already closed, and a past-posted (demo) market was open for staking after the day it
+// measures. ⚠️ **A planner told it was right about those is learning from nothing** — worse than
+// learning nothing, because the line reads identically to a real hit and the model cannot tell them
+// apart. `isRehearsal()` and `pastPosted()` live in `arc/rehearsal.ts` and are not re-spelled here.
 //
-// A market created over a day that had already closed had a **knowable answer at commit time**, so
-// being right about it says nothing about judgment. ⚠️ **A planner told it was right about questions
-// whose answers were already known would be learning from nothing** — worse than learning nothing,
-// because the line reads identically to a real hit and the model cannot tell them apart.
-//
-// `isRehearsal()` is imported from `arc/rehearsal.ts`. The comparison is not re-spelled here; that
-// file is the one place it lives.
-//
-// ⚠️ **THE FILTER RUNS BEFORE THE WINDOW IS TAKEN, AND THAT ORDERING IS THE WHOLE FIX.** This query
-// was `ORDER BY … LIMIT 5` with no predicate, so a graded rehearsal did **two** kinds of damage at
-// once: it entered the prompt as a hit, *and* it pushed a real forecast out of the window. **Measured
-// rather than supposed** — with six scored claims of which one was a rehearsal, the old query put
-// the rehearsal on the first line reading "you were RIGHT" and dropped a genuine forecast off the
-// end. So the read scans a bounded page, drops rehearsals, then takes `WINDOW` from what remains.
-//
-// ── ⚠️ EMPTY HISTORY PRODUCES NO BLOCK, NOT AN EMPTY ONE ─────────────────────────────────────────
-//
-// **Most runs today have no settled claims for the analyst, and `scores` is empty in real running.**
-// `build()` returns `null`, `compose` adds no section, and the system prompt is byte-for-byte what it
-// was before this unit existed. ⚠️ An empty section with a heading is worse than nothing: it is a
-// thing the model reads and reasons about, and "you have no track record" is a statement about the
-// analyst that nobody decided to make.
-
-// ── ⚠️ A PAST-POSTED RESULT MUST NOT REACH THE PROMPT EITHER, AND FOR THE SAME REASON ───────────
-//
-// A demo market's staking was open **after** the day it measures, so the answer was public before
-// the position was taken. Telling the planner it was right about that is the identical "learning
-// from nothing" this file already refuses for rehearsals — and worse in one way: the line reads
-// exactly like a genuine hit and the model cannot tell them apart.
-//
-// ⚠️ **THE AUTHOR FILTER IS NOT THE MECHANISM, AND RELYING ON IT WOULD BE A MISTAKE.** PHASE-8 §2.3
+// ⚠️ **The author filter is not the mechanism, and relying on it would be a mistake.** PHASE-8 §2.3
 // notes that a judge commits from their own wallet, so `lower(c.author) = lower(analyst)` excludes
-// their claim automatically. **That is a coincidence of one of the three tiers, not a guarantee.**
-// §2.7's tier 3 — "watch it run", the DEFAULT path for a visitor with no wallet — has the ANALYST
-// commit with its own USDC, and the author filter then admits the claim without hesitating.
-// **Market 13 is exactly that shape and proved it: the author is the analyst.** So `pastPosted` is
-// the mechanism and the author filter is an accident that happens to help in one tier.
+// their claim — a coincidence of one tier, not a guarantee. In §2.7's tier 3, the DEFAULT for a
+// visitor with no wallet, the ANALYST commits with its own USDC and the author filter admits the
+// claim. **Market 13 is exactly that shape: its author is the analyst.** `pastPosted` is the mechanism.
 //
-// ⚠️ **AND IT RUNS BEFORE THE WINDOW IS TAKEN, WHICH IS THE HALF THAT IS EASY TO GET WRONG.** A
-// bare `WHERE` would have been enough for correctness of membership but not of selection: the
-// ordering is `COALESCE(resolved_at, voided_at) DESC`, and a demo market resolves seconds after it
-// is created, so **a past-posted row sorts to the very top and evicts the oldest genuine forecast
-// from the five.** That is precisely the damage the rehearsal fix measured — a rehearsal both
-// entered the prompt as a hit and pushed a real forecast off the end — arriving a second time by a
-// different route. Both filters therefore run against the bounded `SCAN` page, and `WINDOW` is
-// taken from what survives.
+// ⚠️ **BOTH FILTERS RUN BEFORE THE WINDOW IS TAKEN, AND THAT ORDERING IS THE WHOLE FIX.** The query was
+// `ORDER BY … LIMIT 5` with no predicate, so a rehearsal did two kinds of damage at once: it entered
+// the prompt as a hit *and* pushed a real forecast out of the window. **Measured:** with six scored
+// claims of which one was a rehearsal, the old query put the rehearsal on the first line reading "you
+// were RIGHT" and dropped a genuine forecast off the end. A demo market resolves seconds after it is
+// created, so it sorts to the top of `COALESCE(resolved_at, voided_at) DESC` and is the likeliest row
+// of all to evict one. So the read takes a bounded `SCAN` page, drops both, then takes `WINDOW`.
 
 import { createHash } from 'node:crypto';
 import { isRehearsal, pastPosted } from '../arc/rehearsal.js';
@@ -110,10 +78,10 @@ import { db } from '../store/db.js';
 const WINDOW = 5;
 
 /**
- * How many rows are read before rehearsals are dropped. ⚠️ **Not a second window** — it bounds the
- * read so a large `scores` table cannot be pulled into memory, and it is deliberately far above
- * `WINDOW` so the filter never runs out of forecasts to choose from. If it ever did, the block would
- * quietly be short rather than wrong, and `count` would say so.
+ * How many rows are read before rehearsals and past-posted claims are dropped. ⚠️ **Not a second
+ * window** — it bounds the read so a large `scores` table cannot be pulled into memory, and it is
+ * deliberately far above `WINDOW` so the filters never run out of forecasts to choose from. If they
+ * ever did, the block would quietly be short rather than wrong, and `count` would say so.
  */
 const SCAN = 200;
 
@@ -158,8 +126,8 @@ interface Row {
  *   which is what makes the join below a join rather than a lookup table.
  */
 export async function build(analyst: string): Promise<AnalystContext | null> {
-  // ⚠️ Ordered by when the market SETTLED, not by when it was scored. Re-running Unit 15 moves
-  // `scored_at` and must not reorder history.
+  // ⚠️ Ordered by when the market SETTLED, not by when it was scored. Re-scoring moves `scored_at`
+  // and must not reorder history.
   const rows = await db()<Row[]>`
     SELECT r.directive, m.spec_json, c.side, s.forecast_correct, r.canonical_json,
            m.observation_end, m.created_at, m.close_time, m.observed_day
@@ -171,10 +139,8 @@ export async function build(analyst: string): Promise<AnalystContext | null> {
     ORDER BY COALESCE(m.resolved_at, m.voided_at) DESC
     LIMIT ${SCAN}`;
 
-  // ⚠️ **Drop rehearsals and past-posted claims FIRST, then take the window.** Doing it the other
-  // way — which is what the `LIMIT 5` above used to do — lets either one both enter the prompt and
-  // evict a real forecast. A demo market resolves seconds after creation, so it sorts to the top of
-  // this ordering and is the most likely thing of all to do the evicting.
+  // ⚠️ **Drop rehearsals and past-posted claims FIRST, then take the window.** The other order lets
+  // either one both enter the prompt and evict a real forecast — see the header.
   const forecasts = rows
     .filter((r) => !isRehearsal(r.observation_end, r.created_at)
       && !pastPosted(r.close_time, r.observed_day))
@@ -241,12 +207,13 @@ function confidenceOf(canonicalJson: string): string | null {
 }
 
 /**
- * Record what history a report's plan saw. ⚠️ **Beside the row, outside the hash** — see 007's header.
+ * Record what history a report's plan saw. ⚠️ **Beside the row, outside the hash** — see the header of
+ * `store/migrations/007_report_context.sql`.
  *
- * ⚠️ **This unit owns this column**, the pattern `market.ts`, `resolve.ts` and `score.ts` all follow
- * for their own landmarks; `store/reports.ts` stays the read/write path for the report itself and is
- * not modified. Null stays null when no context was supplied, because the digest of an absent block
- * is an absent digest and never the hash of an empty string.
+ * ⚠️ **This file owns this column**, the pattern `arc/market.ts`, `arc/resolve.ts` and `arc/score.ts`
+ * follow for their own landmarks; `store/reports.ts` stays the read/write path for the report itself.
+ * Null stays null when no context was supplied, because the digest of an absent block is an absent
+ * digest and never the hash of an empty string.
  */
 export async function recordContextDigest(reportHash: string, context: AnalystContext | null): Promise<void> {
   if (!context) return;

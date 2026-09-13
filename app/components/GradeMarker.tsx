@@ -28,7 +28,7 @@
 // ── ⚠️ REHEARSALS ARE EXCLUDED, BY ARITHMETIC ───────────────────────────────────────────────────
 //
 // `isRehearsal()` — imported, not re-spelled. See `src/arc/rehearsal.ts` for why that file exists and
-// which two call sites still have their own copy.
+// which callers it covers.
 //
 // ── ⚠️ AND SO ARE PAST-POSTED GRADES — A SECOND PREDICATE, BECAUSE THE FIRST TWO MISS THEM ──────
 //
@@ -61,10 +61,10 @@
 //
 // ── ⚠️ ONE BATCHED QUERY OVER THE WHOLE HASH LIST, NEVER A LOOKUP PER CARD ──────────────────────
 //
-// `gradesFor()` takes every hash on the page and returns a map. `app/page.tsx`'s own header warns
-// about exactly this: it already batches `tokensFor(hashes)` and one claims join, and a fan-out here
-// would be the thing that page was careful not to do. **This adds one query to a page, not one per
-// card.**
+// `gradesFor()` takes every hash on the page and returns a map. `app/page.tsx`'s THREE QUERIES note
+// warns about exactly this: it already batches `tokensFor(hashes)` and one claims join, and a
+// fan-out here would be the thing that page was careful not to do. **This adds one query to a page,
+// not one per card.**
 
 import {isRehearsal, pastPosted} from '../../src/arc/rehearsal.js';
 import {db} from '../../src/store/db.js';
@@ -189,7 +189,7 @@ export function verdict(grade: Grade | undefined): {tone: Tone; text: string} | 
   // ⚠️ **A report backing ONLY past-posted claims renders nothing**, and that is the ungraded rule
   // working rather than a gap. It has no forecast record; a marker reading "0 of 0" or a lone
   // "1 demo" would both be a statement about judgment that nothing behind it supports. The judge
-  // still sees their result — on `/analyst`, in its own column, which is where §2.3 put it.
+  // still sees their result — on `/analyst`, as its own count and row label, where §2.3 put it.
   if (decided + voided === 0) return null;
 
   // Voids never join the counts; when there are any, they are said separately.
@@ -200,7 +200,7 @@ export function verdict(grade: Grade | undefined): {tone: Tone; text: string} | 
   // chip, so it cannot drift away from the number it qualifies.
   //
   // ⚠️ **A REAL GRADE GETS NOTHING**, and that has to survive markets 6 and 7 landing on top: the
-  // moment a report's claims settle on chain, `demo` is 0 for them and no suffix is produced. The
+  // moment a report's claims settle on chain, `testData` is 0 for them and no suffix is produced. The
   // mixed case is stated rather than rounded to either side — a report backing one real claim and
   // one demo claim is neither wholly one thing nor the other, and saying "test data" would be as
   // wrong as saying nothing.

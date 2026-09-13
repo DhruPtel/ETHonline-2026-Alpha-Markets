@@ -16,7 +16,7 @@
 //
 // ⚠️ **Server-only by necessity.** `src/arc/market.ts` pulls Circle's SDK, `ethers` and the full
 // `ALPHA_MARKET_ABI` (contract bytecode included). None of that may reach a browser, which is the
-// same reason `app/markets/[id]/CommitControl.tsx` holds no ABI at all.
+// same reason `app/markets/[id]/PositionControl.tsx` holds no ABI at all.
 //
 // ── ⚠️ WHAT SPENDS, AND WHOSE MONEY ──────────────────────────────────────────────────────────────
 //
@@ -24,9 +24,10 @@
 // whoever presses this.** That is the opposite of `/markets/[id]`'s staking control, where the
 // visitor signs from MetaMask. Measured on market 11: the stake plus ~0.0068 USDC of gas.
 //
-// ⚠️ **NOT LOCKED.** No console route is today — `app/api/console/lock.ts` has been unwired since
-// 2026-09-12 and this sits beside the others. The doorlock decision covers it; if that is re-wired,
-// this is one of the routes that takes `locked(request)`.
+// ⚠️ **NOT LOCKED, and it never was.** Anyone who can reach the deployment can run a dry plan and
+// confirm it. This is a product route, not a console one: the 2026-09-12 doorlock entry in
+// `tracking/DECISIONS.md` names only the six console routes, and `app/api/console/lock.ts` is unwired
+// there anyway.
 
 import { NextResponse } from 'next/server.js';
 import { ethers } from 'ethers';

@@ -1,10 +1,11 @@
 // Unit 6 — deploy AlphaMarket to Arc testnet and drive every path by hand.
 //
-//   npx tsx --env-file=.env scripts/ops/drive-market.ts --preflight   ← checks, spends nothing
-//   npx tsx --env-file=.env scripts/ops/drive-market.ts               ← deploys and spends
+//   npx tsx --env-file=.env scripts/ops/drive-market.ts --preflight     ← checks, spends nothing
+//   npx tsx --env-file=.env scripts/ops/drive-market.ts                 ← deploys and spends
+//   npx tsx --env-file=.env scripts/ops/drive-market.ts --address=0x…   ← skips the deploy, still spends
 //
-// ⚠️ **THIS SPENDS REAL MONEY.** Gas on Arc is USDC, so every transaction here — including a
-// reverted one — costs the analyst's or the deployer's balance. The run prints a total.
+// ⚠️ **THIS SPENDS REAL MONEY BY DEFAULT.** Gas on Arc is USDC, so every transaction here — including
+// a reverted one — costs the analyst's or the deployer's balance. The run prints a total.
 //
 // ⚠️ **There is no test framework, by decision, so this is the only place contract bugs can be
 // found.** A bug found here costs a redeploy. Found after Unit 10 it costs a redeploy *and* every
@@ -17,26 +18,25 @@
 // ⚠️ `deployContract` ships in Circle's typings and is **not exposed on the developer-controlled
 // wallets client** (SM-08's header). So the deployer is necessarily a different identity from the
 // analyst that commits: `ARC_DEPLOYER_KEY` deploys through ethers, and the analyst signs through
-// Circle. That is recorded so nobody later reads it as a bug.
+// Circle. Recorded so nobody later reads it as a bug.
 //
 //   deployer  0xA6B1…8079  ethers    deploys, creates markets, stakes as "somebody else", voids
 //   analyst   0x1b70…16a7  Circle    commits, resolves, claims — every write through Unit 4's submit()
 //
-// ⚠️ The deployer doubles as the second EOA staker. It is the only non-Circle key this project has,
-// and what the test needs is *an address that is not the analyst*, which it is.
+// ⚠️ The deployer doubles as the second EOA staker: it is the only non-Circle key this project has,
+// and the test needs *an address that is not the analyst*.
 //
 // ── The rehearsal timeline, and why it cannot be a single instant ────────────────────────────────
 //
-// ⚠️ **A market cannot be both stakeable and resolvable at the same moment, and that is a property
-// of the contract rather than a limitation of this script.** `_open` refuses once
-// `block.timestamp >= closeTime`; `resolve` refuses until `block.timestamp >= observationEnd`; and
-// `createMarket` requires `closeTime < observationEnd`. So there is always a gap, and this script
-// waits through it rather than pretending otherwise.
+// ⚠️ **A market cannot be both stakeable and resolvable at the same moment — a property of the
+// contract, not a limitation of this script.** `_open` refuses once `block.timestamp >= closeTime`;
+// `resolve` refuses until `block.timestamp >= observationEnd`; and `createMarket` requires
+// `closeTime < observationEnd`. So there is always a gap, and this script waits through it.
 //
 // ⚠️ `createMarket` deliberately does NOT require `observationEnd > block.timestamp` — that is what
-// makes a rehearsal possible at all, and it is why these markets can settle today instead of on a
-// calendar day. ⚠️ **Their commits are after the fact. They are NOT forecasts and must never be
-// presented as one.** The demo market is the one that means anything.
+// makes a rehearsal possible at all, and why these markets can settle today instead of on a calendar
+// day. ⚠️ **Their commits are after the fact. They are NOT forecasts and must never be presented as
+// one.** Only the forecast markets mean anything.
 
 import { randomUUID } from 'node:crypto';
 import { ethers } from 'ethers';

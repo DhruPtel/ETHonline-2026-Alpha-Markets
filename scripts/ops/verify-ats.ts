@@ -22,13 +22,11 @@
 //
 // ── This file is both a module and a script (2026-09-09) ─────────────────────────────────────────
 //
-// `verifyAts()` is exported so `scripts/ops/tokenize.ts` can run it as its final step rather than
-// printing a command nobody runs. ⚠️ **The gate did not move and did not change** — it is the same
-// comparison against the same bytes in the same place. What changed is that a refusal now THROWS a
-// `VerificationError` instead of calling `process.exit(1)`, exactly as `landOrStop` was changed when
-// it was promoted out of SM-07 into `src/tokenize/hedera.ts`: a library cannot exit a process that
-// has other things to finish. The CLI below catches and exits, so running this script behaves
-// identically to before.
+// `verifyAts()` is exported so `scripts/ops/tokenize.ts` runs it as its final step rather than
+// printing a command nobody runs. ⚠️ **The gate did not change** — same comparison, same bytes. A
+// refusal THROWS a `VerificationError` instead of calling `process.exit(1)`, as `landOrStop` did when
+// it moved from SM-07 into `src/tokenize/hedera.ts`: a library cannot exit a process that has other
+// things to finish. The CLI below catches and exits.
 //
 // Where the compiler settings came from, since none of them are guessable: the package ships
 // artifacts but excludes `artifacts/build-info/` in its `files` array, so there is no Standard JSON
@@ -51,11 +49,12 @@ import { MIRROR } from "../../src/tokenize/hedera.js";
 
 const require = createRequire(import.meta.url);
 
-// ⚠️ `solc` and `@openzeppelin/contracts` are pinned **devDependencies** and are required lazily,
-// inside the function that needs them. That is deliberate: it keeps merely importing this module
-// free, so a caller can reference `VerificationError` or `sourcifyStatus` in an environment where
-// the compiler is not installed. It does NOT make verification work in such an environment — see the
-// note on `verifyAts` — it only moves the failure to the point of use, where it can be reported.
+// ⚠️ `solc` is a pinned **devDependency** and is required lazily, inside the function that needs it,
+// so a caller can import `VerificationError` or `sourcifyStatus` where the compiler is not installed.
+// It does NOT make verification work there — see the note on `verifyAts` — it only moves the failure
+// to the point of use, where it can be reported.
+// ⚠️ **`@openzeppelin/contracts` is NOT lazy.** `OZ_ROOT` below resolves it at module scope, as
+// `ATS_ROOT` does `@hashgraph/asset-tokenization-contracts`, so importing this file needs both installed.
 const loadSolc = () => require("solc");
 
 const CHAIN_ID = 296; // Hedera testnet

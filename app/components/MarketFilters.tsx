@@ -8,6 +8,9 @@ import {ChevronDown, Search} from './Icons.js';
  *
  * "My positions" is present because the design has it, but this front end has
  * no positions view, so it carries .inert rather than a dead handler.
+ *
+ * ⚠️ **The search box, the chips and the status select are live but do nothing** — their handlers
+ * are empty stubs. `/markets` passes only the `All` chip.
  */
 export function MarketFilters({
   categories,
@@ -21,17 +24,17 @@ export function MarketFilters({
   marketCount: number;
 }) {
   function onSearch(term: string) {
-    // Filters the market list by claim text.
+    // Stub — would filter the market list by claim text.
     void term;
   }
 
   function onSelectCategory(category: string) {
-    // Narrows the market list to one category.
+    // Stub — would narrow the market list to one category.
     void category;
   }
 
   function onSelectStatus() {
-    // Switches between all markets, open markets and resolved markets.
+    // Stub — would switch between all, open and resolved markets.
   }
 
   return (

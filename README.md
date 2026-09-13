@@ -28,11 +28,15 @@ deployment's metric is above a threshold on one named day. The as-built diagrams
    - [Hedera: agentic payments](#hedera-agentic-payments)
    - [Hedera: tokenization](#hedera-tokenization)
    - [Arc](#arc)
-4. [What is not built](#what-is-not-built)
-5. [Run it locally](#run-it-locally)
-6. [Repository map](#repository-map)
-7. [Built with](#built-with)
-8. [AI attribution](#ai-attribution)
+4. [Accounts and contracts](#accounts-and-contracts)
+   - [Hedera testnet](#hedera-testnet)
+   - [Arc testnet](#arc-testnet-chain-id-5042002)
+   - [How these were checked](#how-these-were-checked)
+5. [What is not built](#what-is-not-built)
+6. [Run it locally](#run-it-locally)
+7. [Repository map](#repository-map)
+8. [Built with](#built-with)
+9. [AI attribution](#ai-attribution)
 
 ---
 
@@ -143,6 +147,68 @@ transaction below was re-read from Mirror Node or arcscan's API on 2026-09-13.
 | The agent spending its own USDC autonomously | The analyst stakes **its own USDC** on its claims (0.01 USDC each) and pays gas for create, resolve and void from the Circle wallet, with no human signing. It picks its side from a Graph read. Two daily crons are deployed ([`vercel.json`](vercel.json)). ⚠️ **Every Arc transaction so far was started by a command or a button press. No cron-sent transaction has been evidenced yet.** | Commit with 0.01 USDC: [`0x0eb87e36…`](https://testnet.arcscan.app/tx/0x0eb87e3672a1c7205186d66479fe840f83cf450c2c5bcb74852ee044bcc46ec8). Create: [`0xcd7c4187…`](https://testnet.arcscan.app/tx/0xcd7c41872e175915badea1ffe08e3b3cb86a4ae7190d40ac78c009b7fcbe0972). Both from the Circle wallet. |
 | Programmable multi-step flows, including a void path | `createMarket` → `commitPrediction` → `stake` → settlement read with stored evidence → `resolve(outcome, evidenceHash)`, **or `voidMarket` after the deadline** → `claim`. See [`contracts/AlphaMarket.sol`](contracts/AlphaMarket.sol), [`src/arc/settle.ts`](src/arc/settle.ts), [`src/arc/resolve.ts`](src/arc/resolve.ts), [`app/api/cron/resolve/route.ts`](app/api/cron/resolve/route.ts). | **Void:** [`0x63086eea…`](https://testnet.arcscan.app/tx/0x63086eea9e65ffdf40387a1883cffbf94f8c6f1b43194a0181a34eaf99cfb14e), on [market #9](https://et-honline-2026-alpha-markets.vercel.app/markets/9), a day with no snapshot. **Resolve:** [`0x6ada14d7…`](https://testnet.arcscan.app/tx/0x6ada14d7a50a9014a7b2bce08926fbc53a7657233a363bc1f690534016930ee9) on market #13. **Browser-wallet commit:** [`0x99579418…`](https://testnet.arcscan.app/tx/0x99579418255a5814ce7239b9b619cfc8e228183013da40c691e810f1356f8e2b). |
 | Mainnet readiness, demonstrated rather than asserted | [`docs/arc-deployment.md`](docs/arc-deployment.md) covers: every identity and permission; recovery; the provisioning order; a byte-level procedure for verifying the deployed bytecode against the committed artifact; and each mainnet-specific value as a named blank with its source. `npm run check:contract` recompiles and compares on every build (**PASS**, 2026-09-13). `/api/health` reports configuration state. | ⚠️ Not deployed to mainnet. No Circle spend cap is set. Contract source is not verified on arcscan. |
+
+---
+
+## Accounts and contracts
+
+Every account and contract a reviewer might want to check, per chain. Every identifier here is
+**public**: Hedera `0.0.x` account and contract ids, and EVM addresses. None is a key, and nothing
+on this page can sign anything.
+
+Each was checked on 2026-09-13 against the chain itself (Hedera's Mirror Node and JSON-RPC relay,
+and Arc's public RPC), not against explorer pages; [how](#how-these-were-checked). Balances change;
+the roles do not.
+
+### Hedera testnet
+
+| account or contract | whose | what it does | links |
+|---|---|---|---|
+| **Analyst**<br>`0.0.10387690`<br>EVM alias `0x32838fe90541567bbf77fa0570661f3c20e2b152` | ours | Deploys, issues and holds the ATS report tokens; receives every x402 payment (`payTo`) | [HashScan](https://hashscan.io/testnet/account/0.0.10387690) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/accounts/0.0.10387690) |
+| **Buyer agent**<br>`0.0.10387696`<br>EVM alias `0x683ee842a16f85e69883f433745263bfe8d55f76` | ours | Pays 0.001 HBAR per report read, within its own spend caps | [HashScan](https://hashscan.io/testnet/account/0.0.10387696) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/accounts/0.0.10387696) |
+| **Blocky402 fee payer**<br>`0.0.7162784` | ⚠️ **third party** | The facilitator's account. It pays the network fee on every settled purchase, so it is the *payer* of a purchase transaction while the HBAR itself moves from buyer to analyst. That is the on-chain signature of a facilitated settlement. | [HashScan](https://hashscan.io/testnet/account/0.0.7162784) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/accounts/0.0.7162784) · [one settlement](https://testnet.mirrornode.hedera.com/api/v1/transactions/0.0.7162784-1789282473-788763534) |
+| **ATS factory**<br>`0.0.9213391`<br>`0xd1f118a40f3b02883d35909ef2517e7edd78379d` | ⚠️ **third party** | Asset Tokenization Studio's public testnet factory. Our analyst calls its `deployEquity` to create each report token. | [HashScan](https://hashscan.io/testnet/contract/0.0.9213391) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/contracts/0.0.9213391) |
+| **ATS resolver**<br>`0.0.9212226`<br>`0xba2d5fc2083a0b8f164c50e65d782087fba18e0a` | ⚠️ **third party** | ATS's public testnet resolver. It holds the equity implementation that every report token's proxy calls into. Past its Hedera expiry date (2026-09-10) and still answering. | [HashScan](https://hashscan.io/testnet/contract/0.0.9212226) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/contracts/0.0.9212226) |
+| **A report token**<br>`0.0.10443894`<br>`0xF8c19cE93Dd2E23dA3bf5d68644d028d84b1E59f` | ours, running ATS's code | The one-of-one security for report [`348482a5…`](https://et-honline-2026-alpha-markets.vercel.app/report/348482a52687dac38c530ea7203073b76c9c7676d77fe66ceea4c55b5c8a9b95). ISIN **`XXR0WXU28WL2`**, supply 1, decimals 0. Its creation event carries `alpha:348482a5…`, and its source is verified on Sourcify (`exact_match`). | [HashScan](https://hashscan.io/testnet/contract/0xF8c19cE93Dd2E23dA3bf5d68644d028d84b1E59f) · [Mirror](https://testnet.mirrornode.hedera.com/api/v1/contracts/0.0.10443894) · [creation event](https://testnet.mirrornode.hedera.com/api/v1/contracts/results/0xc09a7ec79385bfedf3f8faa355f0dccf18e752d6949dab91b783c6de45bf27c5) · [Sourcify](https://repo.sourcify.dev/296/0xF8c19cE93Dd2E23dA3bf5d68644d028d84b1E59f) ([JSON](https://sourcify.dev/server/v2/contract/296/0xF8c19cE93Dd2E23dA3bf5d68644d028d84b1E59f)) |
+
+### Arc testnet (chain id 5042002)
+
+| account or contract | whose | what it does | links |
+|---|---|---|---|
+| **Analyst**<br>`0x1B7035bBe0DA8F3bcb721863D42e1079e4A116A7` | ours | A Circle developer-controlled wallet (an EOA; no key for it exists in this repo). Creates markets, commits the analyst's claims with its own USDC, and resolves or voids markets. It is the contract's immutable `resolver`. | [arcscan](https://testnet.arcscan.app/address/0x1B7035bBe0DA8F3bcb721863D42e1079e4A116A7) · [a commit](https://testnet.arcscan.app/tx/0x0eb87e3672a1c7205186d66479fe840f83cf450c2c5bcb74852ee044bcc46ec8) |
+| **Deployer**<br>`0xA6B12d8418dF7F6C827AFEB3D8955A881e448079` | ours | A plain EOA that deployed AlphaMarket. It has to be a separate identity: Circle's wallet client does not expose `deployContract`, so the analyst's wallet cannot deploy. It cannot resolve. | [arcscan](https://testnet.arcscan.app/address/0xA6B12d8418dF7F6C827AFEB3D8955A881e448079) · [creation tx](https://testnet.arcscan.app/tx/0xfb828968254e35039e9986bef19d5526d693df3f71f6e8f592ed6dfa50c5ea87) |
+| **AlphaMarket**<br>`0x003e7Cb791257B529bb5f9F6D17A846264d48044` | ours | The prediction-market contract: 4,783 bytes of code, with `resolver()` returning the analyst's wallet. Source not yet verified on arcscan; `npm run check:contract` compares it with the committed artifact. | [arcscan](https://testnet.arcscan.app/address/0x003e7Cb791257B529bb5f9F6D17A846264d48044) |
+| **Browser-wallet staker**<br>`0x683eE842A16f85e69883F433745263BFe8D55f76` | ⚠️ **ours, not a stranger's** | A wallet signed by a person in a browser, not by the analyst: six stakes on markets 6, 11 and 12, and its own claims on demo markets 32 and 33. **It is the same key as the buyer agent**: this address is `0.0.10387696`'s EVM alias. So no position on chain yet belongs to someone outside the project. | [arcscan](https://testnet.arcscan.app/address/0x683eE842A16f85e69883F433745263BFe8D55f76) · [its commit on market 33](https://testnet.arcscan.app/tx/0x99579418255a5814ce7239b9b619cfc8e228183013da40c691e810f1356f8e2b) |
+
+### How these were checked
+
+- ⚠️ **An explorer page answering is not evidence.** HashScan answered a non-browser request with the
+  same 404 for a real account and a made-up one. arcscan served the identical 93,894-byte page for any
+  address, and `repo.sourcify.dev` answered 200 for a made-up address. So every entity was read from
+  the chain instead.
+- **Hedera accounts:** Mirror Node `/api/v1/accounts/<id>` returned each one, not deleted, with an
+  ECDSA key and the EVM alias shown above; a made-up id answered 404. The analyst's alias matches
+  `src/config/analysts.ts`.
+- **The fee payer:** the linked settlement is `SUCCESS` on Mirror Node. Its fee of 266,094 tinybars
+  was charged to `0.0.7162784`, while the buyer sent 100,000 tinybars and the analyst received them.
+- **ATS factory, resolver and the report token:**
+  - Mirror Node `/api/v1/contracts/<id>` returned all three, none deleted.
+  - The token's deploy-transaction logs were decoded with ATS's own factory ABI. The deployer is the
+    analyst's alias, the `info` field is `alpha:348482a5…`, and the ISIN is `XXR0WXU28WL2`.
+  - `getERC20Metadata()`, `totalSupply()` and `decimals()` were read over the JSON-RPC relay and
+    agree: supply 1, decimals 0.
+  - Sourcify's API returned `exact_match`, and 404 for a made-up address.
+- **Arc:** read over `https://rpc.testnet.arc.network`.
+  - AlphaMarket holds 4,783 bytes of code, and `resolver()` returns the analyst's wallet.
+  - The three wallets hold no code, and each has sent transactions.
+  - The creation receipt's `from` is the deployer and its `contractAddress` is AlphaMarket.
+  - The two linked commits' receipts come from the analyst and the staker, each emitting
+    `PredictionCommitted`.
+  - arcscan's own transaction API returns the three linked transactions with the same sender,
+    recipient and created contract, and "Not found" for a made-up hash. Its address endpoints answer
+    the same way for a made-up address, so the addresses rest on the RPC reads.
+- **The staker's identity:** Mirror Node reports `0x683ee842…` as the EVM alias of the buyer account
+  `0.0.10387696`. An EVM address is derived from the public key, so the same key controls both.
 
 ---
 

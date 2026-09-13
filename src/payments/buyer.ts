@@ -1,5 +1,5 @@
 // The agent that pays. H1.3 wants a platform *or agent* consuming the service with at least one real
-// paid request end to end, and this is it — it also closes Unit 14's other half, because a gate whose
+// paid request end to end, and this is it — it is also `gate.ts`'s other half, because a gate whose
 // paid path nothing has walked is half a gate.
 //
 // ⚠️ **The autonomy claim is narrow and should stay narrow.** This decides, unattended, whether a
@@ -62,9 +62,10 @@ export interface Purchase {
 // process or it bounds nothing.
 //
 // ⚠️ A file under the OS temp directory is right for a CLI agent and wrong for a fleet — it is local,
-// per-machine and not durable. A deployed buyer keeps this in the database. Stated rather than
-// implied, because "we had a daily cap" is exactly the kind of claim that should not be load-bearing
-// without knowing where it lived.
+// per-machine and not durable. **`app/api/buy` runs this same ledger on Vercel**, where the file does
+// not survive a cold start, so there the daily cap bounds one warm instance rather than a day. A
+// durable cap needs the ledger in the database. Stated rather than implied, because "we had a daily
+// cap" is exactly the kind of claim that should not be load-bearing without knowing where it lived.
 
 const ledgerPath = (account: string): string => {
   const dir = join(tmpdir(), 'alpha-markets-buyer');

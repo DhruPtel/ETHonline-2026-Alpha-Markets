@@ -3,6 +3,7 @@
 // reads $279 quadrillion.
 //
 // ⚠️ This measures. It fixes nothing and encodes nothing — the adapter does that (Unit 10).
+// It reads DefiLlama as a reference, prints a config patch, and writes `/tmp/triage.json`.
 import { writeFileSync } from 'node:fs';
 import { querySubgraphs } from '../../src/graph/client.js';
 import { PROTOCOLS } from '../../src/config/protocols.js';

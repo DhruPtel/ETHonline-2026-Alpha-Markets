@@ -1,11 +1,12 @@
 import {BrandMark} from './Icons.js';
 
 /**
- * The report sheet — the .report-paper document from the console design.
- * A server component, shared by /console and the bought state of /report/[hash].
+ * The report sheet — the .report-paper document from the console design, built from a block list.
+ * A server component.
  *
- * The body is a list of blocks so the caller's demo const carries the document
- * itself rather than the markup carrying it.
+ * ⚠️ **Nothing imports it.** `/console` and the bought body on `/report/[hash]` both render
+ * `narrate.ts`'s `render()` output through `app/markdown.tsx` inside their own `.report-paper`:
+ * PHASE-6 D4's `PaperBlock[]` plan was replaced, and `app/console/page.tsx` records why.
  */
 export type PaperBlock =
   | {kind: 'heading'; text: string}

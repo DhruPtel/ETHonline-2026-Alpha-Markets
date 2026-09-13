@@ -1,5 +1,5 @@
-// The file everything else stands on. The report engine calls it, corroboration calls it,
-// and Phase 4's settlement calls the same function to re-read the value a market resolves
+// The file everything else stands on. Report generation calls it, corroboration calls it, and
+// settlement (`arc/settle.ts`) calls the same function to read the value a market resolves
 // against — which is what makes The Graph load-bearing end to end (G2.1) rather than a
 // fetch step at the start.
 //
@@ -9,14 +9,12 @@
 //
 // ⚠️ **Nothing is cached here, and nothing should be.** Every call is a real request to the
 // gateway, which is what lets a figure in a report be traced to a query that actually happened —
-// the property §5.18 depends on when it says provenance is a record of what we did, never a cache
-// of what we got. A cache would be an easy speed win and it would quietly break that: two reports
-// could cite the same block and the same deployment hash while only one of them ever asked. A cache
-// would also mostly serve state the gateway can no longer confirm: retention is **per deployment**
-// and four of the five publishable ones retain 300–600 blocks, roughly an hour — see
-// `blockwindow.ts`'s `RETENTION_FLOOR` for the measured table. ⚠️ This sentence used to say "roughly
-// 500 blocks" flatly; aave-v3 retains **439,844** (61 days) and is the outlier the 2026-09-06 lesson
-// was written about. The argument is unchanged and the number now says which deployments it is about.
+// §5.18: provenance is a record of what we did, never a cache of what we got. A cache would be an
+// easy speed win and would quietly break that: two reports could cite the same block and deployment
+// hash while only one of them ever asked. It would also mostly serve state the gateway can no longer
+// confirm: retention is **per deployment**, and four of the five publishable ones retain 300–600
+// blocks, roughly an hour. aave-v3 retains **439,844** (61 days) and is the outlier behind the
+// 2026-09-06 lesson — see `blockwindow.ts`'s `RETENTION_FLOOR` for the measured table.
 // If a run is slow, the answer is fewer queries in the plan, not remembered answers here.
 
 import { PROTOCOLS } from '../config/protocols.js';
@@ -36,8 +34,9 @@ const TIMEOUT_MS = 20_000;
  * depends on which document produced it is a dispute waiting to happen, and evidence exists to
  * settle disputes. `meta.blockNumber` is now the block the data came from, always.
  *
- * The freshness signal is what this costs: on a pinned read `_meta` no longer reports the head.
- * It is available from a separate unpinned query when something actually needs it.
+ * ⚠️ What this costs: a pinned `_meta` does not report the head, and its `block.timestamp` comes
+ * back null — measured, consistently. Both are available from an unpinned query, which is why
+ * `arc/settle.ts` reads unpinned: its freshness rule compares a timestamp.
  */
 const meta = (pinned: boolean) =>
   `_meta${pinned ? '(block: $block)' : ''} { deployment hasIndexingErrors block { number timestamp } }`;
@@ -89,11 +88,10 @@ export interface QueryMeta {
   /** The deployment hash — `Qm…`. Changes on republish even when the subgraph ID does not. */
   readonly deployment: string;
   /**
-   * ⚠️ **The block these figures came from.** Not the indexing head — this comment said the
-   * opposite until 2026-09-07 and was left behind by the pinning change recorded in the file
-   * header. Phase 4 settlement reads this field to decide which block a disputed figure came
-   * from, so the distinction is the difference between a resolvable dispute and an unresolvable
-   * one.
+   * ⚠️ **The block these figures came from — not the indexing head.** Settlement persists it
+   * (`arc/settle.ts` writes it to `settlement_evidence.block`) to say which block a disputed figure
+   * came from, so the distinction is the difference between a resolvable dispute and an
+   * unresolvable one.
    *
    * How it holds: when a `block` is requested, `_meta` is pinned to it — the three menu documents
    * declare `_meta(block: $block)` themselves, and `withMeta` injects a pinned one into any
@@ -102,19 +100,21 @@ export interface QueryMeta {
    *
    * ⚠️ One precondition, unenforced: an off-menu document that declares its OWN `_meta` **without**
    * `(block: $block)` is returned untouched by `withMeta`, so pinning it would report the head
-   * here. No document in this repo does that — `blockwindow.ts` passes an unpinned `_meta` but
-   * requests no block, which is the honest case. A new document must pin its `_meta` or omit it.
+   * here. No document in this repo does that — `blockwindow.ts` and `corroborate.ts` pass an
+   * unpinned `_meta` but request no block, which is the honest case. A new document must pin its
+   * `_meta` or omit it.
    *
    * `requestedBlock` on the result records whether a pin was ASKED for. It is not a better answer
    * to "which block", and nothing should fall back through it — verified 2026-09-07 that nothing
    * does.
    */
   readonly blockNumber: number;
+  /** ⚠️ `null` on a pinned read — see `meta` above. */
   readonly blockTimestamp: number | null;
   readonly hasIndexingErrors: boolean;
 }
 
-/** Everything `evidence.ts` (Unit 9) needs to build a record, gathered but not assembled here. */
+/** Everything `evidence.ts` needs to build a record, gathered but not assembled here. */
 export interface QueryResult<T = unknown> {
   readonly slug: string;
   readonly data: T;
@@ -195,9 +195,10 @@ function classify(slug: string, messages: string[]): SubgraphError {
  * Query one deployment. Takes a SLUG, never a URL or a subgraph ID — `config/protocols.ts`
  * is the only place a deployment is named.
  *
- * `block` pins the read to a past block, which is how settlement re-reads the value it
- * settles against. It is passed as the variable `$block`; a document that supports pinning
- * declares `$block: Block_height` and applies it to its fields.
+ * `block` pins the read to a past block — how report generation reads every deployment at one
+ * common block (`blockwindow.ts`). It is passed as the variable `$block`; a document that supports
+ * pinning declares `$block: Block_height` and applies it to its fields. ⚠️ Settlement does NOT pin:
+ * a pinned `_meta` has no timestamp, and `arc/settle.ts`'s freshness rule needs one.
  */
 export async function querySubgraph<T = unknown>(
   slug: string,
@@ -242,10 +243,8 @@ export async function querySubgraph<T = unknown>(
     if (json.errors?.length) throw classify(slug, json.errors.map((e) => e.message));
     if (!json.data) throw new SubgraphError('GRAPHQL', slug, 'Response had neither data nor errors');
 
-    // Named `metaResult` rather than `meta`: the module-level `meta()` at the top of this file
-    // builds the _meta SELECTION, and this is the row that came back. Shadowing the two is safe
-    // only because `withMeta` has already run, which is not a thing the next editor should have
-    // to know.
+    // Named `metaResult`, not `meta`: the module-level `meta()` builds the `_meta` SELECTION, and this
+    // is the row that came back. Shadowing would be safe only because `withMeta` has already run.
     const metaResult = json.data._meta as
       | { deployment: string; hasIndexingErrors: boolean; block: { number: number; timestamp: number | null } }
       | null;

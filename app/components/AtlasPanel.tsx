@@ -7,9 +7,8 @@ import {useFitPanel} from '../hooks/useFitPanel.js';
 import {ArrowDown, ArrowRight, ArrowUpRight, CheckCircle, Database, FileText, Terminal} from './Icons.js';
 
 /**
- * The dark Atlas panel: the agent/terminal tabs, the status tiles, the query
- * evidence block and the prompt composer. Client-only — it owns the tabs and
- * the textarea.
+ * The dark Atlas panel: the agent/terminal tabs, the status tiles, the query evidence block and the
+ * prompt composer, which streams a generation run from `/api/console/generate`. Client-only.
  *
  * Scaled to its column by useFitPanel, the same as the report viewer.
  */
@@ -25,7 +24,7 @@ const STATUS_ICONS = [Database, CheckCircle, FileText];
 
 /** One line of a run. ⚠️ The design's terminal row is `{stamp, text}` and nothing else — no stage
  *  column and no tone class — so the stage is folded into the text rather than given a slot the
- *  stylesheet does not have. See the note in the panel's header comment. */
+ *  stylesheet does not have. */
 type RunLine = {id: number; stamp: string; text: string};
 
 const secs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
@@ -36,9 +35,10 @@ type Event = {t: number; stage: string; status?: string; [k: string]: unknown};
 let nextLineId = 0;
 
 /**
- * One stream event → one line of text. ⚠️ Kept outside the component so the reader loop stays
- * readable, and lifted from `trash/app/console/generate.tsx`, which mapped the same nine stages.
- * The stage is folded into the text because the design's row has no stage column.
+ * One stream event → one line of text. Kept outside the component so the reader loop stays readable;
+ * lifted from `trash/app/console/generate.tsx`. ⚠️ `narrate-retry` has no case and prints raw through
+ * `default`, which the route relies on to keep a retry from reading as success. The route emits no
+ * `hash` stage — the panel writes that line itself after `save`.
  */
 function describe(e: Event): string {
   const n = (v: unknown) => secs(Number(v));
@@ -99,12 +99,12 @@ export function AtlasPanel({
   const [lines, setLines] = useState<RunLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<{hash: string} | null>(null);
-  // ⚠️ **FIX 4 — the report appears without a manual reload.** Generation streams client-side and
-  // the document panel reads the store server-side, so nothing connected them and the console read
-  // as broken. `router.refresh()` re-runs the server component and pushes a new RSC payload into
-  // the existing tree — **it does not reload the page**, so this panel's log, its scroll position
-  // and the run that just finished all survive it. Named imports from `next/navigation.js` are the
-  // ones that work here; see `ConsoleSecret.tsx`'s sibling note about `next/link`.
+  // ⚠️ **The report appears without a manual reload.** Generation streams client-side and the
+  // document panel reads the store server-side, so nothing connected them and the console read as
+  // broken. `router.refresh()` re-runs the server component and pushes a new RSC payload into the
+  // existing tree — **it does not reload the page**, so this panel's log, its scroll position and the
+  // run that just finished all survive it. Named imports from `next/navigation.js` work here;
+  // `next/link` does not — `SiteNav.tsx` says why.
   const router = useRouter();
   const {setRun, source, evidence: override, setTab} = useSecret();
   const evidence = override ?? reportEvidence;
@@ -132,8 +132,8 @@ export function AtlasPanel({
     setLines([{id: nextLineId++, stamp: '0.0s', text: `generate · "${asked}"`}]);
 
     try {
-      // ⚠️ No `x-console-secret` header: the doorlock is currently unwired on the console routes.
-      // `lock.ts` is intact and this is where the header goes back. See DECISIONS.md 2026-09-12.
+      // ⚠️ No `x-console-secret` header while the doorlock is unwired. It goes back here when
+      // `lock.ts` is re-wired, or Generate answers 401. See DECISIONS.md 2026-09-12.
       const res = await fetch('/api/console/generate', {
         method: 'POST',
         headers: {'content-type': 'application/json'},
@@ -214,9 +214,8 @@ export function AtlasPanel({
     }
   }
 
-  // ⚠️ **The link goes somewhere now.** It opens the viewer's Source data tab — the fuller view this
-  // five-row block cannot hold: all 28 deployments, the schema version each one REPORTED, the
-  // document and response hashes, and the poisoned-revenue notice.
+  // The link opens the viewer's Source data tab — the fuller view this five-row block cannot hold:
+  // all 28 deployments, whether each is answering, the schema version it REPORTED and its block.
   function onReadSource() {
     setTab('data');
   }
@@ -243,7 +242,7 @@ export function AtlasPanel({
       ]
     : atlas.status.map((row) => ({label: row.label, value: 'no run yet'}));
 
-  // ⚠️ The terminal rows are the run's own lines; before a run, the design's placeholder stays.
+  // ⚠️ The terminal rows are the run's own lines; before a run, the page's "No run yet" line.
   const terminal = hasRun
     ? lines.map((l) => ({stamp: l.stamp, text: l.text}))
     : atlas.terminal;
@@ -327,14 +326,13 @@ export function AtlasPanel({
               })}
             </div>
 
-            {/* ⚠️ **Five rows, and the design allows five — not restructured.** What changed is that
-                every value is read rather than invented, and the eyebrow names WHICH read it
-                describes. `THE GRAPH / QUERY EVIDENCE` under five mockup values is the single most
+            {/* ⚠️ **Five rows, and the design allows five — not restructured.** Every value is read
+                rather than invented, and the eyebrow names WHICH read it describes. The mockup's
+                `THE GRAPH / QUERY EVIDENCE` over five invented values was the single most
                 discrediting thing on this page: a judge looking for proof of live data finds
                 `DEMO-lending-eth` and stops believing the rest.
-                ⚠️ **The four fields that do not fit are behind the link**, not dropped —
-                `documentHash`, `responseHash`, `completeness` and `requestedBlock` live in the
-                Source data tab beside the roster they describe. */}
+                ⚠️ A source read's `documentHash`, `responseHash` and `requestedBlock` do not fit
+                here and are not rendered anywhere — the Source data tab shows the roster only. */}
             <div className="query-evidence">
               {/* ⚠️ **The eyebrow names the claim, because two different ones share this space.**
                   `THIS REPORT'S READ` is evidence for the document on the left — its own stored
@@ -358,9 +356,9 @@ export function AtlasPanel({
                         NOT render a deployment hash** (verified: 404 on both
                         `/explorer/subgraphs/<Qm…>` and `/explorer/subgraph?id=<Qm…>`), so this points
                         at the IPFS gateway the deployment actually lives on, which returns 200.
-                        ⚠️ No underline: `.query-evidence .text-link` forces `width:100%` and
+                        ⚠️ Not `.text-link`: `.query-evidence .text-link` forces `width:100%` and
                         right-alignment, which would misalign these two rows against the other three,
-                        and globals.css is out of scope. The ↗ carries the affordance instead — the
+                        and globals.css was out of scope. The ↗ carries the affordance instead — the
                         design's own external marker, already used by this block's footer link. */}
                     <dt>Deployment</dt>
                     <dd>
@@ -443,12 +441,9 @@ export function AtlasPanel({
                 onGenerate();
               }}
             >
-              {/* ⚠️ **THE `CONSOLE_SECRET` FIELD IS TEMPORARILY NOT RENDERED — 2026-09-12.** The six
-                  console routes have their `locked()` call commented out, so nothing reads this
-                  value. **A field asking for a secret the routes ignore is worse than no field**: it
-                  implies a gate that is not there and it makes every surface look broken until
-                  something is pasted. `<SecretField />` goes back here, one line, when `lock.ts` is
-                  re-wired — see `app/api/console/lock.ts` and DECISIONS.md 2026-09-12. */}
+              {/* ⚠️ **`<SecretField />` goes back here when `lock.ts` is re-wired.** Not rendered
+                  since 2026-09-12, because the routes ignore it — `ConsoleSecret.tsx` says why and
+                  lists what else re-wiring needs. */}
               <label htmlFor="research-brief">
                 Ask Atlas <span>AGENT</span>
               </label>
@@ -470,11 +465,10 @@ export function AtlasPanel({
                   <ArrowRight size={15} />
                   {busy ? 'Running…' : 'Generate report'}
                 </button>
-                {/* ⚠️ **NO "read it" link, deliberately.** A saved report's page is
-                    `/report/<hash>`, and that page still renders its demo `Record` — the real one
-                    404s until PHASE-6 task 6 wires `load()`. Shipping a button that dead-ends is
-                    worse than not shipping it. **The hash is written to the terminal whole**, which
-                    is the thing that is actually real, and this becomes a link in task 6. */}
+                {/* ⚠️ **No "read it" link.** It was left out while `/report/<hash>` rendered a demo
+                    record and would have dead-ended. That page now `load()`s any stored report, so
+                    the reason no longer holds; the link was never added. **The hash is written to
+                    the terminal whole.** */}
                 <a href="#tokenize" className="btn outline">
                   Tokenize <ArrowDown size={15} />
                 </a>

@@ -1,16 +1,14 @@
 // POST /api/buy — the buyer agent pays for one report. **Spends real testnet HBAR.**
 //
-// ⚠️ **MOVED out of `app/api/console/` on 2026-09-11, and it is the one thing in there that was never
-// scaffolding.** `app/report/[hash]/buy.tsx` calls it — there is ONE buyer path in this project and
-// the product page reuses it rather than writing a second — so the console's *"delete both
-// directories"* note would have taken the paywall button with it. **That note is true again now.**
+// ⚠️ **ONE buyer path in this project, and this is it.** `app/components/BuyControl.tsx`
+// (`BuyAndRead`, "Buy this read" on `/report/[hash]`) calls it rather than writing a second. It moved
+// out of `app/api/console/` on 2026-09-11 because it was never console scaffolding — a move, not a
+// rewrite: same request and response shapes, same caps, same `maxDuration`.
 //
-// ⚠️ **A MOVE, NOT A REWRITE. Nothing here changed but the path and the depth of three imports.**
-// Same request shape, same response shape, same caps, same `maxDuration`. Two things this route
-// carries were deliberately left alone and are recorded rather than fixed in passing:
-// `maxDuration = 300` is still fiction on Vercel Hobby (it gets 60), and the `site` parameter still
-// lets a caller name the gate this buyer signs against. Both are real and both belong to a unit that
-// is allowed to change behaviour. ⚠️ **It is also still reachable without authentication.**
+// ⚠️ **Three known gaps, recorded rather than fixed in passing, because each changes behaviour.**
+// `maxDuration = 300` is fiction on Vercel Hobby (it gets 60). The `site` parameter lets a caller name
+// the gate this buyer signs against (the buy control sends its own origin). And the route is
+// reachable without authentication.
 //
 // ⚠️ **Server-side, and there is no browser alternative.** `@x402` ships EVM, Solana and Aptos
 // paywall flavours and no Hedera export, so a browser-side payment is not a thing that can be built
@@ -19,20 +17,18 @@
 //
 // ⚠️ **The target URL is a parameter, defaulting to the deployed alias.** `buy.ts` hardcodes it and
 // says why — a localhost round trip proves the code, not the deployment — so the default is that,
-// and the override exists because a console that can only talk to production cannot test a change
-// before it ships.
+// and the override exists so a change can be tested before it ships.
 //
-// ⚠️ **The target is unauthenticated, operator-supplied, and the caps are what bound it.** A URL
-// this route has never seen can quote its own `payTo` and this buyer will sign for it. What stops
-// that mattering is `buyer.ts`'s own controls, which refuse before signing: 1,000,000 tinybars per
-// payment and 5,000,000 per UTC day — 0.01 and 0.05 HBAR of testnet funds. That is the blast radius,
+// ⚠️ **The target is unauthenticated, caller-supplied, and the caps are what bound it.** A URL this
+// route has never seen can quote its own `payTo` and this buyer will sign for it. What stops that
+// mattering is `buyer.ts`'s own controls, which refuse before signing: 1,000,000 tinybars per payment
+// and 5,000,000 per UTC day — 0.01 and 0.05 HBAR of testnet funds. That is the blast radius,
 // deliberately, and it is the reason the caps are not raised for convenience.
 //
 // ⚠️ **The daily cap is weaker here than on a CLI.** `buyer.ts` keeps its ledger in a file under the
-// OS temp directory — it says so at its own head — and a serverless instance does not keep that file
-// between cold starts. So on Vercel the cumulative cap bounds a burst on one warm instance rather
-// than a day. The per-payment cap is unaffected. Not fixed here: fixing it means a `purchases`-backed
-// ledger in `src/payments/buyer.ts`, which this unit may not touch.
+// OS temp directory, and a serverless instance does not keep that file between cold starts. So on
+// Vercel the cumulative cap bounds a burst on one warm instance rather than a day. The per-payment cap
+// is unaffected. Fixing it means a `purchases`-backed ledger in `src/payments/buyer.ts`.
 
 import { NextResponse } from 'next/server.js';
 import { buy, spent, vet, DEFAULT_LIMITS, SpendRefused, type BuyOptions } from '../../../src/payments/buyer.js';
@@ -103,13 +99,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   // with no such report — or at something that is not this app at all — planned cleanly and then
   // failed on the spend step, after the operator had been told the plan was good.
   //
-  // `buy()`'s first act is `fetch(url)` and a hard requirement that the status is 402; everything
-  // after that depends on it. So the probe here is exactly that request, made without paying:
-  // an unpaid GET costs nothing, moves nothing, and answers the only question the plan could not.
-  //
-  // ⚠️ It also lets the plan show the REAL quoted price, payTo and feePayer — decoded from the live
-  // challenge rather than assumed — which is the thing an operator actually wants to check before
-  // authorising a spend.
+  // `buy()`'s first act is `fetch(url)` with a hard requirement of a 402, so the probe is exactly
+  // that request, unpaid: it costs nothing, moves nothing, and answers the only question the plan
+  // could not. ⚠️ It also lets the plan show the REAL quoted price, payTo and feePayer, decoded from
+  // the live challenge rather than assumed — what an operator wants to check before authorising.
   try {
     const probe = await fetch(opts.url, { headers: { accept: 'application/json' } });
     plan.gateStatus = probe.status;

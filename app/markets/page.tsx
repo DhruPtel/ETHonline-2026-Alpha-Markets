@@ -1,37 +1,33 @@
 // The market index, reading the store and the chain.
 //
-// ── ⚠️ WHAT WAS TAKEN FROM `trash/app/markets/page.tsx`, WHICH WORKED BEFORE THE REBUILD ─────────
+// ── ⚠️ KEPT FROM `trash/app/markets/page.tsx`, WHICH WORKED BEFORE THE REBUILD ───────────────────
 //
 //   **one SQL join** over `markets`, `claims`, `reports` and `scores` — not a query per card;
 //   **the dedupe** that keeps the row carrying a claim when a market joins more than one;
-//   **the rehearsal test** — a rehearsal is told apart by ARITHMETIC, never by a naming convention.
-//     ⚠️ That matters here and is not theoretical: a stored market whose id literally contains the
-//     word "rehearsal" is, by that arithmetic, a **forecast**. The id string is not evidence.
-//     ⚠️ **The comparison itself now lives in `src/arc/rehearsal.ts` and is imported.** It had grown
-//     three spellings across this file, `scripts/ops/score.ts` and the analyst page; this one used
-//     to be the SQL alias `(m.observation_end <= m.created_at) AS after_the_fact`. Same rule, same
-//     results — the two timestamps are selected and the predicate is applied here;
+//   **the rehearsal test** — told apart by ARITHMETIC, never by a naming convention. ⚠️ Not
+//     theoretical: a stored market whose id literally contains "rehearsal" is, by that arithmetic, a
+//     **forecast**. The comparison now lives in `src/arc/rehearsal.ts` (it had grown three spellings,
+//     this file's SQL alias `after_the_fact` among them); the two timestamps are selected here and
+//     the predicate applied;
 //   **one batched `eth_call` per on-chain market** for the pools, run with `Promise.all`;
-//   **`standing()`**, the five states a market can be in;
-//   **the forecasts / rehearsals split**, and the analyst's record excluding rehearsals.
+//   **`standing()`**, the five states a market can be in.
 //
 // ⚠️ **POOLS COME FROM THE CHAIN, NOT THE DATABASE, AND THE PAGE SAYS SO.** The store records what
-// we saw; the contract is what is true. A pool that could not be read is rendered as unknown rather
-// than as zero — those are different facts and a zero is a claim.
+// we saw; the contract is what is true. A pool that could not be read renders as unknown rather than
+// zero — those are different facts and a zero is a claim.
 //
 // ── ⚠️ WHAT EACH FIELD IN THE DESIGN MAPS TO, AND WHAT HAS NOTHING BEHIND IT ─────────────────────
 //
-//   category           **NOTHING.** There is no category column. The slot carries the market's
-//                      chain id, which is the true thing that tells one card from another.
+//   category           **NOTHING.** There is no category column; the slot carries the chain id.
 //   status badge       `standing()` — real.
-//   claim              the question, built from `spec_json`. Real.
+//   claim              `shortQuestion()`, composed from `spec_json`. Real.
 //   criterion          how it settles. Real, from the spec.
-//   chart              ⚠️ **ILLUSTRATIVE AND LABELLED AS SUCH IN THE CHART ITSELF.** Nothing stores
-//                      a probability series and a parimutuel pool has no running probability, only
-//                      its current ratio. See `ProbabilityChart`'s own header.
-//   TRUE / FALSE %     the **pool ratio**, read from the contract. Real. ⚠️ Every pool here is
-//                      one-sided, so it reads 100/0 — which is not a weight of opinion.
-//   volume             `poolTrue + poolFalse`. Real, and small: 1.02 USDC across everything.
+//   chart              ⚠️ **ILLUSTRATIVE AND LABELLED AS SUCH IN THE CHART ITSELF.** See
+//                      `ProbabilityChart`'s own header.
+//   TRUE / FALSE %     the **pool ratio**, read from the contract. Real. ⚠️ A forecast pool is
+//                      one-sided — one claim, and `stake()` can only join its side — so it reads
+//                      100/0, which is not a weight of opinion. A demo card draws five bands instead.
+//   volume             `poolTrue + poolFalse`. Real, and small.
 //   report count       **a market cites ONE claim which cites ONE report.** "12 reports" had no
 //                      source. The slot says `1 report` or `no report`.
 //   categories filter  **NOTHING.** Only `All` is passed; there is no column to filter on.
@@ -113,9 +109,10 @@ function abbreviateUsd(decimal: string): string {
 
 /**
  * ⚠️ **FORECASTS NOT LISTED, BY CHAIN ID — A LIST, AND DELIBERATELY SO.** The operator's choice on
- * 2026-09-13, when three live forecasts were created for the replacement reports. Nothing in state
- * separates these four from those three: all are forecasts, and 11 and 12 were still open for staking.
- * So the choice is named here rather than dressed up as a rule.
+ * 2026-09-13 (DECISIONS.md), when three live forecasts were created for the replacement reports. No
+ * rule in state does it: 11 and 12 look exactly like the new three (open, unsettled forecasts), and an
+ * open-for-staking rule would empty the section once those close. So the choice is named here rather
+ * than dressed up as a rule.
  *
  *   6, 7    closed; resolvable until 2026-09-15T00:00Z on evidence recorded at 02:52Z, voidable by
  *           anyone after that. Market 6 holds a human wallet's 1.00 USDC.
@@ -154,8 +151,8 @@ export default async function MarketIndex() {
   // ⚠️ One row per market: a market with two claims would otherwise render twice. The row carrying
   // a claim wins, because a claim is what a card has something to say about.
   // ⚠️ **And the ANALYST's claim wins over a judge's.** The card labels its side `· analyst`, and a
-  // demo market now carries a judge's claim beside the analyst's — whichever row the join returned
-  // first would otherwise have put the judge's side under the analyst's name.
+  // demo market carries a judge's claim beside the analyst's — whichever row the join returned first
+  // would otherwise put the judge's side under the analyst's name.
   const analystLower = ANALYSTS.map((a) => a.arcAddress.toLowerCase());
   const byAnalyst = (r: Row): boolean => r.author !== null && analystLower.includes(r.author.toLowerCase());
   const seen = new Map<string, Row>();
@@ -168,32 +165,25 @@ export default async function MarketIndex() {
   const onChain = all.filter((r) => r.chain_market_id);
   const offChain = all.filter((r) => !r.chain_market_id);
   // ⚠️ **PAST-POSTED MARKETS LEAVE BOTH BUCKETS, AND THE HEADINGS ARE WHY.** "Forecasts" sits under
-  // the eyebrow THE ANSWER WAS NOT KNOWABLE AT COMMIT TIME, which is **flatly false** of a demo
-  // market — its staking was open after the day it measures. It is not a rehearsal either: something
-  // was staked on it, by someone, for real. Leaving it in either section would put a true-looking
-  // heading over a false claim, which is worse than not listing it.
+  // THE ANSWER WAS NOT KNOWABLE AT COMMIT TIME, which is **flatly false** of a demo market — its
+  // staking was open after the day it measures. Nor is it a rehearsal: something was staked on it, for
+  // real. A true-looking heading over a false claim is worse than not listing it, so demos get their
+  // own section with its own claim about them.
   //
-  // ⚠️ **THEY GET THEIR OWN SECTION, WITH ITS OWN CLAIM ABOUT THEM.** Task 2 removed them from both
-  // buckets and left them unlisted, which was honest but incomplete — the record line named a count
-  // with nothing to click. The Demo section below is where that resolves.
   // ── ⚠️ WHAT "DELETE" MEANS FOR A DEMO MARKET, SINCE IT CANNOT MEAN DELETE ────────────────────
   //
-  // **Nothing can be removed from the chain.** A market on Arc is permanent, its claim and stakes
-  // with it, and `voidMarket` only ever marks one settled — it does not erase it. So the honest
-  // options were: leave a growing backlog on screen, void the old ones (which spends, needs each
-  // `resolveDeadline` passed, and still leaves the cards there), or **stop listing the ones that are
-  // finished with**. This takes the third.
-  //
-  // ⚠️ **HIDDEN FROM THIS LIST, NOT DELETED, AND STILL REACHABLE.** Every one of them keeps its
-  // `/markets/<id>` page, its row in the store, its claim, its grade on `/analyst` and its
-  // transactions on arcscan. The record line above still counts them. **Only the index stops
+  // **Nothing can be removed from the chain**, and `voidMarket` only marks a market settled. The
+  // options were a growing backlog on screen, voiding the old ones (which spends, needs each
+  // `resolveDeadline` passed, and still leaves the cards), or **not listing the finished ones**. This
+  // takes the third: each keeps its `/markets/<id>` page, its store row, its claim, its grade on
+  // `/analyst` and its arcscan trail, and the record line still counts it. **Only the index stops
   // showing them**, so the section reads as a thing to play rather than a pile of finished games.
   //
   // ⚠️ **The rule: the single most recently CREATED demo market, whatever its state.** It was
   // "everything open for staking, plus the most recent other one", which is two cards the moment a
   // judge presses Start while an earlier market is listed. Newest-by-creation is exactly one whenever
-  // any exist, derived from state with no flag, and pressing Start replaces it — so the card is always
-  // the market most likely to be the one in play. `allDemos` keeps the true count for the line naming it.
+  // any exist, derived from state with no flag, and pressing Start replaces it. `allDemos` keeps the
+  // true count for the line naming it.
   const allDemos = onChain.filter((r) => pastPosted(r.close_time, r.observed_day));
   const demoOpen = allDemos.filter(
     (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
@@ -238,19 +228,19 @@ export default async function MarketIndex() {
     (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
   ).length;
 
+  // ⚠️ Open for STAKING, not merely unsettled — the cap `createDemoMarket` enforces is about markets
+  // a judge could still commit to, and a count of settled ones would contradict its refusal.
+  const openDemoCount = demoOpen.length;
+
   // ⚠️ **THE ANALYST'S RECORD — ASKED IN ONE PLACE, NOT DERIVED FROM THE CARDS ABOVE.** This used to
   // be `forecasts.filter(...)`, counting only markets that had reached this page's `onChain` filter,
   // and it therefore said *"no forecast has settled yet"* while `/analyst` said *"5 settled"*. Two
   // pages answering one question differently is worse than either answer. `analystRecord()` counts
   // **graded claims**, which is what a grade is a property of — see its own header.
-  // ⚠️ Open for STAKING, not merely unsettled — the cap `createDemoMarket` enforces is about markets
-  // a judge could still commit to, and a header counting settled ones would contradict its refusal.
-  const openDemoCount = demoOpen.length;
-
   const record = await analystRecord();
 
-  // ⚠️ `kind` is the label at each call site, and it is now read for one thing: a demo card draws the
-  // market page's five bands instead of the binary pair. A demo passed as 'rehearsal' would lose them.
+  // ⚠️ `kind` is read for one thing: a demo card draws the market page's five bands instead of the
+  // binary pair. A demo passed as anything else would lose them.
   const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'demo' | 'offchain') => {
     const spec = JSON.parse(r.spec_json) as Spec;
     const p = r.chain_market_id ? pools.get(r.chain_market_id) : undefined;
@@ -452,10 +442,10 @@ export default async function MarketIndex() {
         <div className="prediction-grid" style={{marginTop: 20}}>{demos.map((r) => card(r, 'demo'))}</div>
       )}
 
-      {/* ⚠️ **REHEARSALS AND NOT-ON-CHAIN ARE NO LONGER RENDERED** — the operator's call on 2026-09-13:
-          this page shows the live forecasts and one demo, and nothing else. Both sections were test
+      {/* ⚠️ **REHEARSALS AND NOT-ON-CHAIN ARE NOT RENDERED** — the operator's call on 2026-09-13: this
+          page shows the listed forecasts and one demo, and nothing else. Both sections were test
           apparatus — markets built to drive resolve, void and refund, and store rows that never landed —
-          and neither counts toward the record. `rehearsals` and `offChain` are still computed, so the
+          and neither counts toward the record. `rehearsals` and `offChain` are still computed, the
           arithmetic that keeps a rehearsal out of Forecasts is unchanged, and every market keeps its page. */}
 
       <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>

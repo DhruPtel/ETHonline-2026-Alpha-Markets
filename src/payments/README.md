@@ -19,21 +19,33 @@ facilitator. The buyer is an agent with its own Hedera account and its own spend
 ```mermaid
 sequenceDiagram
   participant B as buyer.ts
-  participant G as gate.ts
+  participant G as gate.ts (withX402)
   participant D as Neon
   participant F as Blocky402
 
-  B->>G: GET, no payment
-  G->>D: freeze the price into quotes
-  G-->>B: 402 · price · payTo · feePayer
-  Note over B: refuses here if the price is<br/>over its cap — nothing signed
-  B->>B: sign, record the native tx id
-  B->>G: GET + payment header
-  G->>D: write purchases BEFORE settling
-  G->>F: settle
-  F-->>G: settled
-  G-->>B: the report body
+  B->>G: GET /api/reports/[hash], no payment
+  G->>D: quote() · reuse a live quote or freeze a new one for 90s
+  G-->>B: 402 · amount · asset · payTo from the report's analyst row · feePayer
+  Note over B: vet() refuses a price over its cap or an asset<br/>it has not allowlisted — nothing signed
+  B->>B: sign an HBAR transfer · record the native tx id
+  B->>G: GET + payment header, carrying a payment id
+  G->>F: verify
+  F-->>G: valid
+  G->>D: serveReport() · load the report, render the body
+  alt the handler fails
+    G-->>B: error · settlement cancelled · nobody charged
+  else the body is ready
+    G->>D: onBeforeSettle · INSERT purchases (payment id, native tx id, payer)
+    Note over G: a payment that cannot be recorded is aborted, never settled
+    G->>F: settle
+    F-->>G: settled
+    G->>D: onAfterSettle · settled_at, and the facilitator's payer
+    G-->>B: 200 · the report body
+  end
 ```
+
+The body is built before settlement and released after it. A settle that fails returns a 402
+instead, and the buyer keeps the native transaction id to reconcile against.
 
 ## Four rules that are not obvious
 

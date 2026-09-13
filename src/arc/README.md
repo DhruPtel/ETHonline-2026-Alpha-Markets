@@ -13,6 +13,35 @@ The analyst's Arc account is a **Circle developer-controlled wallet**
 (`@circle-fin/developer-controlled-wallets`). Every analyst write on Arc goes through Circle's API,
 and no Arc private key for the analyst exists in this repo or its environment.
 
+```mermaid
+flowchart TB
+  TR(["cron 22:00 UTC · the commit route on /markets/[id] · Start a demo market"]) --> PR
+  SP["spec.ts · one deployment, metric, threshold, UTC day<br/>specHash and QuestionCore"] --> PR
+  subgraph ANALYST["market.ts · the analyst, signed through Circle by arc.ts submit()"]
+    PR["prepare() · spends nothing<br/>decideSide(): settle() on the latest finished day<br/>admission.ts: tokenized by this analyst, alpha:hash in the event"]
+    PR --> CR["create() · createMarket, when the market is new"]
+    CR --> CM["commit() · commitPrediction(report hash, side) + USDC"]
+  end
+  CR --> C[("AlphaMarket on Arc")]
+  CM --> C
+  W["a visitor's browser wallet · PositionControl.tsx<br/>stake(), or on a demo market their own commitPrediction()"] --> C
+  C -->|"Staked · a demo PredictionCommitted"| RF["/api/markets/[id]/refresh<br/>recorded from the event, never the request"]
+  T(["after observationEnd · cron 02:00 UTC · Reveal on a demo market"]) --> ST
+  subgraph SETTLE["settle, then resolve or void"]
+    ST["settle.ts settle()<br/>financial-snapshots from The Graph, unpinned<br/>fresh by the subgraph's own _meta clock"] --> RS["recordSettlement()<br/>evidence bytes stored before any chain call"]
+    RS --> RP["resolve.ts prepare() · ten guards<br/>stored bytes must still produce the evidence hash"]
+    RP -->|"an outcome"| RES["resolveMarket()<br/>resolve(outcome, evidenceHash)"]
+    RP -->|"no observation, deadline passed"| VO["voidMarket()"]
+  end
+  RES --> C
+  VO --> C
+  RES --> SC["score.ts · right, wrong or void, per claim"]
+  VO --> SC
+  SC --> DB[("scores")]
+  DB --> CX["agent/context.ts build()<br/>the analyst's last five graded claims<br/>rehearsals and past-posted markets left out"]
+  CX -->|"planning prompt"| CO["agent/compose.ts"]
+```
+
 ## Files
 
 | file | what it does | spends on Arc |
@@ -44,8 +73,9 @@ and no Arc private key for the analyst exists in this repo or its environment.
 - ⚠️ **No cron-sent transaction has been evidenced.** Both crons are deployed and scheduled. Every
   Arc transaction so far was started by a command or a button press, then signed by the Circle
   wallet with no human signing.
-- **Trading return is null.** Nothing records the contract's `Claimed` events, so `payouts` has no
-  writer. The site has no claim button; stakers call `claim()` on the contract directly.
+- **Trading return is null.** Nothing records the contract's `Claimed` events, so nothing on a
+  production path writes `payouts` (only the fixture proof `scripts/demo/score.ts` inserts rows). The
+  site has no claim button; stakers call `claim()` on the contract directly.
 - **Reconciliation quality is null on every report so far**, so it grades nothing yet.
 - **No spend cap.** The Circle wallet-set cap was never set, and `spend_ledger` has no writer.
 - **The resolver is immutable.** A second analyst needs its own contract deployment.

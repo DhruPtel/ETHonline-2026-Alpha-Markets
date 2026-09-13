@@ -2,55 +2,51 @@
 //
 // ── ⚠️ WHY THE LITERAL BLOCK, AND NOT A PRETTIER VERSION OF THE SAME ROWS ────────────────────────
 //
-// **The point of showing this is that it is the same bytes the model was given.** `context.build()`
-// returns `{block, digest}` where the digest is `sha256` over exactly those bytes, and
-// `reports.context_digest` stores it. So a reader can take the block on this page, hash it, and find
-// the reports that were planned with it. **That check is the only thing here that is checkable
-// rather than asserted**, and it survives exactly as long as the bytes are untouched.
+// **The point of showing this is that it is the same bytes the model is given.** `build()` in
+// `src/agent/context.ts` returns `{block, digest, count}`, where the digest is `sha256` over exactly
+// those bytes, and `reports.context_digest` stores it. So a reader can take the block on this page,
+// hash it, and find the reports that were planned with it. **That check is the only thing here that
+// is checkable rather than asserted**, and it survives exactly as long as the bytes are untouched.
 //
 // ⚠️ **A prettier rendering of the underlying `scores` rows would destroy it twice over:** it would
 // be a second path to one number — the thing `score.ts` and `context.ts` both refuse — and the
-// digest would no longer be over anything on screen. So this component reformats nothing. It does
-// not wrap, re-indent, re-order, prettify or truncate. `white-space: pre` and a horizontal scroll,
-// because where the lines actually break is part of what the model saw.
+// digest would no longer be over anything on screen. So nothing is wrapped, re-indented, re-ordered,
+// prettified or truncated: `white-space: pre` and a horizontal scroll, because where the lines
+// actually break is part of what the model saw.
 //
-// ⚠️ **Soft-wrapping was considered and rejected for the same reason.** `pre-wrap` would read more
-// comfortably and would not change a byte — but it hides where the real newlines are, and on a page
-// whose entire claim is *these are the bytes*, a reader cannot tell a soft wrap from a hard one. The
-// scroll bar is the honest cost.
+// ⚠️ **Soft-wrapping was considered and rejected for the same reason.** `pre-wrap` would not change a
+// byte, but it hides where the real newlines are, and on a page whose entire claim is *these are the
+// bytes* a reader cannot tell a soft wrap from a hard one. The scroll bar is the honest cost.
 //
 // ── ⚠️ WHERE THIS LIVES, AND WHY NOT THE CONSOLE ────────────────────────────────────────────────
 //
 // **`/analyst`, beside the record it is built from.** This block *is* the record turned into a
-// prompt, so the grades and the text they produce belong on one page — a reader can look up from the
-// block to the two rows it describes.
+// prompt, so a reader can look up from it to the graded rows it describes.
 //
-// **Rejected: the console, beside the generation stream.** Three reasons, and the first is fatal on
-// its own: the block is built server-side inside `/api/console/generate` and **the NDJSON stream
-// does not carry it**, so putting it there would mean changing a route to emit it. The console also
-// already has a Query Evidence block in the Atlas panel that a second evidence block would compete
-// with. And the console is where a report gets *written*; this is about what was known *before* it
-// was.
+// **Rejected: the console, beside the generation stream.** The block is built inside
+// `/api/console/generate` and **the NDJSON stream does not carry it** — only its digest and claim
+// count — so showing it there would mean changing the route to emit it. The console's Atlas panel
+// already has a Query Evidence block that a second evidence block would compete with. And the
+// console is where a report gets *written*; this is about what was known *before* it was.
 //
 // ── ⚠️ THIS IS NOT MODEL TRAINING, AND THE PAGE SAYS SO WHERE A READER WILL SEE IT ──────────────
 //
-// No weights, no fine-tuning, no gradient, no dataset. It is a few hundred characters placed in a
-// prompt and discarded when the request ends; the next request rebuilds it from the database.
-// ⚠️ The note is rendered **above the block**, not in a footnote, because "the agent learns from its
-// record" is exactly the sentence a reader completes for themselves if nobody stops them.
+// No weights, no fine-tuning, no gradient, no dataset: a few hundred characters placed in a prompt,
+// discarded when the request ends and rebuilt from the database for the next one. ⚠️ The note is
+// rendered **above the block**, not in a footnote, because "the agent learns from its record" is
+// exactly the sentence a reader completes for themselves if nobody stops them.
 //
 // ── ⚠️ A STORED DIGEST CAN HAVE NO REPRODUCIBLE BLOCK BEHIND IT, AND TWO ALREADY DO ─────────────
 //
 // `context_digest` records what the planner saw **at the time**. The block changes as scores
-// accumulate, so an older report's digest legitimately will not match today's block — that is the
-// column working, not a fault. But there is a second case and it is not benign:
+// accumulate, so an older report's digest legitimately will not match today's block — the column
+// working, not a fault. But there is a second case and it is not benign:
 //
 // ⚠️ **Reports `0fb5b9a8df13…` and `48057f007392…` carry `f28a93d4c583…`, which cannot be rebuilt
-// from the `scores` table as it stands.** It was written by `scripts/demo/context.ts`, whose own
-// fixtures were deleted in its cleanup; that script blanks the column for one report and evidently
-// ran twice. **There is no block behind that digest and this component does not pretend there is.**
-// It lists such reports as carrying a digest whose block cannot be reproduced, which is the true
-// statement, rather than implying the bytes are recoverable.
+// from the `scores` table as it stands.** It was written by `scripts/demo/context.ts`, whose fixture
+// rows are removed in its own cleanup; that script blanks the column for one report and evidently
+// ran twice. **There is no block behind that digest and this component does not pretend there is** —
+// every digest that is not today's block is listed as not reproducible.
 
 import {build} from '../../src/agent/context.js';
 import {analystRecord} from '../components/GradeMarker.js';
@@ -78,11 +74,10 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
   // two things that were supposed to be one.
   const context = await build(analyst);
 
-  // ⚠️ **The test-data marker CANNOT go inside the block, and that is not an oversight.** The block
-  // is bytes produced by `agent/context.ts` and the digest is taken over exactly those bytes — adding
-  // a word to them would change the digest and break the one checkable thing this section has. So it
-  // is said BESIDE the block instead. `agent/context.ts` is also `src/`, which this task may not
-  // touch. **The lines themselves carry no marker; the count below is how a reader knows.**
+  // ⚠️ **The test-data marker CANNOT go inside the block, and that is not an oversight.** The digest
+  // is taken over exactly the bytes `build()` produces, so adding a word would change it and break the
+  // one checkable thing this section has. **The lines carry no marker; the count beside the block,
+  // from `analystRecord()`, is how a reader knows.**
   const record = await analystRecord();
 
   const carried = await db()<CarrierRow[]>`
@@ -117,7 +112,7 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
       </p>
 
       {context === null ? (
-        /* ⚠️ **THE STATE THIS SHIPS IN.** `build()` returns null — not an empty block — because an
+        /* ⚠️ **NO GRADED FORECASTS, SO `build()` RETURNS NULL — not an empty block** — because an
            empty section with a heading is a thing the model reads and reasons about, and "you have
            no track record" is a statement about the analyst nobody decided to make. */
         <div className="empty-state">
@@ -159,7 +154,7 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
             </p>
           )}
 
-          {/* ⚠️ **THE REFUSAL, STATED WHERE IT IS DOING THE WORK.** PHASE-8 §2.3: showing the
+          {/* ⚠️ **THE REFUSAL, STATED WHERE IT IS DOING THE WORK.** PHASE-8-demo-market §2.3: showing the
               product decline to learn from a question whose answer was already public is a better
               demonstration than pretending it did. This renders only once a demo has been graded,
               so it is never an abstract promise — the number beside it is the claim it excluded. */}
@@ -217,8 +212,9 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
         </>
       )}
 
-      {/* ⚠️ **STATED, NOT HIDDEN.** Two reports carry a digest with no reproducible block. Saying
-          so is the difference between a checkable claim and a decorative one. */}
+      {/* ⚠️ **STATED, NOT HIDDEN.** Every stored digest that is not the block above's — older ones,
+          and the two with no reproducible block at all. Saying so is the difference between a
+          checkable claim and a decorative one. */}
       {others.length > 0 && (
         <>
           <div className="section-title" style={{marginTop: '26px'}}>
@@ -227,7 +223,7 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
           <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
             {context === null ? (
               /* ⚠️ There is no block on the page to compare against, so the copy must not claim
-                 one. With `scores` empty these digests have nothing to be measured against at all. */
+                 one: `build()` returned null, so these digests have nothing here to be measured against. */
               <>
                 These carry a <code>context_digest</code> from a record that no longer exists.{' '}
                 ⚠️ <strong>There is no block behind them and it cannot be reproduced.</strong>{' '}

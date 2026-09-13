@@ -8,10 +8,11 @@ import {MiniDocument, type PreviewChart} from './MiniDocument.js';
 import {ArrowUpRight, Check, ChevronDown, Clock, FileText, Upload} from './Icons.js';
 
 /**
- * The tokenize form: the source tabs, the listing fields and the access price.
- * Client-only — tabs and text inputs.
+ * The tokenize form — the report it targets, the listing fields, the mint receipt and the two-press
+ * mint — plus the Marketplace preview's live pieces: `ListingPreviewText`, `ListingPreviewCard`,
+ * `PublishBadge` and `PublishControl`. Client-only.
  *
- * onTokenize is the stub the Hedera call replaces.
+ * Minting is `post()`. `onTokenize` and `onSaveDraft` are unused stubs from the design export.
  */
 /** What the console page knows about the report on screen — the thing this form tokenizes. */
 export type TokenTarget = {
@@ -20,7 +21,7 @@ export type TokenTarget = {
   /** The line under a marketplace card's title — analyst and block — so the preview card matches it. */
   subtitle: string;
   factCount: number;
-  /** The constant every report is sold at. ⚠️ HBAR, not USDC — see the notes in the form. */
+  /** The constant every report is sold at. ⚠️ HBAR, not USDC — see the x402 section in the form. */
   priceHbar: string;
   /** Present when this report already has a token. Minting again is refused by the route. */
   token: {
@@ -77,13 +78,11 @@ export function TokenizeForm({listing, target, roster}: {
   const [busy, setBusy] = useState(false);
   const {draft, setDraft} = useSecret();
 
-  // ⚠️ **The hash is a field now, defaulted to the report on screen.** Paste another and the form
-  // targets it; the price step asks the route about THAT hash, so an unknown one comes back as the
-  // route's own refusal rather than silently reverting to the displayed report.
-  // ⚠️ **AND IT FOLLOWS A NEW REPORT.** `useState` reads its default once, and generating a report
-  // refreshes the page around this component rather than remounting it — so the field kept the
-  // previous hash and the next press would have minted the wrong report. The console page now keys
-  // this form by the report on screen: a new report is a new form, field and plan included.
+  // ⚠️ **The hash is a field, defaulted to the report on screen.** Paste another and the form targets
+  // it; the price step asks the route about THAT hash, so an unknown one comes back as the route's
+  // own refusal rather than silently reverting to the displayed report.
+  // ⚠️ **It follows a new report only because the console page keys this form by it** — `useState`
+  // reads its default once. The note at that key records the wrong-report mint it prevents.
   const [hash, setHash] = useState(target?.hash ?? '');
 
   // ⚠️ **Normalise before looking anything up.** A hash copied out of a terminal or a log arrives
@@ -120,10 +119,8 @@ export function TokenizeForm({listing, target, roster}: {
     return () => clearInterval(t);
   }, [minting]);
 
-  // ⚠️ **The hash comes from the report on screen, not from a field.** It is 64 characters and the
-  // document sits directly above this panel; asking someone to find and paste it would be the
-  // console making work it already has the answer to. `target` is the same report the document
-  // panel renders, handed down by the page.
+  // `confirm: false` prices (the route's dry run); `true` mints. ⚠️ No `x-console-secret` header:
+  // it goes back here when `lock.ts` is re-wired, or this answers 401.
   async function post(confirm: boolean) {
     if (!clean || busy) return;
     // ⚠️ **"Not a hash" and "not in the store" are different problems** and the route can only
@@ -190,11 +187,11 @@ export function TokenizeForm({listing, target, roster}: {
   const [source, setSource] = useState<'generated' | 'upload'>('generated');
 
   function onTokenize() {
-    // Mints the report token and lists it on the marketplace.
+    // Unused, empty stub. Minting is `post()`, and minting does not list.
   }
 
   function onSaveDraft() {
-    // Stores the listing without publishing it.
+    // Unused, empty stub. There is no draft save; the description is saved only at publish.
   }
 
   return (
@@ -276,9 +273,9 @@ export function TokenizeForm({listing, target, roster}: {
         </div>
         <div>
           <label htmlFor="report-title">Report title</label>
-          {/* ⚠️ **REAL, and read-only because it is not this form's to set.** The narrator writes
-              the title (migration 008) and it is stored beside the report. An editable box that the
-              tokenize route ignores would be worse than a field that shows the truth. */}
+          {/* ⚠️ **Editable, and it edits only the preview.** The stored title is the narrator's
+              (migration 008, `recordTitle()`); nothing this form sends changes it, and the notice
+              under the form says so. */}
           <input
             id="report-title"
             className="field"
@@ -298,7 +295,8 @@ export function TokenizeForm({listing, target, roster}: {
         <div className="description-field">
           <label htmlFor="description">Description</label>
           {/* ⚠️ **Saved when you publish, once** (migration 010). The publish control carries this
-              text in the form it submits, and publishing is one-way, so it cannot be edited after. */}
+              text in the form it submits, and `recordDescription` writes only while a report is
+              unpublished, so it cannot be edited from the console after. */}
           <textarea
             id="description"
             className="field"
@@ -319,7 +317,7 @@ export function TokenizeForm({listing, target, roster}: {
               value={d.priceHbar}
               onChange={(e) => edit({priceHbar: e.target.value})}
             />
-            {/* ⚠️ HBAR. A USD-denominated price throws on testnet — no HBAR entry in DEFAULT_ASSETS. */}
+            {/* ⚠️ HBAR, not USD — see the x402 section below. */}
             <span>HBAR</span>
           </div>
         </div>
@@ -362,10 +360,9 @@ export function TokenizeForm({listing, target, roster}: {
 
             {(done ?? (existing?.deployTx ? existing : null)) ? (
               <>
-                {/* ⚠️ **The three writes, each linkable.** They come back from the route at mint
-                    time and are NOT stored — `report_tokens` holds hash, proxy, isin and issued_at
-                    and no transaction column. So a report tokenized in an earlier session shows its
-                    proxy and ISIN but not these three; said rather than faked. */}
+                {/* ⚠️ **The three writes, each linkable.** From the route's answer after a mint here,
+                    or from `report_tokens`' `deploy_tx`, `grant_role_tx` and `issue_tx` — NOT NULL
+                    since migration 001 — which the console page reads for a token minted earlier. */}
                 <div className="receipt-grid">
                   {([
                     ['Deploy', done?.deployTx ?? existing!.deployTx!],
@@ -390,9 +387,9 @@ export function TokenizeForm({listing, target, roster}: {
                   )}
                 </div>
 
-                {/* ⚠️ **THE CENTRAL CLAIM, AND THIS IS THE FIRST SURFACE IT IS VISIBLE ON.** The
-                    creation event carries `alpha:<reportHash>` — the same 32 bytes an Arc market
-                    commits. Not a bridge and not an oracle: one identifier in two places, which is
+                {/* ⚠️ **THE CENTRAL CLAIM.** The creation event carries `alpha:<reportHash>` — the
+                    same 32 bytes an Arc market commits. Not a bridge and not an oracle: one
+                    identifier in two places, which is
                     weaker than a bridge and checkable, which a bridge would not be. */}
                 <p className="notice"><span>
                   <strong>EquityDeployed carries</strong>{' '}
@@ -413,6 +410,8 @@ export function TokenizeForm({listing, target, roster}: {
                 )}
               </>
             ) : (
+              /* ⚠️ Reached only if the page's transaction read comes back empty, which the NOT NULL
+                 columns should prevent — and its "not stored" copy is out of date. */
               <p className="muted">
                 Issued {new Date(existing!.issuedAt).toISOString().slice(0, 10)}. The three creation
                 transactions are returned at mint time and are not stored, so they are not shown for a
@@ -584,10 +583,10 @@ export function ListingPreviewText({hash, fallback}: {
 }
 
 /**
- * The white card in the Marketplace preview. ⚠️ **It read the mock-up's "Lending protocols / Q2 2026"
- * while the black block beneath it followed the title field** — one listing with two titles. It now
- * takes the same draft title, and the marketplace card's own subtitle, so the preview is the card a
- * buyer will see.
+ * The white card in the Marketplace preview. ⚠️ **It follows the same draft title as the text beneath
+ * it** — it once read the mock-up's "Lending protocols / Q2 2026" while that text followed the field,
+ * one listing with two titles — and takes the marketplace card's own subtitle, so the preview is the
+ * card a buyer will see.
  */
 export function ListingPreviewCard({hash, fallback, preview}: {
   hash: string | null;

@@ -7,26 +7,21 @@
 // read as a facilitator fault and was a configuration one, and most recently `HEDERA_SELLER_KEY`
 // found blank in Vercel Production on 2026-09-09. `??` is never the mechanism. This is.
 //
-// ── Why this is its own file, and why in `config/` ───────────────────────────────────────────────
+// ── Why its own file, and why in `config/` ───────────────────────────────────────────────────────
 //
 // ⚠️ **There were SIX copies of this guard** — `store/db.ts`, `payments/server.ts`, `tokenize/ats.ts`,
-// `tokenize/transfer.ts` and the two console routes — and three documents pointed at `db.ts`'s as
-// "the pattern" while nobody imported it. Six copies of a guard that has already fired five times is
-// how the seventh gets a subtly different message.
-//
-// Every other home was worse than the duplication, which is why this file was created rather than a
-// copy being promoted:
+// `tokenize/transfer.ts` and two console routes — and three documents pointed at `db.ts`'s as "the
+// pattern" while nobody imported it. Six copies of a guard that has already fired five times is how
+// the seventh gets a subtly different message. Every existing home was worse than a new file:
 //
 //   `store/db.ts`                  the store is the wrong place for a general guard
 //   `payments/server.ts`           store and tokenize would import payments for a string guard
 //   `tokenize/ats.ts` / `transfer` both import `src/store/`, so `db.ts` importing back is a CYCLE
 //   the console routes             throwaway; they are deleted before submission
 //
-// ⚠️ **This file imports NOTHING — not even a type.** That is the property that lets `store/`,
-// `payments/`, `tokenize/` and the route handlers all import it without any possibility of a cycle,
-// and it is the reason `config/` is the right neighbourhood: one concern per file, and the config
-// layer sits underneath everything else. ⚠️ Keep it that way. An import here is a cycle waiting for
-// the next module that needs a guard.
+// ⚠️ **This file imports NOTHING — not even a type.** That is what lets every layer, route handlers
+// included, import it with no possibility of a cycle. ⚠️ Keep it that way: an import here is a cycle
+// waiting for the next module that needs a guard.
 //
 // ⚠️ `scripts/smoke/` is deliberately excluded. Those are frozen Phase 0 tests and their own copies
 // are correct as they ran; rewriting a passing test to import a module written after it would make

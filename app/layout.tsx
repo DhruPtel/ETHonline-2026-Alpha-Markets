@@ -21,7 +21,7 @@ export const metadata: Metadata = {
  * naming rather than assuming: the design marks the current nav item, a layout cannot know the
  * pathname without `usePathname()`, and `usePathname()` is a client hook. Making the whole header
  * a client component to highlight one link would ship the brand mark, the wallet button and every
- * icon in them to every visitor. Isolating it in `SiteNav` ships **three links and a pathname
+ * icon in them to every visitor. Isolating it in `SiteNav` ships **four links and a pathname
  * read** instead, and leaves the rest of the header — and the whole footer — on the server.
  *
  * ⚠️ **The header's wallet button says the analyst's wallets are preloaded, and it is NOT a connect

@@ -1,8 +1,4 @@
-// What the analyst's record actually says. ⚠️ **§5.12's three scores, and this is the loop's only unit.**
-//
-// Without this the phase ships a working market and no visible reason that an analyst's reports are
-// worth paying for. It closes no requirement, which is exactly why it sat third in the cut order
-// until that was reordered.
+// What the analyst's record actually says. ⚠️ **§5.12's three scores.**
 //
 // ⚠️ **READS SETTLED STATE AND WRITES ROWS. NO CHAIN, NO GAS, NO SPENDING.** There is no provider
 // here and no Circle client, and that is a property of the file rather than an omission: everything
@@ -12,18 +8,15 @@
 // ── ⚠️ THE THREE SCORES ARE DIFFERENT IN KIND, AND CONFUSING THEM IS THE FAILURE MODE ────────────
 //
 //   1 · **Reconciliation quality — COPIED, never derived.** It is `Report.verdict.call`, computed in
-//       Phase 2 and stored inside the report's canonical bytes. This file reads it. ⚠️ A second
-//       computation would be a second answer to a question already settled, and the two would
-//       eventually disagree — at which point nobody could say which was the verdict. It is copied
-//       onto the row rather than joined at read time so the score records what the verdict *was* at
-//       scoring time.
+//       Phase 2 and stored inside the report's canonical bytes. ⚠️ A second computation would be a
+//       second answer to a question already settled, and the two would eventually disagree — at
+//       which point nobody could say which was the verdict. It is copied onto the row rather than
+//       joined at read time so the score records what the verdict *was* at scoring time.
 //       ⚠️ It is legitimately `null` on a metric-across-deployments report: `Verdict.call` is
 //       nullable by a 2026-09-07 schema decision, because a ranking has no single figure to stand
-//       behind. A null here is a fact about the report, not a missing score.
-//       ⚠️ **And it can only mean that.** `claims.report_hash` is a FOREIGN KEY into `reports`, so a
-//       claim citing a report that is not stored is unrepresentable — `load()` returning null would
-//       need the report row to have been deleted, and `store/reports.ts` never deletes one. **So
-//       `reconciliation_quality IS NULL` always means the verdict had no call, never "report gone".**
+//       behind. **And null can only mean that.** `claims.report_hash` is a FOREIGN KEY into
+//       `reports`, and `store/reports.ts` hides reports but never deletes one, so `load()` cannot
+//       come back empty for a claimed report.
 //       ⚠️ Today it is null on **every one of the nine stored reports**, because all nine are the
 //       metric-across-deployments shape — checked, not assumed. The figure that would tell them
 //       apart is `verdict.coverage`, and `scores` has no column for it. Recorded, not worked around.
@@ -38,17 +31,16 @@
 //
 // ── ⚠️ A VOIDED MARKET IS NOT A WRONG FORECAST ───────────────────────────────────────────────────
 //
-// **A voided claim scores `forecastCorrect = null`, and that is the whole point.** A void means the
-// data was missing or the deployment was republished — there is no outcome, so the analyst was
-// neither right nor wrong. Scoring it `false` would record a loss that never happened, and this row
-// is what Unit 15b feeds to `compose`: an analyst told it was wrong about a day nobody could measure
-// would learn something untrue about its own judgment.
+// **A voided claim scores `forecastCorrect = null`, and that is the whole point.** A void means there
+// was no outcome — the observation was missing, or the market passed its resolve deadline unresolved
+// — so the analyst was neither right nor wrong. Scoring it `false` would record a loss that never
+// happened, and this row is what `agent/context.ts` feeds to `compose`: an analyst told it was wrong
+// about a day nobody could measure would learn something untrue about its own judgment.
 //
 // ⚠️ **`null` is unambiguous here only because an unsettled market gets NO ROW AT ALL.** The column
 // comment in 005 reads *"null while the market is unresolved"*, which was written before this file
-// decided that an unresolved market is not scored. Both readings would be null; only one of them can
-// ever be in the table. **The row existing means the market settled; `forecast_correct IS NULL` on a
-// row that exists means VOID.**
+// decided that an unresolved market is not scored. **The row existing means the market settled;
+// `forecast_correct IS NULL` on a row that exists means VOID.**
 //
 // ── ⚠️ AN UNCLAIMED PAYOUT IS NOT A ZERO RETURN — AND NEITHER IS A WRONG FORECAST ────────────────
 //
@@ -58,37 +50,32 @@
 //   `returned = <amount>`  collected — a `payouts` row with a landmark says what came back
 //   `returned = null`      **no payout recorded.** Never "lost", never zero.
 //
-// ⚠️ **THE DISTINCTION THIS BRIEF ASKED FOR CANNOT BE DRAWN FROM THE STORE, AND THE FIRST DRAFT OF
-// THIS FILE DREW IT WRONG.** The brief asks to separate "claimed nothing yet" from "earned nothing",
-// and the obvious rule — a wrong forecast returns zero — is **false on this contract**. `payoutOf`
-// has a `winningPool == 0` branch that refunds every staker their own stake, and with one analyst
-// and few stakers an empty side is the *expected* case, not an edge one.
+// ⚠️ **THE FIRST DRAFT OF THIS FILE INFERRED ZERO FROM A WRONG FORECAST, AND THAT IS FALSE ON THIS
+// CONTRACT.** `payoutOf` has a `winningPool == 0` branch that refunds every staker their own stake,
+// and with one analyst and few stakers an empty side is the *expected* case, not an edge one.
 //
 // ⚠️ **Chain market 3 is the live counterexample**: it resolved **FALSE**, the analyst's claim was
 // **TRUE** — a genuinely wrong forecast — and `payoutOf` is **0.01, its stake back**, because
 // `poolFalse` was empty. A rule inferring zero from a wrong forecast would have recorded a loss that
-// the chain disagrees with, on a real market, today.
+// the chain disagrees with, on a real market.
 //
-// Telling the two apart needs the market's **pools**, which are chain state the `markets` row does
-// not carry and this unit may not add a column for. So the honest answer is the one Unit 5b already
-// gave: **the `payouts` table is the only source, and its silence is silence — not a zero.** What
-// the schema cannot express is recorded here rather than faked into the column.
+// Telling "claimed nothing yet" from "earned nothing" needs the market's **pools**, which are chain
+// state the `markets` row does not carry. So **the `payouts` table is the only source, and its
+// silence is silence — not a zero.** ⚠️ Only `scripts/demo/score.ts` writes `payouts` today, so
+// outside its fixtures `returned` is null.
 //
 // ── ⚠️ THE GRAIN, AND THE ASSUMPTION IT RESTS ON ─────────────────────────────────────────────────
 //
 // `scores` is keyed `(market_id, claim_id)` — deliberately not `(market_id, report_hash)`, because
 // two authors can cite one report. ⚠️ **The contract pays per ADDRESS, not per claim**, so a return
-// is only attributable to a single claim while the analyst commits once per market and stakes
-// nothing alongside it. That is true today and Unit 5 recorded it as a stated assumption the schema
-// rests on rather than enforces. **This file does not build around it and does not break it** — it
-// checks the assumption holds for the claim it is scoring and refuses the return rather than
+// is only attributable to a single claim while the author commits once per market and stakes
+// nothing alongside it. Unit 5 recorded that as an assumption the schema rests on rather than
+// enforces; this file checks it holds for each claim it scores and refuses the return rather than
 // misattributing a pooled one.
 //
-// ⚠️ **Idempotent on `(market_id, claim_id)` because this runs more than once**, and a re-score with
-// identical inputs is a true no-op — `scored_at` does not move. See `record()`.
-//
-// ⚠️ **`store/markets.ts` is read-only, so this unit owns its writes to `scores`** — the pattern
-// `market.ts` and `resolve.ts` both follow for their own landmark columns.
+// ⚠️ **`store/markets.ts` is read-only, so this file owns its writes to `scores`** — the pattern
+// `market.ts` and `resolve.ts` both follow for their own landmark columns. It runs more than once and
+// is idempotent; see `record()`.
 
 import { db } from '../store/db.js';
 import { claimsFor, marketById, payoutFor, stakesFor } from '../store/markets.js';

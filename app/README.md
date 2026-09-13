@@ -26,8 +26,8 @@ contract: a paying agent, a browser wallet's transaction, or a cron.
 | `POST /api/buy` | Runs the buyer agent against the gate; called by "Buy this read" | our buyer account's HBAR | none; capped per payment and per day |
 | `POST /api/markets/[id]/commit` | The analyst commits a chosen report to a market. The first press returns a plan; the second spends. | the analyst's USDC | none |
 | `POST /api/markets/[id]/refresh` | Records a browser wallet's stake or commit from its transaction receipt | — | reads the chain, not the request body |
-| `GET /api/holdings` | Which account holds which report token, read from the chain | — | — |
-| `GET /api/health` | Does the facilitator still advertise our network and fee payer? Is the ATS resolver alive? Are four env vars set? | — | — |
+| `GET /api/holdings` | Which account holds which report token, read from the chain. Nothing in the app calls it: `/holdings` redirects to `/analyst`, which reads the balances itself. | — | — |
+| `GET /api/health` | Does the facilitator still advertise our network and fee payer? Is the ATS resolver alive? Are seven env vars absent, empty or set — including `ANTHROPIC_API_KEY`, `GRAPH_API_KEY` and `ETHEREUM_RPC_URL`, which generation needs? | — | — |
 | `GET /api/cron/commit` | Daily at 22:00 UTC (`vercel.json`) | the analyst's USDC | `CRON_SECRET` |
 | `GET /api/cron/resolve` | Daily at 02:00 UTC | the analyst's gas | `CRON_SECRET` |
 
@@ -42,9 +42,9 @@ which needs a minted token.
 | `POST /api/console/generate` | The report pipeline, streamed a stage at a time | model tokens |
 | `POST /api/console/source` | One live Graph query and its evidence record | a Graph query |
 | `POST /api/console/tokenize` | ATS issuance for a stored report | about 7.7 HBAR |
-| `POST /api/console/transfer` | Moves a report token | about 0.43 HBAR |
-| `POST /api/console/report` | Returns a report's body from the store, without payment | — |
-| `GET /api/console/state`, `GET /api/console/accounts` | What the console displays | — |
+| `POST /api/console/transfer` | Moves a report token. No page calls it; it answers anyone who posts to it. | about 0.43 HBAR |
+| `POST /api/console/report` | Returns a report's body from the store, without payment. No page calls it; it answers anyone who posts to it. | — |
+| `GET /api/console/state`, `GET /api/console/accounts` | Store and account state for the console. No page calls either. | — |
 
 **Throwaway:** `/api/probe`, the deployment probe from Phase 3. It is still deployed.
 
@@ -63,7 +63,7 @@ are **not sent** to the browser; they are not merely hidden. They leave the serv
 
 | path | what it is |
 |---|---|
-| `components/` | UI pieces. `BuyControl` and `TokenizeForm` call routes; `AtlasPanel` and `ConsoleViewer` make up the console; `GradeMarker`, `ProbabilityChart`, `MiniDocument`, `ReportPaper`, `SiteNav`, `Icons` and the two filter bars are display components. |
+| `components/` | UI pieces. Four call routes: `BuyControl` (`/api/buy`), `TokenizeForm` (`/api/console/tokenize`), and the two console panels, `AtlasPanel` (`/api/console/generate`) and `ConsoleViewer` (`/api/console/source`). `GradeMarker`, `ProbabilityChart`, `MiniDocument`, `SiteNav`, `Icons` and the two filter bars are display components. `ReportPaper` is imported by nothing. |
 | `markdown.tsx` | Markdown to React elements. **This is the escaping boundary.** Indexer-supplied names travel inside hashed reports and cannot be escaped on write, so there is no `dangerouslySetInnerHTML` anywhere. |
 | `markets/demo.ts` | The demo presets, the six-market cap, and the 150-second staking window |
 | `hooks/useFitPanel.ts` | Scales a working surface to fit its column |

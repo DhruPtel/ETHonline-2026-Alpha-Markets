@@ -1,5 +1,5 @@
 // A persisted report becomes an asset on Hedera testnet: deploy a ResolverProxy, grant ISSUER,
-// issue 1, record it. The transfer is Unit 10 and deliberately not here.
+// issue 1, record it. The transfer is `transfer.ts` and deliberately not here.
 //
 // ⚠️ **Two phases, and the split is a safety property rather than a style.** `prepare()` does every
 // read-only check — is there already a token, is the factory alive, does the key match the analyst,
@@ -53,7 +53,7 @@ const RESOLVER_ID = '0.0.9212226';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 const DEFAULT_ADMIN_ROLE = `0x${'00'.repeat(32)}`;
-/** `constants/roles.sol:78`. Creation grants only DEFAULT_ADMIN, which is why grantRole exists. */
+/** `ROLE_ISSUER` in the ATS package's `constants/roles.sol`. Creation grants only DEFAULT_ADMIN, which is why grantRole exists. */
 const ROLE_ISSUER = '0x5eeaf5602c75bf26e73b5206d0bd6ee82f621166255e5fd73cc06bc7bd84a95f';
 /** Resolver configuration 1 = equity, at version 1. Verified live by SM-07. */
 const EQUITY_CONFIG_ID = `0x${'00'.repeat(31)}01`;
@@ -76,7 +76,7 @@ export interface TokenPlan {
   readonly factoryAddress: string;
   readonly resolverAddress: string;
   readonly isin: string;
-  /** ⚠️ PLAN §1's cross-chain commitment: the same 32 bytes Arc's `commitPrediction` will carry. */
+  /** ⚠️ PLAN §1's cross-chain commitment: the report hash — the same 32 bytes Arc's `commitPrediction` carries — prefixed `alpha:`. */
   readonly info: string;
   readonly balanceTinybars: bigint;
 }
@@ -118,7 +118,7 @@ export async function prepare(reportHash: string): Promise<TokenPlan> {
   const report = await load(reportHash);
   if (!report) throw new Error(`no report ${reportHash} in the store. Nothing to tokenize.`);
 
-  // Hoisted to `config/analysts.ts` in Unit 12 — Units 13 and 14 need the same resolution.
+  // Lives in `config/analysts.ts` because the gate and the transfer need the same resolution.
   const analyst = analystByArcAddress(report.analyst);
 
   const isin = isinFor(reportHash);
@@ -129,10 +129,10 @@ export async function prepare(reportHash: string): Promise<TokenPlan> {
   // ⚠️ **KNOWN, UNFIXED: this is a leaked client.** `pooled()` CONSTRUCTS — see `store/db.ts` — and
   // this call and the insert at the end of `tokenize()` each build a client with its own pool and
   // close neither. Every module that reads or writes should call the shared `db()` instead; these
-  // two are the only holdouts in `src/`, and `scripts/ops/tokenize.ts:108` is a third in the same
-  // flow. Two clients per tokenize run against a Neon pool that caps them, where a limit failure
-  // presents as a timeout rather than as a limit error. Documented 2026-09-09; **fixing it is a
-  // behaviour change and belongs in its own commit.**
+  // two are the only holdouts in `src/`, and the `report_tokens` read-back in `scripts/ops/tokenize.ts`
+  // is a third in the same flow. Two clients per tokenize run against a Neon pool that caps them, where
+  // a limit failure presents as a timeout rather than as a limit error. Documented 2026-09-09; **fixing
+  // it is a behaviour change and belongs in its own commit.**
   const existing = await pooled()<{ report_hash: string; proxy_address: string; isin: string }[]>`
     SELECT report_hash, proxy_address, isin FROM report_tokens
     WHERE report_hash = ${reportHash} OR isin = ${isin}`;
@@ -186,8 +186,9 @@ function equityData(plan: TokenPlan) {
   return {
     security: {
       resolver: plan.resolverAddress,
-      // ⚠️ `maxSupply: 0` does NOT mean unlimited at creation, whatever CapStorageWrapper.sol:41
-      // says. `Cap.initializeCap` carries `onlyValidNewMaxSupply`, which reverts
+      // ⚠️ `maxSupply: 0` does NOT mean unlimited at creation, whatever the `initializeCap` doc in
+      // the ATS package's `CapStorageWrapper.sol` says. `Cap.initializeCap` carries
+      // `onlyValidNewMaxSupply`, which reverts
       // NewMaxSupplyCannotBeZero() — measured, selector 0x76f138fb, after 948,129 gas of a real
       // reverted deploy. The zero-bypass is only in `isCorrectMaxSupply`, which runs later at issue
       // time. 1 is the honest value anyway: one report, one token, and a second mint against this

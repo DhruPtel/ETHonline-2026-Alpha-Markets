@@ -17822,3 +17822,214 @@ changed no data.
   analyst's record.
 - **The two market-8 rows share one contract address**, so any lookup by chain id plus contract
   address returns both.
+
+---
+
+## 2026-09-13 — narrate "degenerated on both attempts": the watchdog was killing healthy slow runs
+
+**What failed.** "Top 5 Markets for compund-v3" died twice at exactly 20 seconds with nothing
+delivered. The narrator had not degenerated. The API does not stream the tool's input as it is
+written: it holds each value (the table, then the assessment) until that value is complete, then sends
+it in one burst. So a healthy stream goes silent for as long as a value takes to write. On a slow run
+that was longer than the watchdog's 20 seconds.
+
+**Evidence.** Two captures of the raw stream, same draft, watchdog stretched so they could finish:
+- Correct spelling: a good report. 11.2s of silence, then the table; 10.6s, then the assessment. About
+  110 output tokens a second.
+- Typo spelling, run at the same time: also a good report. 43.8s of silence, then the table; 29.6s,
+  then the assessment. About 27 tokens a second. The 20-second watchdog would have killed it.
+- In both, everything generated was delivered: output tokens minus delivered JSON tokens was about 50.
+- The old "healthy output delivers a delta every ~130ms" was a finished value being sent in a burst,
+  not the model's pace. The 20s threshold had never been run live, and the watchdog commit is the only
+  change on the narrator's path since the last saved report (06:50Z).
+
+**The typo was not the cause.** Compose read "compund-v3" as `compound-v3-ethereum` and said so in its
+rationale. Both spellings planned the same read and the same deployment, and produced the same
+152-fact draft (23,164 input tokens). "Two queries" was never a small report: the markets document
+returns every market. Typo runs happened to be slow all four times (two in the console, two here) and
+the one correct-spelling run was fast. Four samples on one draft cannot separate the directive from API
+throughput, and the fix must not depend on it anyway.
+
+**Tried and reverted: `eager_input_streaming`.** It makes the tool input arrive as it is written. On one
+replay, deltas did flow continuously (median gap 46ms), but the report came back broken: the summary
+string never closed, and `basis` and `confidence` were missing. The call still ended normally, and the
+model had generated about 575 more tokens than arrived, roughly the size of the missing fields. With
+`strict` on, the model cannot end a tool call like that, so the output was most likely generated and lost
+in delivery. Reverted, with a warning at the tool definition.
+
+**The fix, in `src/agent/narrate.ts`.** The watchdog now bounds how long one value may take, at 90
+seconds instead of 20.
+- The largest values in the store count about 1,470 tokens. At the slowest measured rate that is about
+  55 seconds, so 90 seconds is 1.6× the longest a healthy value should take.
+- It still stops a value that never closes well before the 8,000-token cap would at a slow rate (about
+  300 seconds).
+- Comments claiming `runaway()` or the watchdog catch a loop "within seconds" are corrected: both only
+  see a value once it has been fully written.
+- `MAX_TOKENS` (8,000) and the length guards are unchanged.
+
+**Spend.** Two diagnostic generations (compose plus one narrator call each), one eager replay (one
+narrator call). Nothing saved.
+
+### Checks
+
+- `npx next build` after clearing `.next`: passes.
+- **Not run live at 90 seconds through the console.** The stretched captures show both runs finishing
+  with no silence over 43.8 seconds, which is the case the threshold has to allow.
+- ⚠️ The brief called the ceiling 12,000 tokens; `MAX_TOKENS` in code is 8,000.
+- ⚠️ `lessons.md` 2026-09-13 says the watchdog makes degeneration fail fast and that output "never
+  reached the stream". Both are now contradicted, and no lessons entry was written this run.
+
+---
+
+## 2026-09-13 — misspelled deployments are refused; /api/health reports generation's keys; the deployed failure named
+
+**What was made.**
+- **A name check in `src/agent/compose.ts`, run before the planner is asked.** A directive naming a
+  deployment we do not read is refused with near matches. Before this, the planner picked slugs from
+  its list, so a typo was silently mapped to some other deployment. The `unknown` check after the model
+  call could not see that, because it only reads what the model returned.
+- **`/api/health` now reports `ANTHROPIC_API_KEY`, `GRAPH_API_KEY` and `ETHEREUM_RPC_URL`** as absent,
+  empty or set.
+
+**How the check works.**
+- It compares the directive's words with every configured deployment's slug, its slug without
+  `-ethereum`, family plus version, and family.
+- It refuses three kinds of name: a close misspelling of a real name, a version nothing is configured
+  at, and the exact name of a deployment that is configured but not answering.
+- Suggestions are live deployments only. `abracadabra-ethereum` and `morpho-compound-ethereum` have no
+  indexers and `inverse-finance-ethereum` is in error, so they are never suggested.
+- A family word alone ("inverse") is never refused, since it is also an English word.
+- The first version refused "compounded interest" and "maple finance v2", and both were fixed.
+
+**Checked offline, no model tokens.** All 19 stored directives pass except "Show me the balance
+overview of markerdao markets", a typo that was once planned and saved and is now refused. All 25
+probes behave as intended (typos, missing versions, deployments that don't answer, and words that sit
+near a name).
+
+**What does not change.** A correctly spelled name that resembles nothing configured ("Radiant") is not
+refused here. It reaches the planner, which may substitute it; the `unknown` check refuses it only if the
+planner returns the name unchanged.
+
+**The deployed failure.** The deployed site runs HEAD, which still has the 20-second watchdog. One run of
+"Top 5 markets in compound-v3 on Ethereum by deposits":
+
+| stage | at |
+|---|---|
+| compose ok | 14.8s |
+| execute ok (2 queries, block read from the RPC) | 15.1s |
+| first attempt abandoned at the 20s watchdog | 37.4s |
+| second attempt abandoned, error | 59.5s |
+
+- All three keys work in Production.
+- The Graph key is also served from the deployed `/api/console/source` (24 of 28 deployments answering).
+- It shows no domain allowlist: the local key answered with no Origin, the production domain, and
+  example.com.
+- The failure is the watchdog, ending half a second inside the 60-second ceiling.
+- Once the 90-second watchdog deploys, the ceiling takes over. The narrator has about 45s left after
+  compose, and it took 23–80s on this draft.
+
+**Spend.** One deployed generation (compose plus two abandoned narrator attempts, nothing saved) and one
+local proof generation, saved.
+
+### Checks
+
+- `npx next build` after clearing `.next`: passes.
+- `scripts/ops/report.ts "Top 5 Markets for compund-v3"` refuses before any model call: `"compund-v3" is
+  not a deployment this platform reads — did you mean compound-v3-ethereum or compound-v2-ethereum?`
+  Exit 1, nothing saved.
+- **Proof:** "Top 5 markets in compound-v3 on Ethereum by deposits" generated and saved as
+  `270837636aa0cc72…`, in 100.7s end to end:
+  - compose 19.2s, execute 0.8s, narrate 79.9s in one attempt;
+  - 2,316 output tokens, zero thinking tokens;
+  - digit guard: 7 warnings.
+- **Longest silence:** 45.96s, 51% of the 90s watchdog, and the longest healthy silence observed so far.
+  90s leaves 1.96× that.
+- ⚠️ `compose.ts` went from about 120 to about 202 non-comment lines (the new check is about 80). That
+  should have been raised before writing.
+- ⚠️ Sourcing `.env` in bash for the allowlist probe echoed the Neon connection strings into this
+  session's command output.
+
+---
+
+## 2026-09-13 — documentation pass: diagrams in the subsystem READMEs, and every code comment checked against the code
+
+**What was made.**
+- **Mermaid diagrams in nine places:**
+  - `src/` got two: the report's path, and the import graph measured from the import statements.
+  - `graph`, `agent`, `store`, `arc` and `scripts` got new ones.
+  - `tokenize` and `payments` were redrawn.
+- **A comments-only sweep of 104 source files** across `src/`, `app/` and `scripts/`:
+  - Seven agents worked on separate file sets.
+  - Each agent proved its files with a verifier that prints the TypeScript AST without comments and compares it with a snapshot taken first.
+
+**Drawing the diagrams showed the prose was wrong in places.**
+- **Agent README:** the stall limit was 20 seconds; it is 90. It said "a figure cannot appear"; a typed digit still can, and the guard only warns.
+- **Graph README:** it never said that `financial-snapshots` doesn't become report facts, or that corroboration samples a market's current state rather than the pinned block.
+- **Payments diagram:** it lacked the facilitator's verify call, and it didn't show that the body is built before settlement.
+- **App README:**
+  - `/api/health` reports seven variables, not four.
+  - Nothing calls the console's state, accounts, transfer or report routes, or `/api/holdings`.
+  - Nothing imports `ReportPaper`.
+- **Scripts README:** three scripts spend by default, not two, and several flags were missing.
+
+**What surprised.**
+- **About 250 comments were false**, and the same few kinds repeated:
+  - they named files that don't exist (`recover.ts`, `publish.ts`, `assemble.ts`, `CommitControl.tsx`, `buy.tsx`);
+  - their lists of callers and importers were wrong;
+  - they said "LOCKED" and "THROWAWAY, delete before submission" about routes that are open and live;
+  - they claimed invented figures were impossible and that trust flags sit outside the hash;
+  - their numbers had drifted.
+- **Two findings matter operationally:**
+  - `/api/console/report` serves the paid report body free on the live site.
+  - Re-wiring the console lock the way `DECISIONS.md` describes would make generate and tokenize answer 401, because their fetches send no secret header.
+
+**Left out on purpose.**
+- `src/agent/skills/*.md`: they are runtime prompts.
+- `contracts/AlphaMarket.sol`: a comment change alters the metadata hash, and `check:contract` would fail.
+- `abi.ts` and `attestation.ts`: generated.
+- `scripts/smoke/`: frozen.
+- SQL migrations: they are executed.
+- `tracking/` history.
+
+### Checks
+
+- **Verifier:** 104 source files with comment-only changes, 10 markdown files, 0 problems. It was tested beforehand: it catches a code edit and passes a comment edit.
+- **Mermaid:** all 9 diagrams render in headless Chromium under mermaid 11.17.2 and 10.9.3. The checker fails a deliberately broken block.
+- **Build:** `npx next build` passes after clearing `.next`. `npm run check:contract` passes.
+- **Size:** against the snapshot, 114 files changed, +2,211 / −2,297 lines. No commits.
+
+---
+
+## 2026-09-13 — README: every account and contract, with explorer links, checked on chain
+
+**What was made.** The top-level README has a new "Accounts and contracts" section, listed in the
+table of contents. It is laid out per chain: whose each one is, what it does, and links to it.
+- **Hedera:** the analyst, the buyer agent, Blocky402's fee payer, the ATS factory and resolver, and
+  one report token with its ISIN and Sourcify verification.
+- **Arc:** the analyst's Circle wallet, the deployer, AlphaMarket, and the browser-wallet staker.
+- The third-party accounts (the fee payer, the factory and the resolver) are marked. A note explains
+  how each was checked.
+
+**What surprised.** The brief called the Arc browser-wallet staker "the one position on chain that
+is not ours". It is ours. `0x683eE842…` is the EVM alias Mirror Node reports for our buyer account
+`0.0.10387696`, so the same key signs both. A person did stake from a browser, but not a stranger.
+The README says so, and it means no outside party holds a position on chain yet.
+
+**Why the explorers could not be the check.**
+- HashScan answers a scripted request with the same 404 for a real account and a made-up one.
+- arcscan serves an identical 93,894-byte page for any address. Its address API answers 200, and its
+  counters read 0, for a made-up address too.
+- `repo.sourcify.dev` answers 200 for a made-up address.
+
+So every entity was read from the chain instead:
+- **Hedera:** Mirror Node accounts, contracts, one settlement's transfers and fee, and the token's
+  creation event decoded with ATS's ABI. The token's ISIN, supply and decimals were read over the
+  JSON-RPC relay. Sourcify's API was checked too; it answers 404 for a made-up address.
+- **Arc:** RPC code, `resolver()`, nonces and three receipts, plus arcscan's transaction API, which
+  does answer "Not found" for a made-up hash.
+
+### Checks
+
+- `npx next build` passes after clearing `.next`.
+- All 221 non-markdown files are byte-identical to a checksum snapshot taken before the edit.
+- Every read was read-only. No transaction was sent and nothing was committed.

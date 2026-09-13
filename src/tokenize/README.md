@@ -7,12 +7,16 @@ testnet. It is issued through Asset Tokenization Studio's contracts
 
 ```mermaid
 flowchart LR
-  R(["stored report<br/>+ 32-byte hash"]) --> P["prepare()<br/><i>every check that can stop the run</i>"]
-  P --> D["deployEquity<br/>maxSupply 1 · decimals 0"]
-  D --> G["grantRole(ISSUER)"]
-  G --> I["issue(1) → analyst"]
-  D -.->|"creation event"| E(["<b>alpha:&lt;hash&gt;</b><br/><i>emitted, never stored</i>"])
-  I --> T["transfer()<br/><i>lifecycle operation</i>"]
+  R(["stored report · hash H"]) --> H["isin.ts<br/>ISIN derived from H"]
+  R --> P["ats.ts prepare() · spends nothing<br/>not tokenized yet, by hash or ISIN<br/>signing key derives the analyst's Hedera address<br/>Hedera testnet · factory and resolver alive"]
+  H --> P
+  P --> D["factory.deployEquity()<br/>maxSupply 1 · decimals 0 · Reg S<br/>info = alpha:H"]
+  D -->|"EquityDeployed"| E(["<b>alpha:H</b> in the creation event<br/><i>emitted, never stored</i>"])
+  E -->|"read back and compared first"| G["grantRole(ISSUER, analyst)"]
+  G --> I["issue(analyst, 1)"]
+  I --> ROW[("report_tokens<br/>proxy · ISIN · three tx hashes")]
+  E -.->|"re-read from Mirror Node before an Arc commit"| ADM["arc/admission.ts"]
+  ROW -.->|"later, on its own"| T["transfer.ts · move the token<br/>balances asserted from the chain"]
 ```
 
 | file | what it does |

@@ -1,7 +1,9 @@
 # config — measurements, not settings
 
-Five small files that the rest of `src/` reads. **This directory imports nothing at runtime** (one
-type-only import from `types/`), so every layer can depend on it without a cycle.
+Five small files that the rest of `src/` reads. **This directory imports no other part of `src/` at
+runtime**, so every layer can depend on it without a cycle. Its imports are one type-only import from
+`types/`, a type-only import from `@x402/core` in `pricing.ts`, and `analysts.ts` reading `model.ts`
+inside the directory.
 
 | file | what it holds |
 |---|---|

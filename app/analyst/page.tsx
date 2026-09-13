@@ -1,26 +1,22 @@
 // The analyst's own page — what it was graded on, what it holds, what it has written.
 //
-// This is where the loop becomes visible. Everything else on this site shows one step: the console
-// generates, the marketplace sells, a market page takes a position. **This is the only page that
-// shows the step closing** — a claim staked, settled on chain, graded, and the grade sitting beside
-// the transaction a stranger can check it against.
+// **This page shows the whole loop in one place** — a claim staked, settled on chain, graded, and
+// the grade beside the transaction a stranger can check it against.
 //
 // ── ⚠️ READS THE STORE AND THE CHAIN DIRECTLY. IT DOES NOT FETCH `/api/holdings` ─────────────────
 //
-// `app/api/holdings/route.ts` returns very nearly this section's data and **is deliberately not
-// called here.** A server component fetching a route the same server serves is an HTTP round trip to
-// itself to run a query it could run — `app/page.tsx`'s header refuses the same thing for the same
-// reason. The route stays as a product API for callers that are not this page; the ~20 lines of
-// `balanceOf` below are the cost of not going through it, and they are the cheaper half.
+// `app/api/holdings/route.ts` returns very nearly the Holdings section's data and **is deliberately
+// not called here.** A server component fetching a route the same server serves is an HTTP round
+// trip to itself to run a query it could run — `app/page.tsx`'s header refuses the same thing. The
+// route stays as a product API for other callers; the ~20 lines of `balanceOf` below are the cheaper half.
 //
 // ── ⚠️ THREE COUNTS. NEVER A PERCENTAGE. AT ANY LEVEL OF AGGREGATION ────────────────────────────
 //
 // **Right, wrong and void are three outcomes and this page reports three numbers.** A percentage
 // needs a denominator and there is no honest one: counting voids punishes the analyst for a day the
 // subgraph could not be read, and excluding them silently changes the denominator between two
-// records that look comparable. `/markets` already states it as *"N settled — R right, W wrong"* and
-// this page uses that same shape, because two surfaces phrasing one record differently is how a
-// reader learns to trust neither.
+// records that look comparable. The line is `recordLine()`, the same string `/markets` renders,
+// because two surfaces phrasing one record differently is how a reader learns to trust neither.
 //
 // ⚠️ **A VOID IS NOT A LOSS.** It links `void_tx`, it reads *voided*, and it is counted in neither
 // column. `score.ts` writes `forecast_correct = null` for exactly this reason and nothing here
@@ -28,10 +24,9 @@
 //
 // ── ⚠️ EVERY GRADE CARRIES THE TRANSACTION IT RESTS ON, AND THE LINK WAS VERIFIED ON THE RPC ─────
 //
-// A grade is a judgement about a claim that settled on chain, and the settlement transaction is what
-// a stranger follows to check it rather than take our word. `scores → claims → markets` yields
-// `resolve_tx` on a resolved market and `void_tx` on a voided one — **one score shows one
-// transaction and which one depends on how it settled.**
+// The settlement transaction is what a stranger follows to check a grade rather than take our word.
+// `scores → claims → markets` yields `resolve_tx` on a resolved market and `void_tx` on a voided one
+// — **one score shows one transaction and which one depends on how it settled.**
 //
 // ⚠️ **arcscan's status code proves nothing** — it is a client-routed SPA that serves the same shell
 // for a nonsense path, the same trap HashScan set. So the three settlement transactions in the store
@@ -43,25 +38,21 @@
 // rather than hidden.** That state is a bug in the settlement path, and a blank cell would be the
 // one place this page quietly agreed to hide one.
 //
-// ── ⚠️ THE REHEARSAL RULE, AND WHY THIS IS THE THIRD COPY OF IT ─────────────────────────────────
+// ── ⚠️ WHAT IS LEFT OUT OF THE RECORD, AND STILL SHOWN ──────────────────────────────────────────
 //
-// **A market created over a day that had already closed is not a forecast** — the answer was knowable
-// at commit time — so it is excluded from the record. The test is arithmetic, `observationEnd <=
-// createdAt`, and **never the name**: a stored market whose id literally contains "rehearsal" can be
-// a forecast by that arithmetic.
+// **A rehearsal** — a market created over a day that had already closed — and **a demo**, whose
+// staking was open after the day it measures, both had a knowable answer, so both are shown in the
+// table, marked, and kept out of the counts. The tests are `isRehearsal()` and `pastPosted()` from
+// `src/arc/rehearsal.ts` — arithmetic, **never the name**: a stored market whose id literally
+// contains "rehearsal" can be a forecast by that arithmetic.
 //
-// ⚠️ **This is the third place that comparison is written** — `app/markets/page.tsx` has it in SQL,
-// `scripts/ops/score.ts` in TypeScript, and now here in SQL again. **It should be a helper and this
-// task could not make it one**: the brief's files are `app/analyst/`, the nav and `app/holdings/`,
-// and a shared helper belongs in `src/`, which is out of scope. Recorded rather than worked around —
-// the next task that may touch `src/` should lift all three into one function.
-//
-// ⚠️ **The exclusion is printed, never applied silently**, so a reader who counts the settled
-// markets themselves and gets a different number can see why.
+// ⚠️ **The exclusions are printed, never applied silently**, so a reader who counts the settled
+// rows themselves and gets a different number can see why.
 //
 // ── ⚠️ WHAT IS ABSENT, AND WHY NONE OF IT IS A ZERO ─────────────────────────────────────────────
 //
-//   trading return    `payouts` has no writer, so it is null for **every** claim. Rendered `—`.
+//   trading return    nothing in the product writes `payouts` (only a proof script's fixtures), so
+//                     it is null for **every** claim. Rendered `—`.
 //                     ⚠️ An analyst that has not collected has not lost. A `0.00` in this column
 //                     would be a claim about money that nobody has measured.
 //   reconciliation    `verdict.call` is null on every stored report — all of them are the
@@ -97,7 +88,7 @@ export const runtime = 'nodejs';
  */
 export const dynamic = 'force-dynamic';
 
-/** ⚠️ One standard ERC-20 view. Not the typechain factory — see `/api/holdings`'s header. */
+/** ⚠️ One standard ERC-20 view. Not the typechain factory — see `app/api/holdings/route.ts`. */
 const BALANCE_OF = ['function balanceOf(address) view returns (uint256)'];
 
 /** ⚠️ USDC on Arc is native gas at 18 decimals. Matches `app/markets/page.tsx`'s own helper. */
@@ -166,11 +157,10 @@ export default async function Analyst() {
       JOIN reports r ON r.hash = c.report_hash
      ORDER BY COALESCE(m.resolved_at, m.voided_at) DESC`;
 
-  // ⚠️ Rehearsals are excluded from the RECORD, not from the table — they are still shown, marked,
-  // and left out of the counts. Hiding them would make the counts unauditable.
-  // ⚠️ `isRehearsal` is imported, not re-spelled in this query. See `src/arc/rehearsal.ts`.
-  // ⚠️ **Two exclusions now, and a past-posted claim is NOT a rehearsal** — its observationEnd is
-  // minutes after its createdAt, so `isRehearsal` waves it through. See `src/arc/rehearsal.ts`.
+  // ⚠️ Rehearsals and demos are excluded from the RECORD, not from the table — they are still shown,
+  // marked, and left out of the counts. Hiding them would make the counts unauditable.
+  // ⚠️ **A past-posted claim is NOT a rehearsal** — its observationEnd is minutes after its createdAt,
+  // so `isRehearsal` waves it through. Both predicates are imported; see `src/arc/rehearsal.ts`.
   const demos = scores.filter((s) => pastPosted(s.close_time, s.observed_day));
   const graded = scores.filter(
     (s) => !isRehearsal(s.observation_end, s.created_at) && !pastPosted(s.close_time, s.observed_day),
@@ -282,9 +272,8 @@ export default async function Analyst() {
           </span>
         </div>
 
-        {/* ⚠️ **THE EMPTY STATE IS THE ONE THIS PAGE IS BUILT FOR.** `scores` has no rows until
-            markets 6 and 7 settle, and "no claim has been graded yet" is NOT a zero score — a
-            record of nothing and a record of failure must never look alike. */}
+        {/* ⚠️ **AN EMPTY TABLE IS NOT A ZERO SCORE.** "No claim has been graded yet" is the absence
+            of a record, and a record of nothing and a record of failure must never look alike. */}
         {scores.length === 0 ? (
           <div className="empty-state">
             <h2>No claim has been graded yet</h2>

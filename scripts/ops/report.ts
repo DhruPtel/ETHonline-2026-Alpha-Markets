@@ -3,14 +3,13 @@
 //   npx tsx --env-file=.env scripts/ops/report.ts "top 10 protocols by deposits"
 //
 // ⚠️ **This is a promotion, not a new implementation.** compose → execute → narrate, the digit-guard
-// warning and the timing breakdown all come from `scripts/demo/narrate.ts`; the save and the
-// fact/bytes summary come from `scripts/demo/store.ts`. What is left behind is everything that made
-// those two *proofs*: the four demo modes and their hand-written plans, the five `must()` assertions,
-// and — the reason this file exists — `demo/store.ts`'s deliberate one-character corruption of a
-// stored row, whose restore sits outside its `finally`.
+// warning and the timing breakdown come from `scripts/demo/narrate.ts`; the save comes from
+// `scripts/demo/store.ts`. Left behind is what made those two *proofs*: `narrate.ts`'s four modes and
+// hand-written plans, `store.ts`'s checks, and — the reason this file exists — `store.ts`'s deliberate
+// one-character corruption of a stored row, whose restore sits outside its `finally`.
 //
-// ⚠️ **Generating is cheap and everything generated is kept; tokenizing costs 7.7 HBAR and mints a
-// permanent asset.** That is why this saves unconditionally and stops, and why the last line it
+// ⚠️ **Generating is cheap and everything generated is kept; tokenizing costs about 7.7 HBAR and mints
+// a permanent asset.** That is why this saves unconditionally and stops, and why the last thing it
 // prints is a command rather than an action.
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -60,18 +59,19 @@ console.log(`\ndirective: ${directive}\n`);
 
 // ── The analyst's own record ─────────────────────────────────────────────────────────────────────
 // ⚠️ **Unit 15b, and this is the line that makes the loop run rather than exist.** `build` reads the
-// last five settled claims out of `scores` and returns the block the planner sees.
+// analyst's five most recent settled forecasts out of `scores` — rehearsals and past-posted demo
+// markets are dropped first — and returns the block the planner sees.
 //
 // ⚠️ **Built ONCE and the same object is passed to `compose` and to `recordContextDigest`.** The
-// digest is supposed to answer "what history did this plan see", and rebuilding it after the report
-// was written would answer a different question — the record can change between the two calls.
+// digest answers "what history did this plan see"; rebuilding it after the report was written would
+// answer a different question, because the record can change between the two calls.
 //
-// ⚠️ **`null` is the normal case and must stay silent.** No settled claims means no block, `compose`
-// adds nothing, and the system prompt is byte-for-byte what it was before this unit existed. There
-// is deliberately no "no record yet" line: that is a thing for the model to reason about where
-// there should be nothing.
+// ⚠️ **`null` is the normal case and must stay silent.** No settled forecasts means no block, `compose`
+// adds nothing, and the system prompt is byte-for-byte what it was before this unit existed. There is
+// deliberately no "no record yet" line: that is a thing for the model to reason about where there
+// should be nothing.
 //
-// ⚠️ **Identical to the console route's four lines, and that is the point** — two callers, one
+// ⚠️ **The same as `app/api/console/generate/route.ts`, and that is the point** — two callers, one
 // behaviour. Same `ANALYST_ID`, same `build`, so identical state produces an identical block.
 const tContext = Date.now();
 const context = await build(analyst(ANALYST_ID).arcAddress);
@@ -122,9 +122,10 @@ const hash = reportHash(report);
 
 console.log(render(report, hash));
 
-// ⚠️ **Warns, never blocks** — DECISIONS.md 2026-09-08, enforcement moves to Phase 4. The report is
-// printed and saved regardless; a utilization computed from two figures this pipeline fetched is
-// arithmetic on Graph data, and refusing it today would fail nearly every report.
+// ⚠️ **Warns, never blocks** — DECISIONS.md 2026-09-08, "The digit guard warns in Phase 2 and enforces
+// in Phase 3". Enforcement has not been switched on here. The report is printed and saved regardless;
+// a utilization computed from two figures this pipeline fetched is arithmetic on Graph data, and
+// refusing it would fail nearly every report.
 const violations = validate(report);
 if (!violations.length) {
   console.log('digit guard: ✅ clean — every figure in the text traces to a fact\n');
@@ -139,15 +140,14 @@ if (!violations.length) {
 const { inserted } = await save(report);
 
 // ⚠️ **AFTER `save`, because the row is keyed by the hash and does not exist until then** — and it is
-// a second write, so say what a failure between them costs. If this `UPDATE` fails the report is
-// saved, readable and correct; what is lost is the record of what history its plan saw, and the null
-// left behind is **indistinguishable from "no context was supplied"**. That ambiguity is the whole
-// cost, and it is small: a single `UPDATE` by primary key, immediately after the insert.
+// a second write. If this `UPDATE` fails the report is saved, readable and correct; what is lost is
+// the record of what history its plan saw, and the null left behind is **indistinguishable from "no
+// context was supplied"**. That ambiguity is the whole cost, and it is small: one `UPDATE` by primary
+// key, immediately after the insert.
 //
 // ⚠️ **Re-running is not a faithful repair.** `save` is a no-op for a byte-identical report, so a
-// second run would record the digest of the block built at THAT moment — which is the right shape
-// and possibly the wrong history. A digest recovered that way is not evidence of what the first run
-// saw. Better to notice the failure than to re-run and assume.
+// second run would record the digest of the block built at THAT moment — the right shape and possibly
+// the wrong history. Better to notice the failure than to re-run and assume.
 //
 // ⚠️ A `null` context writes nothing rather than writing null, so a report generated with no record
 // keeps an absent digest rather than an asserted one.

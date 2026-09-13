@@ -27,9 +27,10 @@
 // `narrate.ts`'s CHECKS block. That is deliberate and stays: a claim that cannot say how far apart
 // two figures were is not a claim. Measured 2026-09-07, the whole CHECKS block contributes 5 digit
 // runs against the FACTS block's 22 to 1,644, so this was never the main source of the model's
-// typed-digit pressure — and the guarantee belongs at the boundary anyway. Unit 11 rejects digits in
-// narration text that are not inside a `{fact:ID}` placeholder; that is the fix, not blinding the
-// model here.
+// typed-digit pressure — and the guarantee belongs at the boundary anyway. `agent/validate.ts` flags
+// digits in narration text that are not inside a `{fact:ID}` placeholder; that boundary is the fix,
+// not blinding the model here. ⚠️ It only warns today — nothing enforces it, and every report is
+// saved whatever it finds (see `narrate.ts`).
 
 import type { Finding, VerdictCall, Coverage } from '../types/report.js';
 import type { Computed, Decimal } from '../types/wire.js';
@@ -48,14 +49,12 @@ import { compare, net, ratio } from './ops.js';
 const REFERENCE_TOLERANCE = '0.05';
 
 /**
- * ⚠️ **The no-floating-point rule, and where it bends.** `ops.ts` exists because a rounded figure
- * is a wrong figure with a plausible face. The rule this file and `adapter.ts` both follow: use
- * `ops` wherever the input is ALREADY a validated decimal, and fall back to float only where a
- * malformed input would otherwise throw and take a whole deployment down with it. Here the input to
- * the threshold is a string `ratio()` just produced, so there is nothing to fall back from and the
- * comparison is exact. In `adapter.ts` the inputs are raw market values off the wire, and a throw
- * in the plausibility layer would defeat the point of a plausibility layer — that exception is
- * documented at the site. Float is still fine for DISPLAY in a rationale, which is all `off` is.
+ * ⚠️ **The no-floating-point rule, and where it bends.** The rule this file and `adapter.ts` both
+ * follow: use `ops` wherever the input is ALREADY a validated decimal, and fall back to float only
+ * where a malformed input would otherwise throw and take a whole deployment down with it — the
+ * exception `adapter.ts` documents at its market sum. Here the threshold's input is a string
+ * `ratio()` just produced, so the comparison is exact. Float is still fine for DISPLAY in a
+ * rationale, which is all `off` is.
  */
 const magnitude = (d: Decimal): Decimal => (d.startsWith('-') ? d.slice(1) : d);
 
@@ -64,7 +63,7 @@ const magnitude = (d: Decimal): Decimal => (d.startsWith('-') ? d.slice(1) : d);
  *
  * ⚠️ **UNWIRED IN THE REPORT PATH — the tier works, nothing feeds it** *(checked 2026-09-07)*.
  * `execute.ts` calls `reconcile` without a `reference` and nothing in `src/` constructs one; the
- * only producer anywhere is `demo/reconcile.ts`, which builds one from DefiLlama. **Do not remove
+ * only producer anywhere is `scripts/demo/reconcile.ts`, which builds one from DefiLlama. **Do not remove
  * this because it looks dead.** It is a working tier waiting for an adapter, and it is the only
  * route to `ties_out` for the majority of deployments that carry no contract accessor.
  *

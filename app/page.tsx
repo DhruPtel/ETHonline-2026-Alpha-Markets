@@ -208,7 +208,8 @@ export default async function ReportMarketplace() {
                 )}
 
                 {/* ⚠️ **A TOKENIZED REPORT AND AN UNTOKENIZED ONE MUST NOT LOOK ALIKE.** The design
-                    showed "Hedera token · x402 access" on every card; five of eleven have a token.
+                    showed "Hedera token · x402 access" on every card; when this was built, five of
+                    eleven reports had a token.
                     A tokenized one has an ISIN and a contract a stranger can check — that is the
                     difference between a published document and a security, and the second state is
                     not a faded version of the first. */}

@@ -89,17 +89,16 @@ export function analyst(id: string): AnalystConfig {
  * account is the same identity in the other world (§5.18, and the note on `hederaEvmAddress` above).
  *
  * ⚠️ **Hoisted out of `tokenize/ats.ts` on 2026-09-08, before it was copied.** The loop sweep flagged
- * it as a duplication about to happen: Unit 8 had it inlined, and Units 13 and 14 both need the same
- * resolution to find a report's `payTo`. Three copies of a `.find()` is three places to forget the
- * case-insensitive compare.
+ * a duplication about to happen: `ats.ts` had it inlined, and `payments/quotes.ts` and
+ * `payments/gate.ts` needed the same resolution to find a report's `payTo`. Every copy of a
+ * `.find()` is another place to forget the case-insensitive compare.
  *
  * ⚠️ **Case-insensitive, deliberately.** An EVM address is hex and its casing is EIP-55 checksum
- * information, not identity. `analysts.ts` stores lowercase, a report carries whatever `execute`
+ * information, not identity. This file stores lowercase, a report carries whatever its author
  * wrote, and a strict compare would fail on a correctly-checksummed address.
  *
  * Throws rather than returning `null`, for the same reason `analyst()` does: every caller is on a
- * path that ends in a token, a payment challenge or an on-chain claim, and none of them can proceed
- * without an author.
+ * path that ends in a token, a payment challenge or an on-chain claim.
  */
 export function analystByArcAddress(arcAddress: string): AnalystConfig {
   const found = ANALYSTS.find((a) => a.arcAddress.toLowerCase() === arcAddress.toLowerCase());

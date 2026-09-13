@@ -10,7 +10,7 @@
 // creation event commits a real report someone can read at a URL — which is the difference between
 // a working transfer and a working product.
 //
-// ⚠️ **Two phases, as Unit 8 established.** `prepare()` does every check that can stop the run —
+// ⚠️ **Two phases, as `ats.ts` established.** `prepare()` does every check that can stop the run —
 // no token, wrong key, wrong chain, nothing to send, sending to yourself — and `send()` is the only
 // thing that spends. Everything that can fail should fail before gas is paid.
 //
@@ -79,8 +79,8 @@ export interface TransferPlan {
   readonly token: ReportToken;
   /**
    * The token's ISSUER, always — this is who minted it, not who is sending it now.
-   * ⚠️ Kept under this name because `scripts/ops/move-token.ts` reads it and is out of scope here.
-   * For the account paying for THIS transfer, read `signer`.
+   * ⚠️ Kept under this name because `scripts/ops/move-token.ts` and `app/api/console/transfer` read
+   * it. For the account paying for THIS transfer, read `signer`.
    */
   readonly analyst: AnalystConfig;
   readonly signer: Signer;
@@ -103,17 +103,10 @@ export interface TransferResult {
 }
 
 /**
- * Everything that can stop the run, before anything costs.
- *
- * ⚠️ **The sender comes from the analyst row on the report, never from env.** Same rule as Unit 8:
- * each analyst owns its own tokens, and reading the holder from a shared variable would mean one
- * analyst signing away another's asset.
- */
-/**
  * Resolve a role to a signing wallet, and refuse a key that is not the account it claims to be.
  *
- * ⚠️ **This is `ats.ts:132`'s guarantee, kept and generalised.** That check exists because one
- * shared key is only safe while something proves it derives the row's address; without it a wrong
+ * ⚠️ **This is the key check in `ats.ts` `prepare()`, kept and generalised.** That check exists because
+ * one shared key is only safe while something proves it derives the row's address; without it a wrong
  * `HEDERA_SELLER_KEY` would sign from an account nobody registered, silently and irreversibly. The
  * same rule now applies per role, against a *different* source of truth for each:
  *
@@ -153,8 +146,14 @@ async function resolveSigner(
 }
 
 /**
- * @param signer Which configured account sends. ⚠️ Defaults to `'analyst'` so existing callers —
- *   `scripts/ops/move-token.ts` — keep their exact previous behaviour.
+ * Everything that can stop the run, before anything costs.
+ *
+ * ⚠️ **The issuer comes from the analyst row on the report, never from env.** Same rule as `ats.ts`:
+ * each analyst owns its own tokens, and reading the analyst from a shared variable would mean one
+ * analyst signing away another's asset. Who SENDS is the `signer` role, resolved by `resolveSigner()`.
+ *
+ * @param signer Which configured account sends. ⚠️ Defaults to `'analyst'`, which is what
+ *   `scripts/ops/move-token.ts` relies on; `app/api/console/transfer` passes a role explicitly.
  */
 export async function prepare(
   reportHash: string,
@@ -261,8 +260,7 @@ export async function send(plan: TransferPlan): Promise<TransferResult> {
   }
 
   // ⚠️ Recorded only AFTER the balances are asserted. A hash written against a transaction that
-  // executed but moved nothing would be a row asserting something that did not happen. Unit 10
-  // established this and it is unchanged by the history table below.
+  // executed but moved nothing would be a row asserting something that did not happen.
   //
   // ── Two writes, and the append is the real record (2026-09-09) ─────────────────────────────────
   //
@@ -272,9 +270,10 @@ export async function send(plan: TransferPlan): Promise<TransferResult> {
   // happened in that direction. The append cannot lose a hop; `tx_hash` is UNIQUE, so re-recording
   // one after a retry is a no-op rather than a duplicate claim.
   //
-  // ⚠️ The column is still written because two readers outside this file's scope use it —
-  // `scripts/ops/move-token.ts` and `app/api/console/state`. Its meaning narrows from "the transfer"
-  // to "the most recent transfer" and nothing about those callers breaks.
+  // ⚠️ The column is still written because readers use it — `scripts/ops/move-token.ts` and the
+  // console's `state`, `transfer` and `accounts` routes. Its meaning narrows from "the transfer" to
+  // "the most recent transfer". ⚠️ `app/api/console/accounts` still reads any `transfer_tx` as "the
+  // buyer holds it", which is wrong for a token that has come back; it shows chain holdings beside it.
   await db()`
     INSERT INTO token_transfers (report_hash, tx_hash, from_address, to_address, signer)
     VALUES (${plan.reportHash}, ${receipt.hash}, ${plan.from}, ${plan.to}, ${plan.signer.role})

@@ -1,9 +1,9 @@
 // The ISIN a report's ATS token carries. Pure computation — no chain, no store, no network.
 //
-// ⚠️ **Why this is its own unit, ahead of the one that uses it.** The check digit is validated
+// ⚠️ **Why this is its own file, proved before the deploy that uses it.** The check digit is validated
 // ON-CHAIN by the ATS factory (`factory/isinValidator.sol`), which reverts `WrongISINChecksum`.
-// Unit 8's deploy costs real HBAR and a revert produces nothing, so the digit is proved here —
-// against three real ISINs and against an independent implementation — before anything is paid for.
+// `ats.ts`'s deploy costs real HBAR and a revert produces nothing, so `scripts/demo/isin.ts` proves the
+// digit — against three real ISINs and against an independent implementation — before anything is paid for.
 //
 // ⚠️ **What was wrong before.** SM-07 minted under the hardcoded constant `"XXALPHA00015"`. Every
 // report token would have carried the same identifier, making two reports indistinguishable by the

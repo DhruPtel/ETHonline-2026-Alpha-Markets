@@ -1,6 +1,6 @@
 // POST /api/console/transfer — move a report's token. **Spends ~0.43 HBAR and moves a real asset.**
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// ⚠️ **Nothing in `app/` calls this today; it answers anyone who posts to it.**
 //
 // ⚠️ **Two-step, like tokenize, and for the same reason.** `scripts/ops/move-token.ts` is dry by
 // default; a console control that sent on the first click would be testing something this build does
@@ -24,6 +24,7 @@ import { db } from '../../../../src/store/db.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+/** ⚠️ Vercel Hobby clamps this to 60; only locally is it 300. */
 export const maxDuration = 300;
 
 // SM-07's measured lifecycle. This is the fourth step; the first three are the tokenize route's.
@@ -32,12 +33,10 @@ const SM07_UNIT8 = 7.71195075;
 const SM07_FULL = 8.13891225;
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **This moves a real asset and spends gas.** The doorlock is unwired below.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **This moves a real asset and spends gas, and it is UNLOCKED since 2026-09-12 — open on the
+  // public deployment.** `locked(request)` refused without the `x-console-secret` header; it is
+  // commented out, not deleted. `../lock.ts` and `tracking/DECISIONS.md` 2026-09-12 say what puts it
+  // back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 

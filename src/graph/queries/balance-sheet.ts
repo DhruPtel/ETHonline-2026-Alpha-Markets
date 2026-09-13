@@ -1,5 +1,5 @@
 // Protocol-level totals. The document everything runs first, and the one the sweep runs
-// against all 27.
+// against every configured deployment.
 //
 // Every field below is in the measured intersection of all five live schema versions —
 // 3.1.0, 3.0.1, 3.0.0, 2.0.1 and 1.3.0 — by schema introspection on 2026-09-07, and the
@@ -29,7 +29,7 @@ export const BALANCE_SHEET = `query BalanceSheet($block: Block_height) {
 export interface BalanceSheetProtocol {
   id: string; name: string; slug: string; network: string; type: string;
   schemaVersion: string; subgraphVersion: string; methodologyVersion: string;
-  /** `POOLED` or `CDP`. In the intersection, so the sweep can finally fill config's null column. */
+  /** `POOLED` or `CDP`. In the intersection, which is how the sweep filled config's `lendingType` column. */
   lendingType: string | null;
   riskType: string | null;
   totalValueLockedUSD: string | null;

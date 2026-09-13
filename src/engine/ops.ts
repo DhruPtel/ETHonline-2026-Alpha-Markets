@@ -1,4 +1,4 @@
-// The deterministic arithmetic a report plan executes. Five operations, no judgment — which maths
+// The deterministic arithmetic a report plan executes. Six operations, no judgment — which maths
 // to run is the plan's decision, not this file's.
 //
 // ⚠️ **No floating point anywhere.** The gateway returns figures at up to 23 decimal places —

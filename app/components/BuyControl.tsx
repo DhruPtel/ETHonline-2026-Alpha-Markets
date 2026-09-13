@@ -80,7 +80,7 @@ interface Bought {
  *      its own `overflow:auto` never engages because nothing constrains it, and `.viewer`'s
  *      `overflow:hidden` **silently cut the bought report off at the frame with no scrollbar** — a
  *      buyer paid 0.001 HBAR and could not reach the rest of it.
- *   2. `FitPanel` scales the sheet with a ResizeObserver. There is no script here.
+ *   2. `useFitPanel` scales the console's sheet with a ResizeObserver. This page does not use it.
  *
  *   And the same rule gave the rail `height:100%; overflow:auto`, so the **buy button sat below an
  *   internal scroll fold** inside a dark panel whose `scrollbar-width: thin` bar is nearly invisible.
@@ -94,7 +94,7 @@ interface Bought {
  * precisely the failure being fixed, and it must not be reintroduced on a document someone paid
  * for.** A page that scrolls has no measurement and no failure mode.
  *
- * ⚠️ Inline rather than a stylesheet edit: `app/globals.css` is out of scope for this task, and an
+ * ⚠️ Inline rather than a stylesheet edit: `app/globals.css` was out of scope for that task, and an
  * inline style beats a media-query rule without needing `!important`. It removes the geometry only —
  * every colour, border, radius and column proportion still comes from the console's own classes.
  */
@@ -106,7 +106,8 @@ const hbar = (tinybars: number) => `${(tinybars / 1e8).toFixed(8)} HBAR`;
  * `0.0.7162784@1788992192.548150225` → `0.0.7162784-1788992192-548150225`.
  * ⚠️ The same transform `app/api/buy/route.ts` does to ask the Mirror Node about this transaction.
  * It is derived from a returned field rather than invented, and it is the link whose status code
- * actually means something — HashScan is a client-routed SPA and answers 200 for anything.
+ * actually means something — HashScan is a client-routed SPA whose server 404s every deep path to a
+ * non-browser client (logs.md), so its status proves nothing either way.
  */
 function mirrorId(settled: string): string {
   const [account, stamp] = settled.split('@');
@@ -284,10 +285,11 @@ export function BuyAndRead({
               </header>
 
               <div className="paper-title">
-                {/* ⚠️ Sixteen of the nineteen stored reports pre-date migration 008 and have no
-                    title. Those get the directive shortened at a word boundary as their heading —
-                    the same words, just the front of them — and the sheet says so rather than
-                    letting the repetition below read as a mistake. */}
+                {/* ⚠️ Sixteen of the nineteen stored reports had no title when counted — those from
+                    before migration 008, and those saved before `recordTitle` was called. Those get
+                    the directive shortened at a word boundary as their heading — the same words,
+                    just the front of them — and the sheet says so rather than letting the repetition
+                    below read as a mistake. */}
                 <span className="eyebrow">
                   {paid ? 'FULL REPORT' : 'PREVIEW'}
                   {derived ? ' · HEADING TAKEN FROM THE DIRECTIVE, NO ANALYST TITLE STORED' : ''}

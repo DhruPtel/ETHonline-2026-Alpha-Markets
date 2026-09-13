@@ -1,11 +1,11 @@
 // The x402 resource server. One construction, shared by every gated route.
 //
-// ⚠️ **Replaces the throwaway construction in `app/api/probe/route.ts`.** That one proved the shape
-// works on Next 16 and returns a correct 402 from Vercel; it was never meant to be depended on. It
-// builds a new server on every request, its facilitator host is a module constant while its network
-// string comes from env, and it carries `process.env.HEDERA_SELLER_ID ?? '0.0.10387690'` — a fallback
+// ⚠️ **Replaces the throwaway construction in `app/api/probe/route.ts`** (still deployed, not yet
+// deleted). That one proved the shape works on Next 16 and returns a correct 402 from Vercel; it was
+// never meant to be depended on. It builds a new server on every request, hardcodes its facilitator
+// host and network string, and carries `process.env.HEDERA_SELLER_ID ?? '0.0.10387690'` — a fallback
 // that makes a correctly-set variable and a completely absent one produce identical output. None of
-// those survive being a real dependency, and Units 13, 14 and 15 all sit behind this file.
+// that survives being a real dependency. `gate.ts` and `app/api/health` sit behind this file.
 
 import { HTTPFacilitatorClient } from '@x402/core/http';
 import { x402ResourceServer } from '@x402/core/server';
@@ -45,10 +45,8 @@ export type NetworkConfig = (typeof NETWORKS)[NetworkName] & { readonly network:
 // ⚠️ **An empty env var is a missing env var.** `??` falls back on `undefined` and never on `""`,
 // which is how this project shipped a live 402 carrying `payTo: ""`. There is no fallback anywhere
 // in this file: a wrong-but-present value connects to something, and the failure then surfaces as a
-// payment that will not settle rather than as the configuration error it is.
-//
-// ⚠️ The guard was a local copy until 2026-09-09; it is now `config/env.ts`, shared by all six
-// former copies. No hint here — the Neon explanation belongs to the database variables alone.
+// payment that will not settle rather than as the configuration error it is. The guard is
+// `config/env.ts`; no hint here — the Neon explanation belongs to the database variables alone.
 
 /** The network this deployment settles on, with everything that must move with it. */
 export function network(): NetworkConfig {
@@ -69,14 +67,11 @@ export function network(): NetworkConfig {
  * ⚠️ **Lazily constructed and memoized — never at module scope.** `x402ResourceServer.initialize()`
  * calls `process.exit` on a permanent config mismatch. At module scope on Vercel that is a cold-start
  * crash loop on **every** gated route, and it reads like a platform outage rather than a config
- * error. `scripts/smoke/05-x402-purchase.ts` builds at module scope and awaits `initialize()` at
- * line 245 — that is the line not to copy.
+ * error. `scripts/smoke/05-x402-purchase.ts` builds at module scope and awaits `seller.initialize()`
+ * at top level — that is the pattern not to copy.
  *
  * Same shape as `store/db.ts`'s `let client = null; export function db() { return (client ??= pooled()) }`:
  * calling the function is what constructs, and a warm invocation reuses one server.
- *
- * ⚠️ This sentence used to point at `store/reports.ts`, where the pattern lived until the three
- * per-module clients were consolidated into `db.ts` on 2026-09-08. Corrected 2026-09-09.
  *
  * ⚠️ **`initialize()` is NOT called here.** `withX402` syncs with the facilitator itself on first
  * use; calling it eagerly would move the `process.exit` risk back into construction. Constructing is

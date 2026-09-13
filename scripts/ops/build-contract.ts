@@ -4,39 +4,38 @@
 //   npx tsx scripts/ops/build-contract.ts            ← compile and WRITE src/arc/abi.ts
 //   npx tsx scripts/ops/build-contract.ts --check    ← compile and COMPARE; exits 1 on drift
 //
+// `npm run build:contract` and `npm run check:contract` are these two; `prebuild` runs the check.
+//
 // ⚠️ **The artifact is committed because nothing compiled ships to Vercel.** `solc` and
 // `@openzeppelin/contracts` are devDependencies and are absent from a deployed function — the same
-// constraint that stops `tokenize/ats.ts` verifying its own tokens. `next build` and the settlement
-// code both have to find the ABI already on disk.
+// constraint that stops `src/tokenize/ats.ts` verifying its own tokens. `next build` and the
+// settlement code both have to find the ABI already on disk.
 //
 // ⚠️ **A stale ABI is the failure this file exists to prevent, and it does not look broken.** It
 // decodes the wrong fields against a live contract holding real USDC and returns plausible garbage.
-// This project has already shipped a generated-file-that-drifts once: `tokenize.ts` printed a verify
+// This project has already shipped a generated step that drifted: `tokenize.ts` printed a verify
 // command and trusted a person to run it, and three of four report tokens sat unverified against a
 // pass/fail requirement until someone went looking. **So `--check` refuses; it never warns.**
 //
-// ── What this reuses from `scripts/ops/verify-ats.ts`, and what it deliberately does not ─────────
+// ── Borrowed from `scripts/ops/verify-ats.ts` as a pattern, not an import ────────────────────────
 //
-// Reused, as a pattern rather than an import: the lazy `createRequire` + `require("solc")`, the
-// Standard JSON Input shape, the version assertion, and the compile-then-compare-bytes-and-refuse
-// gate. That gate is the thing worth copying and four report tokens depend on the original.
+// Copied: the lazy `createRequire` + `require("solc")`, the Standard JSON Input shape, the version
+// assertion, and the compile-compare-refuse gate.
 //
-// ⚠️ **NOT imported, and the reason is mechanical rather than stylistic.** `verify-ats.ts` resolves
-// `@hashgraph/asset-tokenization-contracts` and `@openzeppelin/contracts` at MODULE SCOPE (its lines
-// 69–70) and imports `MIRROR`, which pulls in `ethers` and the ATS typechain. Importing it here would
-// execute two `require.resolve` calls on contract packages — one of them a devDependency — in the one
-// code path that has to keep working when the compiler is missing. A prebuild check that dies on an
-// unrelated missing package is worse than the drift it was added to catch.
+// ⚠️ **NOT imported, for a mechanical reason.** `verify-ats.ts` resolves
+// `@hashgraph/asset-tokenization-contracts` and `@openzeppelin/contracts` at MODULE SCOPE (`ATS_ROOT`
+// and `OZ_ROOT`) and imports `MIRROR`, which pulls in `ethers` and the ATS typechain. Importing it here
+// would run two `require.resolve` calls on contract packages — one of them a devDependency — in the
+// one code path that has to keep working when the compiler is missing. A prebuild check that dies on
+// an unrelated missing package is worse than the drift it was added to catch.
 //
-// ⚠️ **The trace half is not reused because there is nothing to trace.** `AlphaMarket.sol` imports
-// nothing at all — zero `import` statements, by decision in Unit 2 — so the closure is one file.
+// ⚠️ **Its source tracing is not needed.** `AlphaMarket.sol` has zero `import` statements, by decision
+// in Unit 2, so the closure is one file.
 //
-// ⚠️ **The SETTINGS below are OURS and are deliberately not shared with `verify-ats.ts`.** That
-// file's settings are a *reproduction* of ATS's upstream hardhat config, reverse-engineered from a
-// CBOR trailer because the package ships no build-info. Ours are an *original choice* about our own
-// contract. They coincide today. Coupling them would mean a third party changing their build config
-// silently changing the bytecode we deploy, which is exactly the class of surprise this codebase
-// spends its comments avoiding.
+// ⚠️ **`SETTINGS` below are OURS and deliberately not shared with `verify-ats.ts`.** Those are a
+// *reproduction* of ATS's upstream hardhat config, recovered from a CBOR trailer because the package
+// ships no build-info; ours are an *original choice* about our own contract. They coincide today.
+// Coupling them would let a third party's build config silently change the bytecode we deploy.
 
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';

@@ -10,18 +10,61 @@ Node 20.6 or later, and `.env` must exist, even if it is only a copy of `.env.ex
 | `demo/` | One proof per build unit, kept as a record |
 | `smoke/` | Phase 0's nine isolated integration tests |
 
+## What the ops scripts touch
+
+Measured from their imports and the calls those make.
+
+```mermaid
+flowchart LR
+  subgraph OPS["scripts/ops"]
+    REP["report.ts"]
+    DATA["sweep-protocols.ts · triage-protocols.ts<br/>check-market-level.ts"]
+    ROWS["migrate.ts · unpublish.ts · score.ts<br/>seed-demo-record.ts · clear-test-grades.ts"]
+    TOK["tokenize.ts · move-token.ts"]
+    BUY["buy.ts"]
+    VER["verify-ats.ts"]
+    IDS["verify-analyst.ts · attest-identity.ts<br/>provision-circle.ts"]
+    MKT["commit-market.ts · create-forecasts.ts<br/>demo-market.ts · resolve-market.ts"]
+    DRV["drive-market.ts"]
+    BLD["build-contract.ts"]
+  end
+  REP --> ANT[("Anthropic")]
+  REP --> GR[("The Graph")]
+  REP --> ETH[("Ethereum RPC")]
+  REP --> DB[("Neon")]
+  DATA --> GR
+  ROWS --> DB
+  TOK --> HED[("Hedera testnet")]
+  TOK --> DB
+  TOK -->|"tokenize.ts, after minting"| SRC[("Sourcify")]
+  BUY -->|"x402"| SITE["the deployed gate"]
+  SITE --> HED
+  VER --> SRC
+  IDS --> CIR[("Circle API")]
+  IDS --> HED
+  MKT -->|"settlement and side reads"| GR
+  MKT -->|"admission, Mirror Node"| HED
+  MKT --> CIR
+  MKT --> DB
+  CIR --> ARC[("Arc testnet")]
+  DRV -->|"deploys with ARC_DEPLOYER_KEY"| ARC
+  DRV --> CIR
+  BLD --> ABI["src/arc/abi.ts"]
+```
+
 ## ops/
 
 ⚠️ **Most scripts that spend are dry by default** and print what they would do. The spend flag is
-in the table. **Two spend by default:** `commit-market.ts` and `drive-market.ts`.
+in the table. **Three spend by default:** `commit-market.ts`, `drive-market.ts`, and
+`resolve-market.ts --rehearse`.
 
 **Reports and the data layer**
 
 | script | what it does | cost or effect |
 |---|---|---|
-| `report.ts "<directive>"` | Generate a report and store it | model tokens, Graph queries |
+| `report.ts "<directive>"` | Generate a report and store it | model tokens, Graph queries, Ethereum RPC reads; a database write |
 | `sweep-protocols.ts [--inventory]` | Ask every configured deployment whether it answers. `--inventory` rewrites `docs/protocol-inventory.md`. | Graph queries |
-| `triage-protocols.ts` | Decide whose numbers are publishable | Graph queries |
+| `triage-protocols.ts` | Decide whose numbers are publishable, checked against DefiLlama as a reference. Writes `/tmp/triage.json`. | Graph queries, DefiLlama |
 | `check-market-level.ts` | A one-shot comparison, already run | Graph queries |
 | `unpublish.ts <hash…> [--apply]` | Take our own test reports off the marketplace | database write with `--apply` |
 | `migrate.ts` | Apply `src/store/migrations/` in order, through `DATABASE_URL_DIRECT` | DDL (see `src/store/README.md` on migration 009) |
@@ -44,10 +87,10 @@ in the table. **Two spend by default:** `commit-market.ts` and `drive-market.ts`
 | `provision-circle.ts` | Generate or reuse the Circle entity secret and print the ciphertext Circle's console asks for | — |
 | `verify-analyst.ts` | Assert `config/analysts.ts` against the live Circle API and Mirror Node | read-only |
 | `attest-identity.ts [--check] [--force]` | Sign the two-key identity attestation into `src/arc/attestation.ts`; `--check` verifies only | signing, no gas |
-| `commit-market.ts [--dry-run]` | Create a market and commit the analyst's claim | ⚠️ **USDC by default** |
+| `commit-market.ts [--dry-run] [--create-only]` | Create a market and commit the analyst's claim; `--create-only` stops after `createMarket`. The day and metric come from `MARKET_OBSERVED_DAY` and `MARKET_METRIC`. ⚠️ The default day, 2026-09-12, is now in the past: set one that has not started before spending. | ⚠️ **USDC by default**; `--create-only` spends gas |
 | `create-forecasts.ts [--send]` | Create forecast markets with no claim | gas with `--send` |
-| `demo-market.ts --presets / --list / --seed [--send] / --create [--send]` | Demo markets | USDC with `--send` |
-| `resolve-market.ts --market=m/… [--send]` | Settle one market, then resolve or void it | gas with `--send` |
+| `demo-market.ts --presets / --list / --seed [--send] / --create [--send] [--window=…] [--day=…] / --retire [--send]` | Demo markets: check the presets, list them, open one, or void the abandoned | USDC with `--send`: `--seed` and `--create` also stake 0.01 USDC; `--retire` spends `voidMarket` gas |
+| `resolve-market.ts --market=m/… [--send] [--live]` or `--rehearse` | Settle one market, then resolve or void it. Chain markets 6 and 7 also need `--live`. `--rehearse` creates two throwaway markets and resolves one and voids the other. | gas with `--send`; ⚠️ **`--rehearse` spends with no flag** |
 | `score.ts [--dry-run] [--market=m/…]` | Grade settled claims | database write |
 | `seed-demo-record.ts [--list] [--remove]` | The seeded demo grades, which have no chain market | database write |
 | `clear-test-grades.ts [--apply]` | Delete grades that belong to test markets | database write with `--apply` |

@@ -1,12 +1,13 @@
 // What triage said, against what market-level inspection says.
 //
 // Triage (Unit 6) judged each deployment from its PROTOCOL TOTALS — an external reconciliation, a
-// utilization ratio, a snapshot count. It never walked the markets. The adapter does, and on
-// compound-v3 it found a live DATA_ERROR on a deployment triage had cleared as `publishable`.
+// utilization ratio, a snapshot count — and read one page of markets only to count those at exactly
+// 100% utilization. It never walked a market population. The adapter does, and on compound-v3 it
+// found a live DATA_ERROR on a deployment triage had cleared as `publishable`.
 //
 // ⚠️ This measures the GAP between those two views. It is not a new check — it runs the same
-// `adapt()` every report will run, over a real market population, and reports where the two
-// disagree. The gap is the finding.
+// `adapt()` that `execute.ts` runs for every report, over a real market population, and reports where
+// the two disagree. The gap is the finding.
 import { querySubgraph } from '../../src/graph/client.js';
 import { paginate } from '../../src/graph/paginate.js';
 import { adapt } from '../../src/graph/adapter.js';

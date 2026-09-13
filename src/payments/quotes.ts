@@ -14,19 +14,15 @@
 // nothing is held against a supply of one and there is no second identifier to bind. `tier` and
 // `recipient` stay nullable and unwritten.
 //
-// ⚠️ **No `payTo` here** — the table has no such column and it is not this unit's to know. It belongs
-// on the challenge, which Unit 14 resolves per request through `DynamicPayTo` from the report's
+// ⚠️ **No `payTo` here** — the table has no such column and it is not this file's to know. It belongs
+// on the challenge, which `gate.ts` resolves per request through `DynamicPayTo` from the report's
 // analyst row via `analystByArcAddress()`.
 
 import { randomUUID } from 'node:crypto';
 import type { AssetAmount } from '@x402/core/types';
 import { REPORT_PRICE_TINYBARS } from '../config/pricing.js';
 import { closePool, db } from '../store/db.js';
-// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
-// three modules each memoized their own, so a request touching all three opened three connections
-// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
-// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
-//
+// The shared client from `store/db.ts` — see there for why never one of this module's own.
 // For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
 export { closePool as close };
 
@@ -50,16 +46,14 @@ export interface Quote {
   readonly priceTinybars: string;
   readonly expiresAt: Date;
   /**
-   * ⚠️ **NOTHING WRITES THIS COLUMN. Every row is `'open'` forever.** Stated first because the rest
-   * of this comment used to describe an intention and read as a description.
+   * ⚠️ **NOTHING WRITES THIS COLUMN. Every row is `'open'` forever.**
    *
    * `'expired'` is unwritten *by design*: expiry is a fact about time, not a stored flag, and since
    * nothing sweeps this table a stored `'expired'` would only ever be as fresh as the last sweep
-   * that did not run. Read liveness through `isLive()`, never through `state`. That half is correct
-   * and deliberate.
+   * that did not run. Read liveness through `isLive()`, never through `state`.
    *
-   * ⚠️ **`'settled'` is unwritten by OMISSION, and that is a real gap.** This comment said "Unit 14
-   * moves a row to `'settled'`" and Unit 14 does not: `gate.ts`'s `onAfterSettle` updates
+   * ⚠️ **`'settled'` is unwritten by OMISSION, and that is a real gap.** This comment once said the
+   * gate moves a row to `'settled'`, and it does not: `gate.ts`'s `onAfterSettle` updates
    * `purchases`, which is where a settlement is actually recorded, and never touches `quotes`.
    * Three things follow, none of them fixed here:
    *
@@ -72,8 +66,8 @@ export interface Quote {
    * ⚠️ **No money consequence today**, which is why this is a gap and not a bug: the Own tier is cut,
    * so nothing is reserved against a supply of one and two paid reads of one report are both valid.
    * It becomes load-bearing the moment anything wants to ask "was this offer taken?" without joining
-   * `purchases` — which is Unit 17's territory. **Changing it is a behaviour change and belongs in
-   * its own commit.** Recorded 2026-09-09; the comment now describes the code rather than the plan.
+   * `purchases` — recovery's territory (PHASE-3 Unit 17, not built). **Changing it is a behaviour
+   * change and belongs in its own commit.**
    */
   readonly state: 'open' | 'settled' | 'expired';
   readonly createdAt: Date;
@@ -106,7 +100,8 @@ export function isLive(q: Quote, at: Date = new Date()): boolean {
  * ⚠️ **From the QUOTE's price, never from the constant.** Freezing a price and then advertising a
  * different one would make the row a decoration. ⚠️ The asset arrives as a parameter for the same
  * reason it does in `pricing.ts`: importing `@x402/hedera` for one string pulled 2.24 MB of
- * `@hiero-ledger/sdk` into two pages, measured 2026-09-08. Unit 14 has it loaded already.
+ * `@hiero-ledger/sdk` into two pages, measured 2026-09-08. `gate.ts` has it loaded already, from
+ * `server.ts`'s `network()`.
  */
 export function quoteAmount(q: Quote, asset: string): AssetAmount {
   return { asset, amount: q.priceTinybars };
@@ -121,9 +116,10 @@ export function quoteAmount(q: Quote, asset: string): AssetAmount {
  * and it would arrive as a 500 where a 404 belongs.
  *
  * ⚠️ **An existing live quote at the current price is REUSED, not replaced or duplicated.** Every
- * unpaid request to a gated report produces a 402, every report is publicly linked from the index,
- * and a row per unpaid request would let anything that crawls the site grow this table without
- * bound. Reuse also gives a buyer that retries the same quote id to match a settlement against.
+ * unpaid request to a gated report produces a 402, report pages are public and linked from the
+ * site, and a row per unpaid request would let anything that crawls it grow this table without
+ * bound. Reuse also hands a buyer that retries the same quote id — though nothing matches a
+ * settlement to a quote: `purchases` has no quote column.
  * ⚠️ Reuse is filtered on the price as well as on liveness, so a price change stops reusing
  * immediately rather than serving the old figure for up to `QUOTE_TTL_SECONDS`.
  */
@@ -151,7 +147,10 @@ export async function quote(reportHash: string): Promise<Quote | null> {
   return toQuote(row!);
 }
 
-/** One quote by id — what Unit 14 matches a settlement back against. */
+/**
+ * One quote by id. ⚠️ Only `scripts/demo/quotes.ts` calls it: `gate.ts` records a settlement in
+ * `purchases` and never reads a quote back.
+ */
 export async function quoteById(id: string): Promise<Quote | null> {
   const [row] = await db()<QuoteRow[]>`
     SELECT ${db().unsafe(COLUMNS)} FROM quotes WHERE id = ${id}`;

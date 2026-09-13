@@ -1,15 +1,15 @@
 // GET /api/console/state — everything the console displays about what already exists.
 //
-// ⚠️ **THROWAWAY, like everything under `app/console/` and `app/api/console/`.** Delete the two
-// directories before submission. Nothing in the product imports this.
+// ⚠️ **Nothing in `app/` fetches or imports this today.** `/console` is a server component that reads
+// the store itself. It was never locked, and the 2026-09-12 doorlock entry does not name it.
 //
 // ⚠️ **`list()` is the real reader and is used as-is.** The tables below it are read with raw SQL
 // through the exported `db()` client, and that is deliberate rather than lazy: `store/tokens.ts`
 // returns a `ReportToken` that omits the transaction hashes on purpose ("the tx hashes are ours"),
-// and no reader exists for `quotes` or `purchases` at all. The console is the ours-side — it needs
+// and nothing in `src/` lists `quotes` or `purchases`. The console is the ours-side — it needs
 // `transfer_tx` to say whether a token moved, and `deploy_tx`/`issue_tx` to link to HashScan. The
-// alternative was adding readers to `src/`, which this unit may not do. `scripts/ops/tokenize.ts`
-// and `scripts/ops/move-token.ts` both read these same tables the same way.
+// alternative was adding readers to `src/`, which the unit that wrote this could not do.
+// `scripts/ops/tokenize.ts` and `scripts/ops/move-token.ts` read these tables the same way.
 //
 // ⚠️ **Never calls `close()`.** That is for scripts, which have to exit; `store/tokens.ts` says a
 // route handler must not. Closing the pool here would break the next request.

@@ -1,9 +1,9 @@
 // The outcome onto the chain. ⚠️ **This is the file that spends on a settlement.**
 //
-// ⚠️ **SEPARATE FROM UNIT 8 ON PURPOSE: ONE DECIDES, ONE SPENDS.** `settle.ts` reads the day and
-// writes the evidence and has no path to a chain — asserted structurally by its own proof. This file
-// has no opinion about what the answer is. It takes the row Unit 8 wrote and puts 32 bytes of it
-// somewhere nobody can amend.
+// ⚠️ **SEPARATE FROM `settle.ts` ON PURPOSE: ONE DECIDES, ONE SPENDS.** `settle.ts` reads the day and
+// writes the evidence and has no path to a chain — asserted structurally by `scripts/demo/settle.ts`,
+// which fails if it imports `arc.ts`. This file has no opinion about what the answer is. It takes the
+// stored row and puts 32 bytes of it somewhere nobody can amend.
 //
 // ⚠️ **`evidenceHash` COMES OFF THE STORED ROW AND IS NEVER RECOMPUTED HERE.** The bytes were
 // written before the chain call precisely so the hash commits to something that exists. Re-deriving
@@ -14,17 +14,17 @@
 //
 // ── ⚠️ Every guard here exists because a revert costs USDC ────────────────────────────────────────
 //
-// Gas on Arc is USDC, so `resolve` reverting is money gone for nothing. The contract's four guards
-// are `NotResolver → AlreadySettled → TooEarlyToResolve → NoEvidence`, and `prepare()` reaches each
-// of them off-chain first. ⚠️ **The ordering below is not arbitrary**: a refusal that fires one
-// guard above the one being tested looks exactly like a passing test, and that has broken four
-// negative tests this phase.
+// Gas on Arc is USDC, so `resolve` reverting is money gone for nothing. The contract's guards are
+// `NotResolver → AlreadySettled → TooEarlyToResolve → NoEvidence`, and `prepare()` reaches each of
+// them off-chain first. ⚠️ **The ordering below is not arbitrary**: a refusal that fires one guard
+// above the one being tested looks exactly like a passing test, and that has broken four negative
+// tests in this project.
 //
 // ⚠️ **`now` is the CHAIN's latest block timestamp, not `Date.now()`.** The contract compares
 // `block.timestamp`; a local clock running even slightly ahead would pass our check and revert on
 // theirs, which is the exact class of mistake these guards exist to stop paying for.
 //
-// ── ⚠️ What this unit could NOT do, said rather than reached around ───────────────────────────────
+// ── ⚠️ What this file does NOT do, said rather than reached around ────────────────────────────────
 //
 // **R17's republished-deployment void is NOT implemented, because nothing stores what it compares
 // against.** R17 voids a market whose subgraph deployment was republished after creation. The
@@ -32,18 +32,17 @@
 // names a `slug`, never a deployment id), and `specHash` therefore does not pin one either. There is
 // no honest comparison to make from stored state, and inventing one — against the cited report's
 // provenance, say, which was read at a different time for a different purpose — would be a void
-// trigger nobody could defend. ⚠️ It needs a column, which is a migration, which this unit was told
-// not to write.
+// trigger nobody could defend. ⚠️ It needs a column, which is a migration nobody has written.
 //
 // **The idempotency key is derived and NOT stored, because there is no column for it.** `markets`
 // carries `create_idempotency_key` and nothing else; 006 added `void_tx` and `voided_by` and no key.
-// That is survivable here and would not have been in Unit 7: the key is `sha256` over the call bytes,
-// so a retry recomputes the identical value from the same inputs with nothing to remember. The row
-// was only ever the audit trail of what was used, never the thing that decided it.
+// Nothing needs remembering: the key is `sha256` over the call bytes, so a retry recomputes the
+// identical value from the same inputs. A stored key was only ever the audit trail, never the thing
+// that decided it.
 //
-// ⚠️ **`landed()` is duplicated from `market.ts` deliberately.** It is private there, and this unit
-// may not modify that file to export it. Eleven lines of receipt-waiting is a better cost than
-// reaching into another unit's module.
+// ⚠️ **`landed()` and `idempotencyKeyFor()` are duplicated from `market.ts` deliberately.** Both are
+// private there, and this unit was not to modify that file to export them. A few lines copied is a
+// better cost than reaching into another unit's module.
 
 import { createHash } from 'node:crypto';
 import { ethers } from 'ethers';
@@ -63,8 +62,9 @@ export class ResolveRefused extends Error {
  *
  * ⚠️ **`reconcile` is not a third outcome — it is the crash-recovery case.** A run that submits and
  * dies before its `UPDATE` leaves the chain settled and our row still saying otherwise, and the
- * resolve cron's find-work query is `WHERE resolved_at IS NULL`, so that row would be retried every
- * day forever. Reconciling writes the landmark from what the chain already says and spends nothing.
+ * resolve cron's find-work query (`outstanding.ts marketsAwaitingResolve`) selects rows with no
+ * `resolved_at` and no `voided_at`, so that row would be retried every day forever. Reconciling
+ * writes the landmark from what the chain already says and spends nothing.
  */
 export interface ResolvePlan {
   readonly action: 'resolve' | 'void' | 'reconcile';
@@ -138,7 +138,8 @@ export async function prepare(marketId: string): Promise<ResolvePlan> {
     );
   }
 
-  // 4 · Unit 8's row. ⚠️ Its absence is not an error state — it means settlement has not run.
+  // 4 · `settle.ts recordSettlement()`'s row. ⚠️ Its absence is not an error state — it means
+  //     settlement has not run.
   const evidence = await settlementEvidenceFor(marketId);
   if (!evidence) {
     throw new ResolveRefused(
@@ -206,10 +207,13 @@ export async function prepare(marketId: string): Promise<ResolvePlan> {
     };
   }
 
-  // 9 · ⚠️ The contract's `TooEarlyToResolve`, off our row. **Currently unreachable and kept
-  //     anyway**: `settle()` throws `SettlementTooEarly` for a day that has not finished plus the
-  //     freshness margin, so an evidence row with an outcome implies the day is over. It survives
-  //     because it would only ever fire on state that disagrees with itself, and a revert costs USDC.
+  // 9 · ⚠️ The contract's `TooEarlyToResolve`, off our row. For a real market an evidence row with an
+  //     outcome implies the day is over — `settle()` throws `SettlementTooEarly` until observationEnd
+  //     plus the freshness margin. ⚠️ **A demo market breaks that implication**: its observationEnd is
+  //     an argument unrelated to the observed day (`spec.ts demoQuestionCore`), so its evidence can
+  //     exist first. Callers check before reaching here — the reveal action compares the chain clock,
+  //     the cron's find-work query requires `observation_end <= asOf` — and this stays because it
+  //     would only fire on state that disagrees with itself, and a revert costs USDC.
   const observationEnd = Math.floor(market.observationEnd.getTime() / 1000);
   if (now < observationEnd) {
     throw new ResolveRefused(
@@ -260,9 +264,8 @@ async function recordVoided(marketId: string, by: string | null, tx: string | nu
 /**
  * Put the outcome on chain. ⚠️ **Spends.**
  *
- * ⚠️ `resolve(uint256,bool,bytes32)` is all scalars, so Circle encodes it server-side through
- * `abiParameters`. `callData` exists for tuples and `createMarket`'s `QuestionCore` is the only one
- * in this contract — using it here would be encoding by hand for no reason.
+ * `resolve(uint256,bool,bytes32)` is all scalars, so Circle encodes it server-side through
+ * `abiParameters`; only `createMarket`'s struct needs `callData` (see `arc.ts SubmitCall`).
  */
 export async function resolveMarket(plan: ResolvePlan): Promise<{ txHash: string | null; alreadyLanded: boolean }> {
   if (plan.action === 'reconcile') {

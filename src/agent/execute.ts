@@ -1,24 +1,22 @@
 // Running the plan. Fetch what it asks for, run the engine, assemble the object.
 //
-// ⚠️ **No narration.** This produces the structured report; prose is a rendering of it (Unit 10).
-// Because narration is inside the report hash, what this hashes is a DRAFT hash over the data — see
-// `dataHash` below. It is not the identity a market settles against.
+// ⚠️ **No narration.** This produces the structured report; the prose is `narrate.ts`'s. Because
+// narration is inside the report hash, `dataHash` below is a DRAFT hash over the data, not the
+// identity a market settles against.
 //
-// ⚠️ **State in, state out.** Nothing here owns the run: a caller passes `ExecuteState` and gets
-// state back, exactly as `loop.ts` does with `messages[]`.
+// ⚠️ **State in, state out.** Nothing here owns the run: a caller passes `ExecuteState`, and a run
+// that stops at its budget hands state back.
 //
-// ⚠️ **The premise behind that shape has been measured and it is softer than it reads.** This said a
-// report across several deployments "will not fit in one call" against Vercel's 300 seconds. In
-// practice it does: `DEFAULT_BUDGET.maxWallClockMs` is 240,000 and `execute` stops *itself* at it,
-// returning `status: 'budget'` — a clean outcome, not a kill — and a real 25-deployment run through
-// `app/api/console/generate` completed in 2.4 seconds of execute time inside a 47-second pipeline.
-// The 300-second ceiling is real and the arithmetic is in that route's header; it is not routinely hit.
+// ⚠️ **The premise behind that shape — a report across several deployments "will not fit in one
+// call" against Vercel's 300 seconds — was measured, and it is softer than it read.**
+// `DEFAULT_BUDGET.maxWallClockMs` is 240,000 and `execute` stops *itself* there with
+// `status: 'budget'`, a clean outcome rather than a kill. A real 25-deployment run through
+// `app/api/console/generate` took 2.4 seconds of execute time inside a 47-second pipeline. The
+// 300-second arithmetic is in that route's header; it is not routinely hit.
 //
-// ⚠️ **There IS a persistence layer now — `src/store/` — and it stores REPORTS, not runs.** This
-// header used to end "there is no persistence layer yet; this is the shape one needs", written before
-// Unit 4. Nothing persists a partial run, and that is a decision rather than a gap: PHASE-3 decision 2
-// removed the whole job-progression apparatus from this phase — no ticker, no leases, no
-// request-driven advance. See `Gathered` below for what is and is not resumable. Corrected 2026-09-09.
+// ⚠️ **Nothing persists a partial run, and that is a decision, not a gap.** `src/store/` stores
+// REPORTS, not runs: PHASE-3 decision 2 removed the job-progression apparatus — no ticker, no leases,
+// no request-driven advance. See `Gathered` for what is and is not resumable.
 
 import type { CheckResult, Exclusion, Fact, Report, ReportPlan, Severity } from '../types/report.js';
 import type { JsonScalar, Provenance } from '../types/wire.js';
@@ -35,7 +33,7 @@ import { crosscheck } from '../engine/crosscheck.js';
 import { reconcile } from '../engine/reconcile.js';
 import { hashCanonical } from '../domain/canonical.js';
 
-/** Everything a report is except its prose. Unit 10 supplies `sections` and `assessment`. */
+/** Everything a report is except its prose. `narrate` supplies `sections` and `assessment`. */
 export type DraftReport = Omit<Report, 'sections' | 'assessment'>;
 
 export interface Budget { readonly maxQueries: number; readonly maxMarketPages: number; readonly maxWallClockMs: number }
@@ -46,15 +44,14 @@ export const DEFAULT_BUDGET: Budget = { maxQueries: 100, maxMarketPages: 10, max
 // ⚠️ No token budget: this step makes no model calls. The planner and the narrator have those.
 
 /**
- * ⚠️ **`analystId`, not an address — renamed 2026-09-08 and the rename is the point.** This field
- * used to be `analyst: string` and held a raw `0x…`, copied as a literal into four demo scripts. A
- * typo in any of them would hash perfectly cleanly and produce a report attributed to an address
- * that can never claim it on Arc.
+ * ⚠️ **`analystId`, not an address — renamed 2026-09-08, and the rename is the point.** The field was
+ * `analyst: string` holding a raw `0x…`, copied as a literal into four demo scripts; a typo in any of
+ * them would hash cleanly and attribute the report to an address that can never claim it on Arc.
  *
- * It now holds a `config/analysts.ts` id — `'alpha-1'` — which `execute` resolves to that row's
- * `arcAddress`. The name changed along with the type deliberately: `analyst: "alpha-1"` in a field
- * that used to hold an address is the same-name-different-meaning that Morpho's schema taught this
- * project to distrust, and every call site has to be looked at rather than silently still compiling.
+ * It now holds a `config/analysts.ts` id (`'alpha-1'`) that `execute` resolves to that row's
+ * `arcAddress`. The name changed with the type so that every call site had to be looked at rather
+ * than silently still compiling — `analyst: "alpha-1"` in a field that once held an address is the
+ * same-name-different-meaning that Morpho's schema taught this project to distrust.
  */
 export interface ExecuteState { readonly plan: ReportPlan; readonly analystId: string; readonly block?: number }
 
@@ -87,15 +84,10 @@ export type ExecuteResult =
  * What a budget-stopped run had already collected. Returned instead of discarded — a run that
  * stops at deployment 20 of 25 has done twenty deployments of real work.
  *
- * ⚠️ **This is not the resumable path, and as of Phase 3 it is not scheduled to become one.** Nothing
- * merges a `Gathered` into a second run: a caller that re-invokes `execute` restarts, with only the
- * block carried over. What would close it is a caller that passes this back in and a merge that
- * dedupes by fact id and by the slugs already covered.
- *
- * ⚠️ This used to read "Phase 3's problem". It is not — PHASE-3 decision 2 removed request-driven
- * advance from the phase entirely, and no unit was written for it. The shape stays because a
- * budget-stopped run has done real work and throwing it away would be worse; nothing consumes it
- * today. Corrected 2026-09-09.
+ * ⚠️ **Not a resumable path, and not scheduled to become one** (PHASE-3 decision 2). Nothing consumes
+ * it: a caller that re-invokes `execute` restarts, with only the block carried over. What would
+ * close it is a caller that passes this back in and a merge that dedupes by fact id and by the slugs
+ * already covered.
  */
 export interface Gathered {
   readonly facts: Readonly<Record<string, Fact>>;
@@ -159,14 +151,12 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
 
   // 1 · One block for the set, or no report.
   //
-  // ⚠️ When the report is about ONE deployment's figure a refusal is the answer: the caller asked
-  // about that deployment and quietly dropping it changes the question. When it is about a metric
-  // across the set it is not — a stale outlier should leave the table with a reason rather than take
-  // the other 23 down with it, so the furthest-behind is dropped and the block resolved again.
-  //
-  // ⚠️ **Replaces the form branch, 2026-09-07.** Forms are gone; the headline carries what they
-  // carried. A headline naming one of the deployments means the report is ABOUT that figure. A
-  // headline naming none means the question is about the metric across the set.
+  // ⚠️ **The headline decides what a stale deployment costs** (it replaced the form branch when forms
+  // were removed, 2026-09-07). A headline naming one of the deployments means the report is ABOUT that
+  // figure, and a refusal is the answer: quietly dropping the deployment changes the question. A
+  // headline naming none is a metric across the set — a stale outlier should leave the table with a
+  // reason rather than take the rest down, so the furthest-behind is dropped and the block resolved
+  // again.
   const aboutOneFigure = plan.subject.deployments.includes(plan.subject.headline.split('.')[0]!);
 
   const tBlock = Date.now();
@@ -237,8 +227,6 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
     t.fetchMs += since(tSheet);
     provenance.push({ deployment: sheet.meta.deployment, block, timestamp: observedAt, document: 'balance-sheet', variables: { block } });
 
-    // ⚠️ Only an exhausted population gives a true count — Phase 1 measured 48 markets at 100%
-    // utilization from a complete walk against 1 from a sample of the same deployment.
     let markets: MarketRow[] | undefined;
     let completeness: 'complete' | 'incomplete' | undefined;
     const marketRead = readFor(slug, 'markets');
@@ -348,14 +336,14 @@ export async function execute(state: ExecuteState, budget: Budget = DEFAULT_BUDG
     completedSlugs.push(slug);
   }
 
-  // ⚠️ Blocking follows the HEADLINE, because "the headline" means two different things.
+  // ⚠️ Blocking follows the HEADLINE, as the block resolution above did.
   //
   // It names a deployment: that deployment's figure is what the report is about. If it is
   // unreportable the report is — a partial report that looks complete is worse than none, because
   // the reader cannot tell which figure was the point.
   //
-  // It names no deployment: the headline is a metric across the set. A `DATA_ERROR` on one leaves
-  // that deployment out of the table with its reason, and the rest still answer what was asked.
+  // It names no deployment: the headline is a metric across the set. A `DATA_ERROR` on one
+  // deployment withholds the figure it touches, with its reason, and the rest still answer.
   if (aboutOneFigure) {
     const headline = facts[plan.subject.headline];
     if (headline?.withheld?.code === 'data_error') return { status: 'blocked', figure: plan.subject.headline, reason: headline.withheld.rationale, elapsedMs: el() };

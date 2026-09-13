@@ -1,31 +1,28 @@
 // The settlement read, and the outcome it produces. Nothing here touches a chain.
 //
-// ── ⚠️ THE SEAM THIS UNIT CLOSES, AND WHY IT IS NEVER CUT ────────────────────────────────────────
+// ── ⚠️ WHY THE EVIDENCE IS STORED HERE, AND WHY THAT IS NEVER CUT ────────────────────────────────
 //
-// `graph/evidence.ts` has a correct `buildEvidence` and, until this file, **no destination**. Its
-// only caller was `scripts/demo/evidence.ts`. Reports persist `Provenance`, which carries neither a
-// `responseHash` nor `raw` — so the record+raw tier had nowhere to land.
+// Reports persist `Provenance`, which carries neither a `responseHash` nor `raw`, so the record+raw
+// tier `graph/evidence.ts buildEvidence` produces had nowhere to land until this file.
 //
-// ⚠️ **The failure that leaves is silent and permanent.** A resolver could pass `record+raw`,
-// receive a perfect `EvidenceRecord`, satisfy its own proof, and drop it on the floor — and then
-// `resolve` would put 32 bytes on chain committing to bytes that exist nowhere. **The hash is on
-// chain and cannot be amended.** A hash with nothing behind it is not weaker evidence, it is the
-// appearance of evidence, which is worse than none.
+// ⚠️ **The failure that leaves is silent and permanent.** A resolver could receive a perfect
+// `EvidenceRecord`, drop it on the floor, and `resolve` would put 32 bytes on chain committing to
+// bytes that exist nowhere. **The hash is on chain and cannot be amended.** A hash with nothing
+// behind it is not weaker evidence, it is the appearance of evidence, which is worse than none.
 //
 // **Fetch before submit.** The read completes and the evidence is stored before anything goes on
-// chain. Unit 9 owns the chain write and this file must never reach for it.
+// chain. `resolve.ts` owns the chain write and this file must never reach for it.
 //
 // ── ⚠️ THE READ IS UNPINNED, AND THE FRESHNESS CHECK ONLY EXISTS BECAUSE OF THAT ─────────────────
 //
-// `client.ts` injects `_meta(block: $block)` whenever a block is requested, and **a pinned `_meta`
+// `client.ts` pins `_meta(block: $block)` whenever a block is requested, and **a pinned `_meta`
 // returns a null timestamp — measured, consistently.** §5.16's freshness rule is
 // `_meta.block.timestamp >= dayEnd + margin`, a TIMESTAMP and never a block number, so it has
 // nothing to compare against on a pinned read.
 //
 // ⚠️ **Pinning this read later would silently DELETE the freshness check rather than break it.**
 // `blockTimestamp` would be `null`, and any code that treated null as "skip the check" would settle
-// a day that had not finished. That is why the null case below is a hard throw and not a fallback:
-// the only honest reading of a null timestamp here is that somebody pinned the read.
+// a day that had not finished. That is why the null case below is a hard throw and not a fallback.
 //
 // ⚠️ **`paginate()` is not used and must not be.** It cursors on `lastId`, and `FINANCIAL_SNAPSHOTS`
 // declares no `$lastId`. A one-day window is one row; there is nothing to page.
@@ -41,8 +38,8 @@ import { db } from '../store/db.js';
 /**
  * ⚠️ **Thrown, not returned, and the difference matters.** "Too early" is not information about the
  * data — it is information about *when we asked*. The day is not over, so there is no answer yet and
- * nothing to record. Unit 11's cron skips and comes back; `MISSING_OBSERVATION` is what it records
- * when the day IS over and the row is still not there.
+ * nothing to record. The resolve cron skips it and comes back; `MISSING_OBSERVATION` is what gets
+ * recorded when the day IS over and the row is still not there.
  */
 export class SettlementTooEarly extends Error {
   constructor(readonly observedDay: string, readonly readAt: number, readonly earliest: number) {
@@ -154,10 +151,10 @@ export async function settle(spec: MarketSpec): Promise<Settlement> {
  * jsonb round trip would return bytes that no longer produce the stored hash, on the one row whose
  * whole job is to be re-checkable.
  *
- * ⚠️ **A row with `outcome` NULL is a MISSING_OBSERVATION**, not an unfinished write. This unit
- * always knows the outcome by the time it writes, so null is meaningful rather than absent. The
- * schema has no column for the outcome KIND — noted rather than migrated around; `raw` carries the
- * empty result set, which is the unambiguous discriminator.
+ * ⚠️ **A row with `outcome` NULL is a MISSING_OBSERVATION**, not an unfinished write. This always
+ * knows the outcome by the time it writes, so null is meaningful rather than absent. The schema has
+ * no column for the outcome KIND — noted rather than migrated around; `raw` carries the result set
+ * (no row, or a row whose metric is null), which is the unambiguous discriminator.
  *
  * Idempotent on `market_id`: a retried settlement re-records rather than colliding.
  */

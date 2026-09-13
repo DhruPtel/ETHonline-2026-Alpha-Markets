@@ -1,29 +1,34 @@
 // Unit 9 — put a settlement on chain, and rehearse both paths before the real window opens.
 //
-//   npx tsx --env-file=.env scripts/ops/resolve-market.ts --rehearse
+//   npx tsx --env-file=.env scripts/ops/resolve-market.ts --rehearse              ← ⚠️ SPENDS, no --send needed
 //   npx tsx --env-file=.env scripts/ops/resolve-market.ts --market=m/…            ← plan only, free
 //   npx tsx --env-file=.env scripts/ops/resolve-market.ts --market=m/… --send     ← SPENDS
 //
-// ⚠️ **THIS SPENDS REAL MONEY.** Gas on Arc is USDC. The run prints a total read from receipts.
+// Chain markets 6 and 7 are refused unless `--live` is also passed.
+//
+// ⚠️ **THIS SPENDS REAL MONEY.** Gas on Arc is USDC. `--rehearse` spends on its own: it creates two
+// markets with the deployer key, resolves one and voids the other through Circle, writes
+// `m/rehearsal-` rows to the store, and prints a total read from receipts.
 //
 // ⚠️ **WHY A REHEARSAL RATHER THAN WAITING.** The two live markets cannot resolve before
 // 2026-09-13T01:00:00Z — `observationEnd` plus `spec.ts`'s freshness margin — which is submission
 // day. **That is the only window they have.** If `resolve.ts` has a bug the first time it runs there
-// is no second attempt, so the paths get driven today against throwaway markets instead. Same
-// reasoning that put Unit 6 in the plan, and Unit 6 is what found the receipt-before-mined bug.
+// is no second attempt, so the paths get driven against throwaway markets first. Same reasoning that
+// put Unit 6 in the plan, and Unit 6 is what found the receipt-before-mined bug.
 //
 // ⚠️ **A REHEARSAL IS A MACHINERY PROOF AND NEVER A FORECAST.** These markets are created over days
-// that have already closed, so nothing here predicts anything. Their ids are prefixed
-// `m/rehearsal-` so no query can mistake them for the real thing, and `directed_at` stays NULL so
-// the commit cron never sees them.
+// that have already closed. Their ids are prefixed `m/rehearsal-` so no query can mistake them for
+// the real thing, and `directed_at` stays NULL so the commit cron never sees them.
 //
-// ⚠️ **Created through ethers with the deployer key, exactly as Unit 6 did.** `market.ts` cannot
-// build one: `questionCore` requires `closeTime <= dayStart(observedDay)` while the contract's
-// `_open` requires `closeTime > now`, so every market it can make is a forecast. That honesty
-// property is the reason a rehearsal has to come in the side door.
+// ⚠️ **Created through ethers with the deployer key, exactly as Unit 6 did, because `market.ts`
+// cannot build one.** A rehearsal closes staking at the start of its already-finished day.
+// `prepare()`'s `questionCore` only yields a commit that lands on a day not yet started
+// (`closeTime <= dayStart(observedDay)` against `_open`'s `closeTime > now`), and `prepareDemo()`'s
+// `demoQuestionCore` refuses a `closeTime` before the day was settleable. That honesty property is
+// the reason a rehearsal has to come in the side door.
 //
 // ⚠️ **If a chain call reverts this script STOPS and prints the reason.** It never adjusts a
-// parameter and retries. A revert here is the bug the unit exists to find before Sunday.
+// parameter and retries. A revert here is the bug the unit exists to find.
 
 import { ethers } from 'ethers';
 import { ALPHA_MARKET_ABI } from '../../src/arc/abi.js';
@@ -85,8 +90,8 @@ const target = flag('market');
 if (target) {
   const market = await marketById(target);
   if (!market) { console.error(`no market ${target}`); process.exit(1); }
-  // ⚠️ The two live markets carry real stakes and cannot legally settle before Sunday 01:00Z.
-  // Touching one is a deliberate gesture, never a default.
+  // ⚠️ Chain markets 6 and 7 carry real stakes and cannot legally settle before 2026-09-13 01:00Z.
+  // Touching one takes `--live`: a deliberate gesture, never a default.
   if ((market.chainMarketId === '6' || market.chainMarketId === '7') && flag('live') === undefined) {
     console.error(`\n⚠️ chain market ${market.chainMarketId} is LIVE and committed. Pass --live to mean it.`);
     process.exit(1);

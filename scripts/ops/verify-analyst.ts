@@ -1,4 +1,4 @@
-// Check every row of config/analysts.ts against the services that own the addresses.
+// Check every row of src/config/analysts.ts against the services that own the addresses.
 //
 //   npx tsx --env-file=.env scripts/ops/verify-analyst.ts
 //

@@ -17,10 +17,9 @@
 // ⚠️ **A redirect rather than a delete**, so nothing 404s — an old link or bookmark lands on the
 // real holdings section instead of an error. 308, because this move is permanent.
 //
-// ⚠️ `app/api/holdings/route.ts` is untouched and still works. It was always real — mirror node,
-// `report_tokens`, `balanceOf` — and it is a product API that happens now to have no page calling
-// it, because `/analyst` reads the store and the chain directly rather than fetching a route the
-// same server serves. Deleting it was not this task's to do.
+// ⚠️ `app/api/holdings/route.ts` still works and was always real — Mirror Node, `report_tokens`,
+// `balanceOf` — but no page calls it now, because `/analyst` reads the store and the chain directly
+// rather than fetching a route the same server serves.
 
 import {permanentRedirect} from 'next/navigation.js';
 

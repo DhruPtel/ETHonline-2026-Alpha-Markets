@@ -13,16 +13,12 @@
 // ⚠️ **Untrusted strings pass through here and are NOT escaped.** `Market.name` and `Token.symbol`
 // are indexer-supplied and travel inside reports (§5.18). Escaping on write would make the stored
 // bytes stop matching the hashed bytes, which is the one thing this file exists to prevent. Escaping
-// happens at the HTML boundary, which is Unit 6.
+// happens at the HTML boundary in `app/`, where React escapes children (see `app/markdown.tsx`).
 
 import type { Report } from '../types/report.js';
 import { canonical, reportHash } from '../domain/canonical.js';
 import { closePool, db } from './db.js';
-// ⚠️ **The shared client, not one of this module's own.** Consolidated into `db.ts` on 2026-09-08:
-// three modules each memoized their own, so a request touching all three opened three connections
-// against a Neon pool that caps them — and a connection-limit failure presents as a timeout rather
-// than as a limit error. `db()` keeps the lazy, never-at-module-scope property that mattered before.
-//
+// The shared client from `db.ts` — see there for why never one of this module's own.
 // For scripts, which have to exit. A route handler should never call this. ⚠️ Idempotent.
 export { closePool as close };
 
@@ -76,7 +72,7 @@ interface ReportRow {
  * `rendered_md` was `NOT NULL` in 001_init; the column was dropped in 002 and the parameter with it.
  * Markdown is a *view* of a report, not part of one: `render()` is a pure function of what is stored
  * here, so caching its output could only diverge from its source, and filling the column honestly
- * would have meant the store importing from the agent. Unit 6 renders on read.
+ * would have meant the store importing from the agent. `render()` (`agent/narrate.ts`) runs on read.
  */
 export async function save(report: Report): Promise<{ hash: string; inserted: boolean }> {
   // ⚠️ Computed here, never taken from a caller. Both come from the same pure function of the same
@@ -93,18 +89,6 @@ export async function save(report: Report): Promise<{ hash: string; inserted: bo
   return { hash, inserted: rows.length === 1 };
 }
 
-/**
- * Load a report, or `null` if there is no such hash.
- *
- * ⚠️ **The `Report` is parsed from `canonical_json` and never reassembled from columns.** That is
- * the whole reason the BIGINT coercion trap does not exist on this path: `block` comes out of the
- * JSON as the number it was serialised as, not out of the driver as a string. The columns beside
- * `canonical_json` exist for querying and display; they are not a second source of truth for the
- * object, and treating them as one would be a silent identity change inside a hashed value.
- *
- * ⚠️ **Two checks, and a failure is a throw rather than a warning.** A row whose stored JSON has
- * been altered must not be served — this hash is what a market settles against.
- */
 /**
  * The narrator's own name for a report. ⚠️ **Written AFTER `save()`, never inside `canonical()`** —
  * the same shape `recordContextDigest` uses and for the same reason: `Report` is the hashed object
@@ -136,6 +120,18 @@ export async function recordDescription(reportHash: string, description: string 
   await db()`UPDATE reports SET description = ${text} WHERE hash = ${reportHash} AND published_at IS NULL`;
 }
 
+/**
+ * Load a report, or `null` if there is no such hash.
+ *
+ * ⚠️ **The `Report` is parsed from `canonical_json` and never reassembled from columns.** That is
+ * the whole reason the BIGINT coercion trap does not exist on this path: `block` comes out of the
+ * JSON as the number it was serialised as, not out of the driver as a string. The columns beside
+ * `canonical_json` exist for querying and display; they are not a second source of truth for the
+ * object, and treating them as one would be a silent identity change inside a hashed value.
+ *
+ * ⚠️ **Two checks, and a failure is a throw rather than a warning.** A row whose stored JSON has
+ * been altered must not be served — this hash is what a market settles against.
+ */
 export async function load(hash: string): Promise<Report | null> {
   const [row] = await db()<ReportRow[]>`
     SELECT hash, analyst, directive, canonical_json, block, observed_at, created_at
@@ -148,7 +144,7 @@ export async function load(hash: string): Promise<Report | null> {
   // comes back as an absent key rather than `null`. The contract says unavailable is `null`, spelled
   // out, never absent — so it is reattached. This does not affect either check below, because
   // `canonical()` strips it again on the way in: measured, both forms hash identically. Which token
-  // (if any) belongs to this report lives in `report_tokens`, and joining it is Unit 8's business.
+  // (if any) belongs to this report lives in `report_tokens`, read through `tokens.ts`'s `tokenFor()`.
   const report: Report = { ...parsed, atsTokenAddress: null } as Report;
 
   // Check 1 — the content is what the key says it is.
@@ -190,12 +186,13 @@ export async function list(limit = 50): Promise<ListedReport[]> {
 /**
  * The marketplace's own query: **published reports only, most recently listed first.**
  *
- * ⚠️ **A SECOND FUNCTION RATHER THAN A FLAG ON `list()`, AND THE CALLERS ARE WHY.** `list()` has
- * four other callers — the console's document panel, its title lookup, `/api/console/state` and two
- * demo scripts — and every one of them wants *every* report, including the unpublished ones. The
- * console is where an author works on a draft; filtering it would hide the very reports someone
- * opens the console to publish. So `list()` keeps meaning "what is in the store" and this one means
- * "what is for sale", and neither can be mistaken for the other at a call site.
+ * ⚠️ **A SECOND FUNCTION RATHER THAN A FLAG ON `list()`, AND THE CALLERS ARE WHY.** `list()`'s
+ * callers — the console page (latest report, title lookup, unlisted picker), `/api/console/state`,
+ * `/analyst`, the store count on `/`, and two demo scripts — all want *every* report, including the
+ * unpublished ones. The console is where an author works on a draft; filtering it would hide the
+ * very reports someone opens the console to publish. So `list()` keeps meaning "what is in the
+ * store" and this one means "what is for sale", and neither can be mistaken for the other at a
+ * call site.
  *
  * ⚠️ **Ordered by `published_at`, not `created_at`.** A shopfront is ordered by when things were put
  * in the window. An old report published today is new to the market and belongs at the top.

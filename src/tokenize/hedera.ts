@@ -1,15 +1,15 @@
 // Talking to Hedera safely. No assets here — `ats.ts` owns what a report token is; this owns the
-// plumbing every write shares, and Unit 10's transfer needs all of it and none of that.
+// plumbing every write shares, and `transfer.ts` needs all of it and none of that.
 //
 // ⚠️ **Promoted from `scripts/smoke/07-ats-issue-transfer.ts`, not reinvented.** SM-07 paid a
 // reverted deploy — 948,129 gas — to learn that a Hedera revert is unattributable without a Mirror
 // Node lookup. That lesson is the reason this file exists as a file.
 //
 // ⚠️ **One deliberate change from SM-07: `landOrStop` throws instead of calling `process.exit(1)`.**
-// SM-07 is a script and exiting is right there. This is a library — `tokenize()` is meant to be
-// callable from something that is not a CLI, and a `process.exit` inside it would take a server down
-// mid-request. The discipline is unchanged and is the whole point: get the real reason from Mirror
-// Node, say what already landed, and **never retry**. Only who prints it moved.
+// SM-07 is a script and exiting is right there. This is a library — `tokenize()` and `send()` are
+// called from the console routes (`app/api/console/tokenize`, `app/api/console/transfer`), where a
+// `process.exit` would take the server down mid-request. The discipline is unchanged and is the whole
+// point: get the real reason from Mirror Node, say what already landed, and **never retry**.
 
 import { ethers } from 'ethers';
 import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization-contracts';
@@ -17,12 +17,13 @@ import { Factory__factory, IAsset__factory } from '@hashgraph/asset-tokenization
 /**
  * ⚠️ **The one definition of the Mirror Node host.** Consolidated 2026-09-09 — there were five, and
  * this is a URL that flips *wholesale* at the mainnet/USDC cutover (R12), so every extra copy was a
- * place to miss it. Importers: `ats.ts`, `transfer.ts`, `app/api/health`, `app/api/console/buy`,
+ * place to miss it. Importers: `ats.ts`, `transfer.ts`, `arc/admission.ts`, `app/analyst/page.tsx`,
+ * `app/api/buy`, `app/api/health`, `app/api/holdings`, `app/api/console/accounts`,
  * `scripts/ops/buy.ts`, `scripts/ops/verify-analyst.ts`, `scripts/ops/verify-ats.ts`.
  *
  * ⚠️ **It stayed here rather than moving, and the objection to that turned out to be moot.** The
  * concern was that a caller wanting only a URL would have to import a tokenization module — but the
- * two callers named, `app/api/console/buy` and `scripts/ops/buy.ts`, **already import `fetchJson`
+ * buy route (then under `app/api/console/`) and `scripts/ops/buy.ts` **already imported `fetchJson`
  * from this file**, so for them the edge existed and was already paid for. The two that gained a new
  * import, `verify-analyst.ts` and `verify-ats.ts`, are network-bound CLIs where the measured ~950 ms
  * of eager `ethers` + ATS-contracts loading is noise against a 20-second run. ⚠️ Nothing here reads

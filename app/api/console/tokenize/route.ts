@@ -1,6 +1,6 @@
 // POST /api/console/tokenize — deploy an ATS asset for a stored report. **Spends ~7.7 HBAR.**
 //
-// ⚠️ **THROWAWAY. Delete `app/console/` and `app/api/console/` before submission.**
+// Called by the console's Tokenize section, `app/components/TokenizeForm.tsx`.
 //
 // ⚠️ **Dry by default, and the gate is on the SERVER.** `{ confirm: true }` is this route's
 // `--confirm`. Without it `prepare()` runs, the plan comes back, and nothing is sent — the same
@@ -8,11 +8,11 @@
 // from our own research note and burned 948,129 gas producing nothing. A confirm implemented only in
 // the browser would be a confirm a mis-click, a stale tab or a curl can walk straight past.
 //
-// ⚠️ **`prepare()` runs again on the confirming request, and that is correct rather than wasteful.**
-// A `TokenPlan` carries an `ethers.Wallet` and cannot cross HTTP, so the two-step is prepare-then-
-// prepare-and-spend. It also means the preflight — already tokenized, key matches the analyst row,
-// factory alive, balance sufficient — is evaluated against the state at the moment of spending
-// rather than the state when the plan was drawn.
+// ⚠️ **`prepare()` and the balance floor run again on the confirming request, and that is correct
+// rather than wasteful.** A `TokenPlan` carries an `ethers.Wallet` and cannot cross HTTP, so the
+// two-step is prepare-then-prepare-and-spend. It also means the preflight — already tokenized, key
+// matches the analyst row, factory alive (`prepare()`), balance above the floor (this route) — is
+// evaluated against the state at the moment of spending rather than when the plan was drawn.
 
 import { NextResponse } from 'next/server.js';
 // ⚠️ TEMPORARILY UNWIRED — see the note in the handler below and DECISIONS.md.
@@ -23,7 +23,8 @@ import { db } from '../../../../src/store/db.js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-/** Deploy, grantRole and issue are three sequential transactions against a public factory. */
+/** Deploy, grantRole and issue are three sequential transactions against a public factory.
+ *  ⚠️ Vercel Hobby clamps this to 60; only locally is it 300. */
 export const maxDuration = 300;
 
 // SM-07's measured lifecycle, per step — the same figures `scripts/ops/tokenize.ts` compares against.
@@ -31,12 +32,10 @@ const SM07 = { deployEquity: 7.04954250, grantRole: 0.18894645, issue: 0.4734618
 const SM07_UNIT8 = SM07.deployEquity + SM07.grantRole + SM07.issue;   // 7.71195075
 
 export async function POST(request: Request): Promise<NextResponse> {
-  // ⚠️ **This spends ~7.7 HBAR and mints a PERMANENT asset.** The doorlock is unwired below.
-  // ⚠️ **TEMPORARILY UNLOCKED — 2026-09-12.** `locked(request)` used to run here and refuse
-  // without the `x-console-secret` header. It is commented out rather than deleted while the
-  // frontend is being wired: requiring a pasted secret on every console surface costs more than it
-  // protects on a machine no stranger can reach. ⚠️ **`lock.ts` is intact and this is two lines
-  // away from coming back.** See `tracking/DECISIONS.md` 2026-09-12 for what puts it back.
+  // ⚠️ **This spends ~7.7 HBAR and mints a PERMANENT asset, and it is UNLOCKED since 2026-09-12 —
+  // open on the public deployment.** `locked(request)` refused without the `x-console-secret`
+  // header; it is commented out, not deleted. `../lock.ts` and `tracking/DECISIONS.md` 2026-09-12
+  // say what puts it back.
   // const refusal = locked(request);
   // if (refusal) return refusal;
 

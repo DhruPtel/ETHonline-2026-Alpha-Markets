@@ -6,7 +6,7 @@
 // a finding attached, because the moment we adjust it we have invented a number nobody can trace.
 //
 // ⚠️ **No rule keys off a slug.** Every branch below reads a measured fact from
-// `config/protocols.ts`. `if (slug === 'morpho-blue')` would mean a 26th protocol requires
+// `config/protocols.ts`. `if (slug === 'morpho-blue')` would mean one more protocol requires
 // editing this file, and the one-config-row claim would stop being true.
 
 import type { Completeness, Computed, ComputedFigure, CorroborationStatus, Provenance } from '../types/wire.js';
@@ -39,10 +39,9 @@ export interface AdaptInput {
 // ⚠️ **Corroboration findings do NOT come from here** *(the path was removed 2026-09-07)*. This
 // file used to accept a corroboration map and turn a mismatch into a `DATA_ERROR`, and no caller
 // ever passed it — verified across all nine `adapt()` call sites. `engine/crosscheck.ts` does the
-// job instead, and the two disagreed on the thing that matters: crosscheck emits a mismatch as a
-// `SIGNAL` and says "which side is wrong is not established", while a `DATA_ERROR` would null the
-// figure and thereby assert the contract is the correct side. That is a claim corroboration cannot
-// support. If you are here to re-add it, add it to crosscheck instead.
+// job and emits a mismatch as a `SIGNAL`, because a `DATA_ERROR` would null the figure and thereby
+// assert the contract is the correct side — a claim corroboration cannot support. If you are here
+// to re-add it, add it to crosscheck instead.
 
 export interface Adapted { readonly computed: Computed; readonly findings: Finding[] }
 

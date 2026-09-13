@@ -1,8 +1,9 @@
 // GET /api/reports/[hash] — the paid read.
 //
 // ⚠️ **This file knows about Next and nothing about selling.** The gate, the price, the payTo, the
-// hooks and the `purchases` writes all live in `src/payments/gate.ts`; Unit 15's buyer and Unit 17's
-// recover both have to reason about what that file writes, and neither should have to read a route.
+// hooks and the `purchases` writes all live in `src/payments/gate.ts`; the buyer (`buyer.ts`) and any
+// recovery tool (Unit 17's, never built) have to reason about what that file writes, and neither
+// should have to read a route.
 //
 // ⚠️ **The preview at `/report/[hash]` is the public half.** A stranger sees the directive, the
 // analyst, the block, the hash, coverage counts and tokenized state there. This route is the other
@@ -21,10 +22,10 @@ export const dynamic = 'force-dynamic';
  * This project is on Vercel's **Hobby** plan — confirmed 2026-09-09 from the API,
  * `billing.plan = hobby`, not inferred. Hobby caps a function at **60 seconds**, and a declared
  * `maxDuration = 300` is **silently clamped**: Vercel accepts it, the build does not warn, and the
- * deployment goes READY carrying 60. Four console routes declare 300 and every one of them is
- * getting 60. ⚠️ **Do not copy the 300 from them.** It is the fifth thing in this project that looked
- * live and was not, after `extensionAlias`, the gateway error strings, the empty env var and a
- * research note's summary cell.
+ * deployment goes READY carrying 60. `/api/buy`, `/api/markets/[id]/commit` and the console's
+ * `generate`, `tokenize` and `transfer` declare 300 and every one of them gets 60. ⚠️ **Do not copy
+ * the 300 from them.** It was the fifth thing in this project that looked live and was not, after
+ * `extensionAlias`, the gateway error strings, the empty env var and a research note's summary cell.
  *
  * ⚠️ **Why this route needed a number at all, when it had none.** Without a declaration it took the
  * platform *default* — roughly 10 seconds — on the one route where money moves. The last real settle
@@ -34,7 +35,8 @@ export const dynamic = 'force-dynamic';
  * body *before* settlement completes, so a kill inside that window leaves the buyer holding the
  * report and the seller with an unsettled `purchases` row. `gate.ts`'s `onBeforeSettle` writes the
  * native transaction id precisely so that case is *reconcilable* — but reconcilable is not avoided,
- * and Unit 17, which would do the reconciling, is not built. Six times the headroom is the cheap fix.
+ * and Unit 17, which would do the reconciling, was never built. Six times the headroom is the cheap
+ * fix.
  */
 export const maxDuration = 60;
 

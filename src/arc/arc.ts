@@ -1,38 +1,32 @@
 // Talking to Arc safely. No market logic here — `market.ts` owns what a market is; this owns the
-// plumbing every Arc write shares. `tokenize/hedera.ts`'s role for a different chain.
+// plumbing every Arc write shares, the role `tokenize/hedera.ts` plays for Hedera.
 //
 // ⚠️ **Promoted from `scripts/smoke/08-circle-payable-call.ts`, not reinvented.** SM-08 paid a
 // deploy and a payable call to learn three things this file encodes: `msg.value` arrives at **18
 // decimals** while the ERC-20 view at the same address reports 6, `createContractExecutionTransaction`
 // returns an id and no transaction hash, and the hash appears part-way through a state machine you
-// have to poll. SM-08 stays frozen and is not imported — it is a Phase 0 test and it deploys a
-// contract if run.
+// have to poll. SM-08 stays frozen and is not imported — it deploys a contract if run.
 //
 // ── Why the RPC is an env var and the USDC address is a constant ─────────────────────────────────
 //
-// Both are hardcoded in SM-08 (lines 37 and 39) and neither had a home. They are not the same kind
-// of value and they do not get the same treatment:
+// SM-08 hardcodes both (its `RPC` and `NATIVE_USDC`). They are different kinds of value:
 //
 //   `ARC_RPC_URL`   **env.** An endpoint is an operational choice, not a fact about the chain. It
-//                   rotates, it rate-limits, it differs between a public node and a paid one, and
-//                   Arc mainnet (2026-09-16) is a different URL. Precedent: `HEDERA_TESTNET_RPC`
-//                   and `ETHEREUM_RPC_URL` are both env vars for exactly this reason.
+//                   rotates, it rate-limits, and Arc mainnet (2026-09-16) is a different URL — the
+//                   same reason `HEDERA_TESTNET_RPC` and `ETHEREUM_RPC_URL` are env vars.
 //
-//   the USDC address **constant, and it lives inside `ARC` beside the chainId.** `0x3600…0000` is a
-//                   predeploy — part of what Arc *is*, at a fixed address the chain defines. It
-//                   cannot change without the chainId changing with it, so the two belong to one
-//                   object. ⚠️ This is `payments/server.ts`'s `NETWORKS` shape and its reasoning:
-//                   keying the record by chain makes the wrong combination unrepresentable. As an
-//                   env var it would be a wrong-but-present value pointing at *something*, which is
-//                   the failure mode `config/env.ts` exists to prevent.
+//   the USDC address **constant, inside `ARC` beside the chainId.** `0x3600…0000` is a predeploy at
+//                   an address the chain defines, so it cannot change without the chainId changing
+//                   with it. ⚠️ `payments/server.ts`'s `NETWORKS` reasoning: keying the record by
+//                   chain makes the wrong combination unrepresentable. As an env var it would be a
+//                   wrong-but-present value, the failure mode `config/env.ts` exists to prevent.
 //
 // ⚠️ **`ARC_WALLET` in `.env` is NOT the analyst and must never be read here.** It is the address of
-// `ARC_DEPLOYER_KEY` — verified by deriving it, 2026-09-10 — which SM-08 uses as a separate funded
-// EOA to deploy with, because `deployContract` is in Circle's typings and not on the client. The
-// analyst signs from `CIRCLE_WALLET_ID`, whose address is `config/analysts.ts`'s `arcAddress`. Two
-// identities, and `ARC_WALLET` is the name someone reaches for when they want the other one.
-// **It wants renaming to `ARC_DEPLOYER_ADDRESS`** — not done here, because it is Unit 11b's file and
-// this unit touches `arc.ts` only. `analystIdentity()` below is what refuses if they are confused.
+// `ARC_DEPLOYER_KEY` — verified by deriving it, 2026-09-10 — the separate funded EOA SM-08 deploys
+// with, because `deployContract` is in Circle's typings and not on the client. The analyst signs
+// from `CIRCLE_WALLET_ID`, whose address is `config/analysts.ts`'s `arcAddress`. `ARC_WALLET` is the
+// name someone reaches for when they want the other identity; **it wants renaming to
+// `ARC_DEPLOYER_ADDRESS`.** `analystIdentity()` below is what refuses if the two are confused.
 
 import { ethers } from 'ethers';
 import {
@@ -46,8 +40,8 @@ import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
  * The chain, as one object. Selecting Arc selects its chainId and its USDC together.
  *
  * ⚠️ **Testnet only, and mainnet is deliberately absent rather than guessed.** Arc mainnet does not
- * exist until 2026-09-16 (DECISIONS.md 2026-09-08), three days after the deadline. A second row here
- * is that cutover, not a fix.
+ * exist until 2026-09-16 (DECISIONS.md 2026-09-08), three days after the deadline. Adding it is that
+ * cutover, not a fix.
  */
 export const ARC = {
   /** Circle's own name for the chain. What `getWallet` reports and what a wallet is scoped to. */
@@ -58,10 +52,9 @@ export const ARC = {
 } as const;
 
 /**
- * ⚠️ **18-dp native per 6-dp USDC unit, and it is the contract's number too** —
- * `AlphaMarket.sol:93` declares `UNIT_SCALE = 1e12` and `_checkAmount` reverts `NotAUsdcUnit` on
- * anything that is not a whole multiple of it. Converting here rather than at each call site is what
- * makes that one number appear once.
+ * ⚠️ **18-dp native per 6-dp USDC unit, and it is the contract's number too** — `AlphaMarket.sol`
+ * declares `UNIT_SCALE = 1e12` and `_checkAmount` reverts `NotAUsdcUnit` on anything that is not a
+ * whole multiple of it.
  */
 const UNIT_SCALE = 10n ** 12n;
 
@@ -73,12 +66,14 @@ export const arcRpcUrl = (): string =>
     'through Circle, which is told the wallet and never this URL.',
   );
 
-// ── The conversion site. There is one, and this is it. ───────────────────────────────────────────
+// ── The server's conversion site. There is one, and this is it. ──────────────────────────────────
 //
-// ⚠️ **18-dp is canonical everywhere inside this project** — the contract stores `msg.value`, Unit
-// 5's columns are `NUMERIC(78,0)` because an 18-dp amount overflows BIGINT at about 9.22 USDC, and
-// PHASE-4 §5.2's accounting line is *"the bug is mixing units, not storing `msg.value`."* The 6-dp
-// form is the ERC-20 view and a display scale. Nothing converts anywhere else.
+// ⚠️ **18-dp is canonical everywhere inside this project** — the contract stores `msg.value`, the
+// amount columns in `005_markets.sql` are `NUMERIC(78,0)` because an 18-dp amount overflows BIGINT at
+// about 9.22 USDC, and PHASE-4 §5.2's accounting line is *"the bug is mixing units, not storing
+// `msg.value`."* The 6-dp form is the ERC-20 view and a display scale. The only other conversion is
+// the browser's stake form, `app/markets/[id]/PositionControl.tsx`, which keeps its own copy of the
+// scale.
 
 /**
  * 18-dp native → 6-dp USDC units, exactly.
@@ -115,8 +110,7 @@ export const nativeFromAmount = (amount: string): bigint => ethers.parseUnits(am
 //
 // ⚠️ `payments/server.ts`'s pattern and its reason: a missing env var evaluated at import time is a
 // **cold-start crash loop on every route that imports this file**, and it reads like a platform
-// outage rather than the configuration error it is. Calling the function is what constructs; a warm
-// invocation reuses one client.
+// outage rather than the configuration error it is.
 
 let provider: ethers.JsonRpcProvider | null = null;
 
@@ -147,7 +141,7 @@ export interface AnalystIdentity {
  * ⚠️ **A mismatch stops rather than proceeds.** `Report.analyst` holds the `arcAddress` and the
  * address is inside the report hash, so an analyst committing from an unregistered address puts a
  * claim on chain that `analystByArcAddress` then throws on **at settlement** — after the money moved
- * and with nothing to do about it. `ats.ts:132` is the same check on the Hedera rail.
+ * and with nothing to do about it. `ats.ts prepare()` makes the same check on the Hedera rail.
  */
 export function analystForAddress(address: string): AnalystConfig {
   try {
@@ -199,14 +193,14 @@ export async function analystIdentity(): Promise<AnalystIdentity> {
 
 /**
  * ⚠️ **Always carries the Circle transaction id**, because that is the only thing that survives a
- * wait that did not finish. `inFlight` is the difference between *reconcile this later* and *this
- * one is dead*: Circle's terminal failures are `FAILED`, `DENIED`, `CANCELLED`, `STUCK` and they do
- * not come back, while an abort means we stopped watching and the transaction did not.
+ * wait that did not finish. `inFlight` separates *reconcile this later* from *this one is dead*:
+ * Circle's terminal failures are `FAILED`, `DENIED`, `CANCELLED`, `STUCK` and they do not come back,
+ * while an abort means we stopped watching and the transaction did not.
  *
  * ⚠️ **A Circle failure is not a revert**, which is why there is no `landOrStop` here. That function
  * exists because a Hashio revert is unattributable without a Mirror Node lookup. Arc has no Mirror
- * Node and Circle does not hand back a receipt — it hands back a state machine with `errorReason`
- * and `errorDetails` on it, and the SDK's own wait already reads them into its message.
+ * Node and Circle hands back no receipt — it hands back a state machine with `errorReason` and
+ * `errorDetails` on it, and the SDK's own wait already reads them into its message.
  */
 export class ArcSubmitError extends Error {
   constructor(readonly circleTransactionId: string, readonly inFlight: boolean, message: string) {
@@ -225,49 +219,45 @@ export class ArcSubmitError extends Error {
  *   `callData`                                 **anything with a tuple.** We encode with the
  *                                              committed ABI and hand Circle finished bytes.
  *
- * ⚠️ **This is not a style choice; it is a limitation found the hard way.** `createMarket` takes a
- * `QuestionCore` struct, and Circle refused to build the transaction —
- * `ABI_SIGNATURE_PARAMS_MISMATCH: ABI function signature can't pack ABI parameter` — at validation,
- * before broadcast, so it cost nothing. `commitPrediction(uint256,bytes32,bool)`, `resolve` and
- * `claim` are all flat and all went through `abiParameters` fine in Unit 6. **`createMarket` is the
- * only function in this contract taking a struct**, which is why the gap took until Unit 7 to show.
+ * ⚠️ **A limitation found the hard way, not a style choice.** `createMarket` takes a `QuestionCore`
+ * struct, and Circle refused to build the transaction — `ABI_SIGNATURE_PARAMS_MISMATCH: ABI function
+ * signature can't pack ABI parameter` — at validation, before broadcast, so it cost nothing.
+ * `commitPrediction(uint256,bytes32,bool)`, `resolve` and `claim` are flat and all went through
+ * `abiParameters` fine in Unit 6. **`createMarket` is the only function in this contract taking a
+ * struct**, which is why the gap took until Unit 7 to show.
  *
- * ⚠️ **A union, so sending both is UNREPRESENTABLE.** Circle's own field documentation says
- * *"the usage of `callData` is mutually exclusive with the `abiFunctionSignature` and
- * `abiParameters`"*, and a type that cannot express the invalid pair is worth more than a test that
- * observed it once.
+ * ⚠️ **A union, so sending both is UNREPRESENTABLE.** Circle's own field documentation says *"the
+ * usage of `callData` is mutually exclusive with the `abiFunctionSignature` and `abiParameters`"*.
  *
- * ⚠️ **`callData` was checked in the shipped bundle before being relied on, not inferred from Unit
- * 6b.** The client wrapper destructures exactly `idempotencyKey`, `fee` and `xRequestId` and spreads
- * **everything else** into the request object (`{entitySecretCiphertext, idempotencyKey, ...fee.config, ...rest}`),
- * and the API layer then serializes that whole object (`c.data = M(t, c, e)`) with no field
- * whitelist. So `callData` reaches the body. ⚠️ A grep count cannot tell a forwarded field from a
- * dropped one — only reading the mechanism can, and it was read again here rather than assumed.
+ * ⚠️ **`callData` was checked in the shipped bundle before being relied on.** The client wrapper
+ * destructures exactly `idempotencyKey`, `fee` and `xRequestId` and spreads **everything else** into
+ * the request object (`{entitySecretCiphertext, idempotencyKey, ...fee.config, ...rest}`), and the API
+ * layer serializes that whole object (`c.data = M(t, c, e)`) with no field whitelist, so `callData`
+ * reaches the body. ⚠️ A grep count cannot tell a forwarded field from a dropped one — only reading
+ * the mechanism can.
  */
 type SubmitCall =
   | { readonly abiFunctionSignature: string; readonly abiParameters: unknown[]; readonly callData?: never }
   | { readonly callData: `0x${string}`; readonly abiFunctionSignature?: never; readonly abiParameters?: never };
 
 export type SubmitInput = SubmitCall & {
-  /** The deployed AlphaMarket. ⚠️ Passed in — nothing is deployed yet and Unit 6 is what deploys. */
+  /** The deployed AlphaMarket, named by the caller — `resolve.ts` takes it off the market row. */
   readonly contractAddress: string;
   /** 18-dp native to send with the call. Converted here; callers never format an amount. */
   readonly value?: bigint;
   /**
-   * ⚠️ **Required, and this file will not invent one.** The key has to survive a cold start, so it
-   * is written on the row at the first attempt and passed back in on the retry — which means it
-   * belongs to whoever owns the row (Unit 5's `markets`/`claims`, driven by Unit 7), not to a
-   * helper that forgets it between invocations. Not derived from a clock, and not derived from a
-   * hash until somebody has checked whether Circle validates the UUID shape; a stored key works
-   * either way. Making it required is what stops a caller silently falling back on Circle's
-   * per-call generation.
+   * ⚠️ **Required, and this file will not invent one.** A retry after a cold start has to send the
+   * same key, so it belongs to the caller rather than to a helper that forgets it between
+   * invocations. Never derived from a clock. `market.ts` and `resolve.ts` derive it from the call
+   * bytes — `market.ts idempotencyKeyFor` records why a key stored on the row was the wrong design.
+   * Making it required is what stops a caller silently falling back on Circle's per-call generation.
    */
   readonly idempotencyKey: string;
   /**
    * ⚠️ **Called with Circle's id after the transaction is created and before the wait begins.** If
-   * the wait then aborts the transaction is still in flight, and this id is the only handle the
-   * next run has to reconcile it. `purchases.native_tx_id` is written before settle on the other
-   * rail for the same reason.
+   * the wait then aborts the transaction is still in flight, and this id is the handle a later run
+   * has to reconcile it by. `purchases.native_tx_id` is written before settle on the other rail for
+   * the same reason. No caller passes it today.
    */
   readonly onSubmitted?: (circleTransactionId: string) => Promise<void>;
   /**
@@ -293,13 +283,13 @@ export interface Submitted {
  * past it waits for nothing we need — the hash is what the caller stores and what the provider reads
  * a receipt with.
  *
- * ⚠️ **`waitForState` is the SDK's own poll loop and it was checked in the shipped bundles before
- * being used here** — `waitForState`, `waitForTxHash` and `pollingInterval` are all present in both
- * `.es.js` and `.cjs.js`, it advances along `INITIATED → CLEARED → QUEUED → SENT → CONFIRMED →
- * COMPLETE`, it rejects on the four terminal failures with `errorReason` and `errorDetails` in the
- * message, and its delay honours `signal`. ⚠️ **That check is not ceremony**: `generateIdempotencyKey`
- * is exported from this same package's typings and appears **zero times in either bundle** — it
- * typechecks and is `undefined` at runtime. Never import it. Verify, then use.
+ * ⚠️ **`waitForState` is the SDK's own poll loop, checked in the shipped bundles before use** —
+ * `waitForState`, `waitForTxHash` and `pollingInterval` are all present in both `.es.js` and
+ * `.cjs.js`; it advances along `INITIATED → CLEARED → QUEUED → SENT → CONFIRMED → COMPLETE`, rejects
+ * on the four terminal failures with `errorReason` and `errorDetails` in the message, and its delay
+ * honours `signal`. ⚠️ **That check is not ceremony**: `generateIdempotencyKey` is exported from this
+ * same package's typings and appears **zero times in either bundle** — it typechecks and is
+ * `undefined` at runtime. Never import it. Verify, then use.
  */
 export async function submit(input: SubmitInput): Promise<Submitted> {
   // ⚠️ `"" ?? ee()` is `""`, not a generated key — `??` falls back on `undefined` and never on the
