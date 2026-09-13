@@ -1,85 +1,72 @@
 # scripts
 
-**`ops/report.ts`** — generate a report and keep it. **The one you actually run.**
+Command-line entry points. Run every script as `npx tsx --env-file=.env <path> …`. This needs
+Node 20.6 or later, and `.env` must exist, even if it is only a copy of `.env.example`.
 
-```bash
-npx tsx --env-file=.env scripts/ops/report.ts "Balance overview for Aave v3 on Ethereum"
-```
+| path | what is in it |
+|---|---|
+| `ask.ts` | Ask the data layer a question in plain English and watch the agent call its tools. Needs only `GRAPH_API_KEY` and `ANTHROPIC_API_KEY`. Stores nothing. |
+| `ops/` | Operational tools, run against live services |
+| `demo/` | One proof per build unit, kept as a record |
+| `smoke/` | Phase 0's nine isolated integration tests |
 
-compose → execute → narrate → validate → `save`. It prints the hash, the public URL, and the
-tokenize command with the hash already filled in. ⚠️ This used to say `ask.ts` was the one you
-actually run; `ask.ts` is a demo of the data layer and nothing it does is persisted.
+## ops/
 
-**`ask.ts`** — ask the agent a question in plain English and watch it work. A demonstration of the
-data layer, not the product path: it uses `agent/loop.ts` + `tools.ts`, which the report pipeline
-never touches (`src/agent/README.md`).
+⚠️ **Most scripts that spend are dry by default** and print what they would do. The spend flag is
+in the table. **Two spend by default:** `commit-market.ts` and `drive-market.ts`.
 
----
+**Reports and the data layer**
 
-## `ops/` — tools run against the world
+| script | what it does | cost or effect |
+|---|---|---|
+| `report.ts "<directive>"` | Generate a report and store it | model tokens, Graph queries |
+| `sweep-protocols.ts [--inventory]` | Ask every configured deployment whether it answers. `--inventory` rewrites `docs/protocol-inventory.md`. | Graph queries |
+| `triage-protocols.ts` | Decide whose numbers are publishable | Graph queries |
+| `check-market-level.ts` | A one-shot comparison, already run | Graph queries |
+| `unpublish.ts <hash…> [--apply]` | Take our own test reports off the marketplace | database write with `--apply` |
+| `migrate.ts` | Apply `src/store/migrations/` in order, through `DATABASE_URL_DIRECT` | DDL (see `src/store/README.md` on migration 009) |
 
-⚠️ **Four of these spend real money or mint permanent assets.** Each takes `--confirm`; without it
-the preflight runs, prints its plan, and sends nothing.
+**Hedera**
 
 | script | what it does | spends |
 |---|---|---|
-| `report.ts` | generate a report and persist it | model tokens |
-| `tokenize.ts` | issue the ATS report token, hash in the creation event | **~7.9 HBAR** |
-| `move-token.ts` | transfer a report token, balances asserted from chain | **~0.44 HBAR** |
-| `buy.ts` | the buyer agent pays for one report over x402 | **0.001 HBAR** |
-| `migrate.ts` | apply `src/store/migrations/*.sql` in filename order | — |
-| `verify-ats.ts` | verify a report token on Sourcify | — |
-| `verify-analyst.ts` | assert `config/analysts.ts` against the live Circle API and Mirror Node | — |
-| `sweep-protocols.ts` | regenerate `docs/protocol-inventory.md` — who answers | — |
-| `triage-protocols.ts` | regenerate the verdicts in `src/config/protocols.ts` — who is right | — |
-| `provision-circle.ts` | one-shot, already run: create the analyst's Circle wallet | — |
-| `check-market-level.ts` | one-shot, already run | — |
+| `tokenize.ts <hash> [--confirm]` | ATS issuance, then Sourcify verification | about 7.7 HBAR |
+| `move-token.ts <hash> <0x…> [--confirm]` | Transfer a report token | about 0.43 HBAR |
+| `buy.ts <hash> [--confirm]` | The buyer agent pays for one read over x402, against the deployed gate | 0.001 HBAR |
+| `verify-ats.ts <address>` or `--all` | Verify report tokens on Sourcify, which HashScan reads | publishes source |
 
-`migrate.ts` uses `DATABASE_URL_DIRECT` and refuses to run if that URL contains `-pooler`; the two
-Neon endpoints are not interchangeable (`src/store/db.ts`).
+**Arc**
 
-✅ **`verify-ats.ts` is now automatic.** `tokenize.ts` calls it as its final step rather than printing
-the command, and a verification failure is reported without failing a tokenization that already
-succeeded — by then the asset exists and the gas is spent. **All four report tokens are `exact_match`**
-as of 2026-09-09.
+| script | what it does | spends |
+|---|---|---|
+| `build-contract.ts [--check]` | Compile `contracts/AlphaMarket.sol` into `src/arc/abi.ts`; `--check` compares instead of writing | — |
+| `drive-market.ts [--preflight] [--address=0x…]` | Deploy AlphaMarket, with the analyst's Circle wallet as resolver, and drive every path | ⚠️ **USDC by default**; `--preflight` only checks |
+| `provision-circle.ts` | Generate or reuse the Circle entity secret and print the ciphertext Circle's console asks for | — |
+| `verify-analyst.ts` | Assert `config/analysts.ts` against the live Circle API and Mirror Node | read-only |
+| `attest-identity.ts [--check] [--force]` | Sign the two-key identity attestation into `src/arc/attestation.ts`; `--check` verifies only | signing, no gas |
+| `commit-market.ts [--dry-run]` | Create a market and commit the analyst's claim | ⚠️ **USDC by default** |
+| `create-forecasts.ts [--send]` | Create forecast markets with no claim | gas with `--send` |
+| `demo-market.ts --presets / --list / --seed [--send] / --create [--send]` | Demo markets | USDC with `--send` |
+| `resolve-market.ts --market=m/… [--send]` | Settle one market, then resolve or void it | gas with `--send` |
+| `score.ts [--dry-run] [--market=m/…]` | Grade settled claims | database write |
+| `seed-demo-record.ts [--list] [--remove]` | The seeded demo grades, which have no chain market | database write |
+| `clear-test-grades.ts [--apply]` | Delete grades that belong to test markets | database write with `--apply` |
 
-⚠️ **A token minted through the console is NOT verified.** That route has no compiler — `solc` and
-`@openzeppelin/contracts` are devDependencies and are not in a Vercel function — so run the sweep
-after any console session. It is idempotent and free when there is nothing to do:
+## demo/
 
-```bash
-npx tsx --env-file=.env scripts/ops/verify-ats.ts --all
-```
+One proof per build unit, named after the module it proves (`spec.ts` proves `src/arc/spec.ts`, and
+so on). Each ran once against live data to show its unit worked. They are kept as a record and are
+not maintained.
 
----
+- ⚠️ `demo/store.ts` deliberately corrupts a stored row to prove `load()` refuses it. Do not run it
+  against a database you care about. Use `ops/report.ts` to make reports.
+- ⚠️ `demo/skills.ts` is broken: the skill file it reads was moved to `src/agent/skills/unused/`.
 
-## `demo/` — one proof per build unit
+## smoke/
 
-Each demonstrates one unit against live data. Throwaway: written to show a unit worked, kept as a
-record, not maintained.
+Phase 0: nine isolated tests, each proving one external integration against the real service before
+anything was built on it. Results are in `tracking/smoke-results.md`, and the index is
+`smoke/README.md`. Run one with `npm run smoke:NN`.
 
-⚠️ **`demo/store.ts` is an assertion suite, not a generator.** It deliberately corrupts a stored row
-by one character to prove `load()` refuses it, and the restore sits inside a `try` whose `finally`
-only closes connections. It is correct as a proof and was wrongly used as the way reports got made
-for nine units — `tracking/lessons.md`, *"Nine units passed their own proofs and the product did not
-run"*. Use `ops/report.ts`.
-
-⚠️ **`demo/skills.ts` is broken and has been since Phase 2.** It reads
-`src/agent/skills/balance-overview.md`, which moved to `skills/unused/` when the report forms were
-removed. It fails immediately on a missing file and blocks nothing.
-
----
-
-## `smoke/` — Phase 0's nine isolated integration tests
-
-Each proves one external system works. Closed; outcomes are in `tracking/smoke-results.md`. Run via
-`npm run smoke:NN`. SM-09 is manual — no script exists, `tsx` cannot drive a wallet extension.
-
-⚠️ **Do not run `smoke/08-circle-payable-call.ts`.** It deploys a contract and sends a payable
-transaction, and without `CIRCLE_WALLET_ID` set it creates a *second* Circle wallet — which makes the
-analyst's on-chain identity disagree with `config/analysts.ts`, a wrong-author bug rather than a
-wasted transaction.
-
-These predate `src/` and carry their own copies of helpers that now live in `src/tokenize/hedera.ts`
-(`MIRROR`, `hbar`, `settledBalance`). That duplication is deliberate — a frozen test that still
-passes is worth more than one refactored into a shared module it was written before.
+⚠️ **Do not run `smoke/08-circle-payable-call.ts`** unless you intend to. It deploys a contract,
+sends a payable transaction, and without `CIRCLE_WALLET_ID` set it creates a new Circle wallet.

@@ -1,21 +1,21 @@
 # engine — the checking
 
-Takes what the data layer produced and decides what can be stood behind. **Pure**: no network, no
-model calls, every observation handed in.
+Takes what the data layer fetched and decides what can be stood behind. **Pure:** no network and no
+model calls. Every observation is passed in.
 
-## Read in this order
+| file | what it does |
+|---|---|
+| `invariants.ts` | The checks, each with a severity and what it blocks. Which checks apply to a deployment comes from measured config, never from its name. |
+| `reconcile.ts` | The verdict. Read this one if you read one. |
+| `crosscheck.ts` | Turns corroboration observations (subgraph against chain) into findings. It translates; it does not check a second time. |
+| `ops.ts` | Decimal arithmetic at 80 places. A JS number silently rounds figures that carry 23 decimals, and those figures get hashed. |
 
-1. **`invariants.ts`** (114) — the checks, each with a severity and what it blocks. Rules are
-   general; applicability comes from measured config, never from `if (slug === …)`.
-2. **`reconcile.ts`** (226) — the verdict, and the one to read if you read one. Its header carries
-   the measurement the whole engine rests on: aave-v3's revenue sides summed exactly on all 31 days
-   measured while the total read $2.79e17 — so a source agreeing with *itself* can never prove a
-   number right, and only an outside source can produce `ties_out`.
+## The measurement the verdict rests on
 
-**Then:** `crosscheck.ts` (50) translates corroboration observations into findings — deliberately a
-translator, not a second checker. `ops.ts` (118) is decimal arithmetic at 80 places, because a JS
-number silently rounds figures carrying 23 decimals and those figures get hashed.
+On all 31 days measured, aave-v3's revenue components summed exactly to the total, while that total
+read $2.79e17. A source that agrees with itself cannot prove a number right. Only an outside source
+can.
 
-## Logic vs scaffolding
-
-All four are logic; `crosscheck` is the thin one.
+⚠️ **`Verdict.call` is nullable, and it is null on every report stored so far.** So the
+"reconciliation quality" score recorded for a market claim (`src/arc/score.ts`) is blank on all of
+them, and the site shows it as absent rather than as zero.

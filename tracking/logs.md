@@ -17678,3 +17678,60 @@ a code comment in the commit route, outside this change's scope.
   its rule, where it was 22px to the old line. No console errors.
 - Served HTML for #34, #35 and #36 has no "Real funds", "0.0068" or "withdrawn before settlement";
   demo #33 keeps its footnote. Nothing was pressed.
+
+---
+
+## 2026-09-13 — orientation before the documentation pass, and the migration that re-listed eight reports
+
+**A read-only survey of the repo, the docs and the live site, ahead of writing the README.** No code
+changed. `npx next build` after `rm -rf .next` passes (24 routes). The survey found README.md and
+docs/ARCHITECTURE.md both still frozen at 2026-09-09: they say Phase 4 is "not started" and name the
+console as throwaway. They say nothing about the Arc contract, `/markets`, `/analyst`, the demo
+markets or the crons. The live site, the public GitHub repo and local `main` are all at `03b08f2`.
+
+⚠️ **`scripts/ops/migrate.ts` was run as a "clean no-op" check, and it was not one.** Migration 009's
+backfill `UPDATE` sets `published_at = created_at` on any report created before its cutoff that has
+a token, a settled purchase or a claim. Those are exactly the rows `unpublish()` set back to NULL
+this morning, so the run re-listed eight of the nine unlisted test reports. The ninth, `7b957944`,
+was created after the cutoff. Each of the eight has `published_at` exactly equal to `created_at`,
+and nothing logged since the unpublish ran migrate. The live `/` now reads "11 published · 10
+tokenized · 12 not listed". Not reverted: that is a database write, and it is raised in chat. The
+cutoff guards future reports but not historical ones that were later unpublished, so
+`src/store/README.md`'s "re-running is a no-op" is false once `unpublish()` exists.
+
+⚠️ **A `next dev` server was running during the check.** Clearing `.next` also removed its `dev/`
+cache. It still answered 200 afterwards.
+
+---
+
+## 2026-09-13 — the documentation a judge reads first
+
+**Written.**
+- **Rewritten from scratch:** the root README and `docs/ARCHITECTURE.md`. The README gains a table of
+  contents, the flowchart, a track-requirements section with an on-chain artifact per line, what is
+  not built, and a local setup covering every environment variable, faucet and self-deployment. The
+  architecture document now shows the system as built: pipeline, one hash on two chains, the Hedera
+  and Arc flows, the feedback loop, who signs what.
+- **New READMEs:** `contracts/`, `docs/`, `src/`, `src/arc/`, `tracking/`, `flowchart/`, `rebuild/`,
+  `single-frontend/`.
+- **Rewritten READMEs:** `app/`, `scripts/`, `trash/`, and all nine older `src/*` READMEs.
+- No code, chain or database changes.
+
+**Verified rather than trusted.** Every tx hash in the README was re-read from Mirror Node or
+arcscan's API, and one report's hash was found on both chains: `alpha:f2285b4e…` in its Hedera
+creation event and `reportHash` in Arc commit `0x0eb87e36…`. Sourcify was queried for all 11 tokens,
+208 relative links and paths were checked, every external link was fetched, and the live pages were
+fetched for each claim made about them.
+
+**What surprised.**
+- ⚠️ Only 4 of 11 report tokens are verified on Sourcify; the seven minted since 2026-09-12 are not.
+- The contract is not source-verified on arcscan.
+- No cron-sent Arc transaction has ever been evidenced, although `docs/arc-deployment.md` §7 says the
+  agent "has been committing unattended".
+- While the console lock is unwired, `POST /api/console/report` serves the paid body with no payment.
+- The report called "top 5 lending protocols" reads six deployments.
+- The EACCES reported at `migrate.ts:56` did not reproduce. The file is 54 lines and writes no files,
+  and an identical run against a dead database under the same sandbox raised only ECONNREFUSED.
+- HashScan returns 404 to non-browser clients, so its links were checked through Mirror Node and
+  Sourcify instead.
+- `/markets/13` returned one 500 during the link sweep, then 200 on six retries.

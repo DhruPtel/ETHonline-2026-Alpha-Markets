@@ -1,71 +1,73 @@
-# app — where the paywall line falls
+# app — the website and its HTTP surface
 
-A Next.js App Router frontend and the HTTP surface a paying agent talks to. Deployed at
-<https://et-honline-2026-alpha-markets.vercel.app>.
+A Next.js 16 App Router app, deployed at <https://et-honline-2026-alpha-markets.vercel.app>. Pages
+read the store and the chains on the server. API routes exist only where something needs an HTTP
+contract: a paying agent, a browser wallet's transaction, or a cron.
 
-⚠️ **The whole design of this directory is one line: what a stranger sees free, and what a payment
-buys.** x402's premise is paying for access to something you otherwise cannot see, so a paid route
-serving content the public page already gave away would gate nothing and a settled payment would
-prove nothing.
+## Pages
 
-```mermaid
-flowchart LR
-  DB[("Neon")] --> IDX["/"<br/>marketplace]
-  DB --> PRV["/report/[hash]"<br/><b>preview — public</b>]
-  DB --> API["/api/reports/[hash]"<br/><b>paid — x402</b>]
+| route | file | what it shows |
+|---|---|---|
+| `/` | `page.tsx` | The report marketplace: published reports, their token state, and grades on claims they backed |
+| `/report/[hash]` | `report/[hash]/page.tsx` | One report's public preview: directive, analyst, block, hash, coverage counts, The Graph deployment it read, and the token. The buy control is `components/BuyControl.tsx`. |
+| `/console` | `console/page.tsx` | The analyst's workspace. **Ask Atlas** generates a report, **Source data** runs one live Graph query, then **Tokenize** and **Publish**. |
+| `/markets` | `markets/page.tsx` | Open forecasts and the newest demo market, with pools read from the contract. The **Start a demo market** button is `markets/SeedButton.tsx`. |
+| `/markets/[id]` | `markets/[id]/page.tsx`, `markets/[id]/PositionControl.tsx` | One market: the question, pools, supporting research, the commit, stake or reveal control, and Arc evidence |
+| `/analyst` | `analyst/page.tsx`, `analyst/ContextBlock.tsx` | The analyst's graded record, the tokens it holds, and the planning context block verbatim |
+| `/holdings` | `holdings/page.tsx` | Redirects to `/analyst` |
 
-  PRV --- L1["directive · analyst · block<br/>full hash · coverage counts<br/>price · ISIN + HashScan"]
-  API --- L2["the figures · the market table<br/>the analyst's assessment"]
+## API routes
 
-  classDef free fill:#dff0d8,stroke:#3c763d,color:#1b3a1b
-  classDef paid fill:#fcf3cf,stroke:#b7950b,color:#4a3b06
-  class PRV,L1 free
-  class API,L2 paid
-```
+**Product**
 
-**The preview page deliberately never calls `render()`.** The split needed no change to the report
-type and no preview mode on the renderer — it is field-level and already existed. The withheld
-fields are *not sent*, not hidden: this was proved by grepping the served HTML for a figure from the
-paid body and finding nothing, because a CSS-hidden table is not a paywall.
+| route | what it does | spends | guard |
+|---|---|---|---|
+| `GET /api/reports/[hash]` | The paid read (`src/payments/gate.ts`) | the buyer's 0.001 HBAR | x402 |
+| `POST /api/buy` | Runs the buyer agent against the gate; called by "Buy this read" | our buyer account's HBAR | none; capped per payment and per day |
+| `POST /api/markets/[id]/commit` | The analyst commits a chosen report to a market. The first press returns a plan; the second spends. | the analyst's USDC | none |
+| `POST /api/markets/[id]/refresh` | Records a browser wallet's stake or commit from its transaction receipt | — | reads the chain, not the request body |
+| `GET /api/holdings` | Which account holds which report token, read from the chain | — | — |
+| `GET /api/health` | Does the facilitator still advertise our network and fee payer? Is the ATS resolver alive? Are four env vars set? | — | — |
+| `GET /api/cron/commit` | Daily at 22:00 UTC (`vercel.json`) | the analyst's USDC | `CRON_SECRET` |
+| `GET /api/cron/resolve` | Daily at 02:00 UTC | the analyst's gas | `CRON_SECRET` |
 
-## Which routes are product and which are scaffolding
+Server actions: `markets/actions.ts` handles **Start a demo market** and **Reveal answer**, both paid
+from the analyst's USDC and capped at six open demo markets. `console/page.tsx` handles **Publish**,
+which needs a minted token.
 
-⚠️ **Seven of the fourteen API routes here are scaffolding**, and a reviewer should not have to open
-files to find out which.
+**Operator console**
 
-**Product** — the pages `/` (marketplace), `/report/[hash]` (preview), `/markets`, `/markets/[id]`
-and `/holdings`; and the routes `/api/reports/[hash]` (the paid read), **`/api/buy`** (the buyer
-agent that pays for one — see below), `/api/holdings`, `/api/markets/[id]/refresh`,
-`/api/cron/commit`, `/api/cron/resolve`, and `/api/health` (does the facilitator still advertise our
-network and fee payer, and is the third-party ATS resolver still alive).
+| route | what it does | spends |
+|---|---|---|
+| `POST /api/console/generate` | The report pipeline, streamed a stage at a time | model tokens |
+| `POST /api/console/source` | One live Graph query and its evidence record | a Graph query |
+| `POST /api/console/tokenize` | ATS issuance for a stored report | about 7.7 HBAR |
+| `POST /api/console/transfer` | Moves a report token | about 0.43 HBAR |
+| `POST /api/console/report` | Returns a report's body from the store, without payment | — |
+| `GET /api/console/state`, `GET /api/console/accounts` | What the console displays | — |
 
-**Throwaway, deleted before submission** — `/api/probe` was the deployment probe that measured
-whether the dependencies fit a serverless function; it has answered and is still deployed.
-`/console` and `/api/console/*` are an internal test surface with a button for every operation the
-build can perform. ⚠️ **The console spends real testnet funds and has no authentication.** It says so
-on itself. It exists because testing otherwise meant a CLI and a block explorer.
+**Throwaway:** `/api/probe`, the deployment probe from Phase 3. It is still deployed.
 
-⚠️ **That removal instruction is safe to follow again as of 2026-09-11, and it was not before.**
-`/api/console/buy` was the one route in that directory that was never scaffolding: the product's
-paywall button calls the buyer agent, and there is **one buyer path in this project** rather than a
-second written for the product. So `rm -r app/console app/api/console` would have deleted the
-product's ability to sell anything, silently, at the point where a reviewer follows a sentence in a
-README. **The route moved to `/api/buy`.** Nothing else about it changed — same request shape, same
-response, same caps — and the console's own buy control now calls the new path, so there is still
-only one. ⚠️ **It is still unauthenticated and it still spends real testnet HBAR.**
+⚠️ **The console doorlock has been unwired since 2026-09-12.** `api/console/lock.ts` exists, but no
+route calls it (see `tracking/DECISIONS.md`, "TEMPORARY — the console doorlock is unwired"). Every
+console route is open to anyone. That includes `/api/console/report`, which returns the body the
+x402 gate sells. `CONSOLE_SECRET` is read by nothing while the lock is unwired.
 
-## Two things worth knowing
+## The paywall line
 
-- **`markdown.tsx` is the escaping boundary.** Market names and token symbols are indexer-supplied
-  and travel inside reports; they cannot be escaped on write, because the stored bytes are the
-  hashed bytes. So escaping happens here, at the last possible moment, by producing React elements
-  rather than an HTML string — there is no `dangerouslySetInnerHTML` anywhere and therefore nothing
-  to sanitise. It is not a general markdown parser and should not become one.
-- **Pages read the store directly; routes exist only where an HTTP contract is genuinely needed.** A
-  paying agent needs one. A browser rendering server-side HTML does not, and adding a route for it
-  would be a second copy of a query behind a fetch the server makes to itself.
+`report/[hash]/page.tsx` never calls `render()`. The figures, the market table and the assessment
+are **not sent** to the browser; they are not merely hidden. They leave the server only through
+`/api/reports/[hash]` after a payment settles, or through the unlocked console route above.
 
-⚠️ **No product route generates a report.** Generation is a CLI job — see `src/payments/README.md`
-for why putting it inside a paid request would be unsafe — and a visitor cannot commission one. The
-throwaway console *can* generate, through `/api/console/generate`, which is one of the reasons it is
-not product and is deleted before submission.
+## Supporting files
+
+| path | what it is |
+|---|---|
+| `components/` | UI pieces. `BuyControl` and `TokenizeForm` call routes; `AtlasPanel` and `ConsoleViewer` make up the console; `GradeMarker`, `ProbabilityChart`, `MiniDocument`, `ReportPaper`, `SiteNav`, `Icons` and the two filter bars are display components. |
+| `markdown.tsx` | Markdown to React elements. **This is the escaping boundary.** Indexer-supplied names travel inside hashed reports and cannot be escaped on write, so there is no `dangerouslySetInnerHTML` anywhere. |
+| `markets/demo.ts` | The demo presets, the six-market cap, and the 150-second staking window |
+| `hooks/useFitPanel.ts` | Scales a working surface to fit its column |
+| `globals.css`, `layout.tsx` | One stylesheet and the root layout |
+
+⚠️ **Never import `src/arc/abi.ts` into a client component.** It carries the contract's full
+bytecode. Routes that decode events use a minimal inline ABI instead.

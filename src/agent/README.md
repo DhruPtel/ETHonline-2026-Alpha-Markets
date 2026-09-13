@@ -1,77 +1,41 @@
-# agent — the pipeline is the product; the loop is a demo surface
+# agent — directive in, report out
 
-This directory holds two things that never call each other. ⚠️ **That is decided, not pending.** The
-question was open in `tracking/lessons.md` on 2026-09-07 — *does the report pipeline eventually run
-through `loop.ts`, or is `scripts/ask.ts` a separate product with its own path?* — and Phase 3
-answered it, because a server has to expose one of them.
+**Answers: The Graph — AI tooling.** A plain-English directive becomes a report in which every
+figure traces to a Graph query at a named block. Two model calls, with deterministic code between
+them, do the work.
 
-**The report pipeline is the product.** `loop.ts` and `tools.ts` are the demo surface behind
-`scripts/ask.ts`, they are not on the report path, and they stay exactly as they are.
+| file | what it does | model calls |
+|---|---|---|
+| `context.ts` | Builds the planning context from the analyst's last five settled, graded claims (rehearsals and past-posted markets excluded), one line each. A digest of what the planner saw is stored beside the report as `context_digest`, outside the hash. | 0 |
+| `compose.ts` | Directive plus context becomes a `ReportPlan`: which deployments, which documents, which metric. Picks from the document registry, never writes GraphQL, reads no data. | 1 |
+| `execute.ts` | Runs the plan. Finds one block the whole set can share or refuses; fetches, runs the engine's checks and corroboration, and assembles the `Report`. Needs `ETHEREUM_RPC_URL` for the block's timestamp. | 0 |
+| `narrate.ts` | Draft becomes one table and one paragraph, written in `{fact:ID}` placeholders; `render()` substitutes the values. The output is watched while it streams. | 1, and a second only on retry |
+| `validate.ts` | The digit guard: flags any digit in the prose that is not inside a placeholder. ⚠️ **It warns; it does not block.** | 0 |
+| `loop.ts`, `tools.ts` | The interactive agent behind `scripts/ask.ts`: a tool loop over `run_document` and `get_capabilities`. **Not on the report path.** | one per turn |
+| `skills/` | Prompt material. `report.md` shapes the narrator; `conventions.md` is loaded by both compose and narrate; `skills/unused/` is parked. | — |
 
-⚠️ **The split is named rather than restructured, and that is also the decision.** Moving `loop.ts`
-and `tools.ts` into their own directory would cost eight import sites plus every demo, days before a
-deadline, to buy legibility this paragraph buys for nothing. Nobody should read the imports and infer
-an answer; the answer is here.
+**Entry points:** `scripts/ops/report.ts "<directive>"` on the command line, and
+`POST /api/console/generate`, which streams each stage to `/console`. Both run context → compose →
+execute → narrate → validate → save.
 
-## 1 · The report pipeline — the product
+## Why a figure cannot be invented
 
-Deterministic code with one model call at each end: `compose.ts` → `execute.ts` → `narrate.ts`, then
-`validate.ts` over the result.
+The narrator is handed a fact table and can only refer to a figure as `{fact:ID}`. Code fills in the
+values. A number the data layer did not fetch has no id, so it cannot appear. The digit guard then
+flags any figure the model wrote as text anyway.
 
-- **`compose.ts`** (234) — a directive becomes a plan. One model call, no data read. Picks documents
-  from a registry and names deployments; never writes GraphQL, and never asks a question back.
-- **`execute.ts`** (392) — runs the plan. Resolves one block the set can share, fetches, runs the
-  engine, assembles the `Report` object. **No model call.** The spine of the system. Takes an
-  `analystId` and resolves it through `config/analysts.ts`; an unregistered analyst throws before any
-  query.
-- **`narrate.ts`** (246) — the second model call. Returns one table and one paragraph in `{fact:ID}`
-  placeholders it *cannot fill itself*; `render()` substitutes the values, which is what makes an
-  invented figure impossible rather than unlikely.
-- **`validate.ts`** (125) — the digit guard. Rejects any digit in narration text that is not inside a
-  `{fact:ID}` placeholder, with an allowlist derived from the report's own facts, slugs and block
-  rather than hardcoded. ⚠️ **It warns; it does not block**, deliberately. `tracking/DECISIONS.md`'s
-  entry is titled *"The digit guard warns in Phase 2 and enforces in Phase 3"* — ⚠️ **enforcement did
-  not happen in Phase 3 and was moved again, to Phase 4**, gated on two missing fact ids and the
-  rank-ordinal question (`PHASE-3.md`, *What Phases 1 and 2 left*). Pure: a `Report` in, violations
-  out, and it never repairs.
+## Narration failures are caught, not saved
 
-**How you run it.** `scripts/ops/report.ts` is the production entry point — compose → execute →
-narrate → validate → `save` — and `app/api/console/generate/route.ts` is the same sequence streamed to
-a browser. ⚠️ Until 2026-09-08 there was **no** non-demo caller of `compose`; `scripts/demo/narrate.ts`
-printed a report and exited, and the only `save()` caller was an assertion suite. See
-`tracking/lessons.md`, *"Nine units passed their own proofs and the product did not run"*.
+- An attempt that streams nothing for 20 seconds is aborted, and so is a visible runaway (a long
+  whitespace run, or an oversized title or summary).
+- A summary under 200 characters is rejected as filler.
+- A failed attempt is retried once. A second failure is an error, and nothing is saved.
 
-## 2 · The interactive agent — the demo surface
+⚠️ This catches the narrator's intermittent failure at the assessment. It does not cure it.
 
-A different path, used only by `scripts/ask.ts` and two demos:
+## The feedback loop is text, not training
 
-- **`loop.ts`** (114) — `while (stop_reason === 'tool_use')`. Owns neither the conversation nor the
-  tool list.
-- **`tools.ts`** (111) — the two tools it may call: `run_document` and `get_capabilities`.
-
-⚠️ These are **not** part of the report pipeline and nothing on it imports them. `execute.ts` does not
-use `tools.ts`, and `compose` and `narrate` each open their own `client.messages` call rather than
-going through `loop`.
-
-**They stay because they earn their place.** `ask.ts` is how you watch the data layer answer a
-plain-English question, and it is where the refusal path was first observed firing in the wild. It is
-a demonstration, not a product surface, and Phase 3's server exposes the pipeline instead.
-
-## What the two halves share: nothing
-
-They used to share one thing — the `MODEL` constant, which lived in `loop.ts` while the only files
-importing it were `compose.ts` and `narrate.ts`, both on the pipeline side. ⚠️ **Moved to
-`config/model.ts` on 2026-09-08.** That also removed a dependency edge pointing the wrong way:
-`config/analysts.ts` reached into `agent/loop.ts` for it, while `agent/execute.ts` imports
-`config/analysts.ts`.
-
-## skills/
-
-Markdown loaded into the prompts. `report.md` shapes the narrator's output; `conventions.md` is
-loaded by **both** compose and narrate, so a report cannot declare a reading its own plan never
-took. `skills/unused/` is parked, not loaded.
-
-## Logic vs scaffolding
-
-Logic is `execute`, `compose`, `narrate`, `validate`. `loop` and `tools` are small and support the
-demo path.
+No weights change. `context.ts` puts a few hundred characters describing recent graded claims into
+the planning prompt, rebuilt from the database for each report. The model sees *what* it got wrong,
+not *why*. A voided market is shown as `VOID (no outcome)`, never as a wrong call. `/analyst` shows
+the block verbatim.
