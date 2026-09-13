@@ -53,6 +53,7 @@
 // statement, rather than implying the bytes are recoverable.
 
 import {build} from '../../src/agent/context.js';
+import {analystRecord} from '../components/GradeMarker.js';
 import {db} from '../../src/store/db.js';
 
 interface CarrierRow {
@@ -76,6 +77,13 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
   // a second way of building this text is a second answer, and the digest would arbitrate between
   // two things that were supposed to be one.
   const context = await build(analyst);
+
+  // ⚠️ **The test-data marker CANNOT go inside the block, and that is not an oversight.** The block
+  // is bytes produced by `agent/context.ts` and the digest is taken over exactly those bytes — adding
+  // a word to them would change the digest and break the one checkable thing this section has. So it
+  // is said BESIDE the block instead. `agent/context.ts` is also `src/`, which this task may not
+  // touch. **The lines themselves carry no marker; the count below is how a reader knows.**
+  const record = await analystRecord();
 
   const carried = await db()<CarrierRow[]>`
     SELECT hash, title, directive, context_digest, created_at
@@ -138,6 +146,18 @@ export async function ContextBlock({analyst}: {analyst: string}): Promise<React.
               }}
             >{context.block}</pre>
           </div>
+
+          {record.demo > 0 && (
+            <p className="market-statline" style={{display: 'block', lineHeight: 1.6, paddingBottom: 0}}>
+              ⚠️ <strong>{record.demo} of the analyst&rsquo;s {record.right + record.wrong + record.voided} graded
+              claims are test data</strong> — settled in the store with no chain market and no
+              settlement transaction behind them, to demonstrate this surface before the first real
+              grades land. They are in the block above because they are in the record, and the block
+              is the record. ⚠️ <strong>The marker cannot be put inside the lines themselves</strong>:
+              the digest is over exactly those bytes, so a word added for a reader would change what
+              the agent is provably given.
+            </p>
+          )}
 
           <p className="market-statline" style={{display: 'block', lineHeight: 1.6}}>
             <strong>sha256 of exactly those bytes</strong>

@@ -16249,3 +16249,119 @@ behind them, which is exactly what they are.**
 
 `npx next build` after `rm -rf .next` — **passes**. Seeding twice leaves exactly one copy; every
 statement in the script is scoped to the `demo-` prefix and cannot reach a real row.
+
+---
+
+## 2026-09-13 — the two record surfaces agree, and demo grades say so on sight
+
+Four files: `app/components/GradeMarker.tsx`, `app/markets/page.tsx`, `app/analyst/page.tsx`,
+`app/analyst/ContextBlock.tsx`. No `src/` change, no schema change, no route change, nothing spent.
+
+### 1 · The contradiction, and which definition won
+
+`/analyst` said *"5 settled — 2 right, 2 wrong, 1 voided"*; `/markets` said *"no forecast has settled
+yet"*. Neither was buggy alone: `/markets` derived its record from the cards it had already drawn —
+`onChain → forecasts → scored` — so a graded claim whose market has no chain id never reached the
+count.
+
+⚠️ **The unit is the CLAIM, not the market.** A grade is a property of a claim: `scores` is keyed
+`(market_id, claim_id)`, `score.ts` grades per claim, the marker counts claims, `context.ts` feeds
+claims to the planner. A market is *where* a claim settles, not the thing being judged — and one
+market can carry claims from two authors, graded differently. Counting markets also silently drops
+any grade whose market never landed, which is exactly the hole that produced the contradiction.
+
+So **four of the five surfaces already used claims** and `/markets` was the outlier. It was changed to
+match, not the other way round.
+
+⚠️ **Fixed by deleting a definition, not by adding one.** `analystRecord()` and `recordLine()` now
+live in `GradeMarker.tsx` and **both pages call them** — the counts and the wording come from one
+function, so they cannot drift apart again by someone editing one page. `/markets` lost its local
+`scored` / `right` / `wrong` arithmetic entirely.
+
+Both pages now render, character for character:
+
+```
+5 settled — 2 right, 2 wrong, 1 voided · 5 test data
+```
+
+### 2 · The marker, derived from absence rather than from the prefix
+
+```ts
+settledOnChain(r) = r.chain_market_id !== null || r.resolve_tx !== null || r.void_tx !== null
+```
+
+⚠️ **An OR, and `resolve_tx` alone would have been a bug.** `resolve.ts`'s `reconcile` path writes the
+landmark from what the chain already says and **submits nothing**, so a genuinely settled market can
+carry `resolve_tx = null`. `m/rehearsal-reconcile-8` is exactly that row today — chain id 8, no
+transaction — and a `resolve_tx IS NULL` test would have labelled a real on-chain settlement as test
+data. Checked against every settled market:
+
+```
+m/demo-right                 chain —   rtx —    vtx —     → TEST DATA
+m/demo-split-hit             chain —   rtx —    vtx —     → TEST DATA
+m/demo-split-miss            chain —   rtx —    vtx —     → TEST DATA
+m/demo-void                  chain —   rtx —    vtx —     → TEST DATA
+m/demo-wrong                 chain —   rtx —    vtx —     → TEST DATA
+m/rehearsal-294e0f63b1c9c4b3 chain 9   rtx —    vtx yes   → on chain
+m/rehearsal-5e207fcf98b52eb3 chain 8   rtx yes  vtx —     → on chain
+m/rehearsal-a014b3080fa43ec3 chain 10  rtx yes  vtx —     → on chain
+m/rehearsal-reconcile-8      chain 8   rtx —    vtx —     → on chain   ⚠️ the one that proves the OR
+```
+
+⚠️ **Nothing keys on the `m/demo-` prefix.** A prefix is a convention someone could copy; a chain
+market id is a fact. The two agree today and the marker would still be right if they stopped agreeing.
+
+**Three words, appended to the marker's own text** rather than rendered as a second chip, so it cannot
+drift from the number it qualifies. ⚠️ **The mixed case is stated rather than rounded**: a report
+backing one real claim and one demo claim reads `· incl. 1 test`, because calling that "test data"
+would be as wrong as saying nothing.
+
+### Where it appears
+
+```
+/                 [right]   1 of 1 claim correct · test data
+                  [wrong]   0 of 1 claim correct · test data
+                  [neutral] 2 claims graded · 1 right, 1 wrong · test data
+                  [void]    1 claim voided — no outcome · test data
+/report/<hash>    the same four, in the page heading
+/analyst table    RIGHT / WRONG / VOIDED with `test data` beneath, per row
+/markets          · 5 test data on the record line
+```
+
+⚠️ **Four ungraded reports still show no marker at all**, including `24041ca282…`, the one markets 6
+and 7 cite. Absence of a grade is still not a grade.
+
+### ⚠️ The context block: the marker CANNOT go inside it, and that is the correct outcome
+
+The block is bytes from `agent/context.ts` and the digest is taken over **exactly those bytes**.
+Adding the words "test data" to a line would change the digest and break the one checkable thing that
+section has — and `agent/context.ts` is `src/`, which this task may not touch anyway.
+
+So it is said **beside** the block: *"5 of the analyst's 5 graded claims are test data — settled in
+the store with no chain market and no settlement transaction behind them… The marker cannot be put
+inside the lines themselves: the digest is over exactly those bytes, so a word added for a reader
+would change what the agent is provably given."* The line count still matches the record, and the
+digest still round-trips.
+
+### What to open
+
+**`/markets`** and **`/analyst`** — the record line reads identically on both.
+**`/`** and **`/report/<hash>`** — four marked reports, each ending `· test data`; four unmarked.
+**`/analyst`** — five graded rows each carrying `test data` under the grade, and the context section
+saying how many of the five lines above it are test data.
+
+### ⚠️ When markets 6 and 7 resolve on top of this
+
+- **The real rows carry no marker.** `chain_market_id` is `'6'` and `'7'`, so `settledOnChain()` is
+  true **whatever happens to `resolve_tx`** — including the reconcile path, where it stays null. That
+  is the whole reason the test is an OR rather than a transaction check.
+- **The demo rows still carry theirs.** Nothing about them changes.
+- **Both pages still agree**, because both read the same function: `7 settled — …  · 5 test data`.
+  Both TRUE gives `4 right, 2 wrong, 1 voided · 5 test data`; both FALSE gives `2 right, 4 wrong, 1
+  voided · 5 test data`; a split gives `3 right, 3 wrong, 1 voided · 5 test data`.
+- **`24041ca282…` gains an unmarked marker** — its two claims are both real, so `demo` is 0 for that
+  report and no suffix is produced. **The first grade with no "test data" beside it is the first real
+  one**, which is exactly the signal worth having on screen tonight.
+
+Store unchanged by this task: `scores 5`, markets 6/7/11/12 still `resolved_at null, void_tx null`.
+`npx next build` after `rm -rf .next` — **passes**.

@@ -39,6 +39,7 @@
 import {MarketFilters} from '../components/MarketFilters.js';
 import {ProbabilityChart, illustrativeSeries} from '../components/ProbabilityChart.js';
 import {ArrowRight, Check, Clock} from '../components/Icons.js';
+import {analystRecord, recordLine} from '../components/GradeMarker.js';
 import {db} from '../../src/store/db.js';
 import {isRehearsal} from '../../src/arc/rehearsal.js';
 import {requiredEnv} from '../../src/config/env.js';
@@ -142,11 +143,12 @@ export default async function MarketIndex() {
     (r) => !r.resolved_at && !r.voided_at && Date.now() < r.close_time.getTime(),
   ).length;
 
-  // ⚠️ **THE ANALYST'S RECORD, DESIGNED FOR ITS EMPTY CASE FIRST.** `scores` has zero rows, and an
-  // empty record is never dressed as a zero score. Rehearsals are excluded by construction.
-  const scored = forecasts.filter((r) => r.forecast_correct !== null || r.voided_at);
-  const right = scored.filter((r) => r.forecast_correct === true).length;
-  const wrong = scored.filter((r) => r.forecast_correct === false).length;
+  // ⚠️ **THE ANALYST'S RECORD — ASKED IN ONE PLACE, NOT DERIVED FROM THE CARDS ABOVE.** This used to
+  // be `forecasts.filter(...)`, counting only markets that had reached this page's `onChain` filter,
+  // and it therefore said *"no forecast has settled yet"* while `/analyst` said *"5 settled"*. Two
+  // pages answering one question differently is worse than either answer. `analystRecord()` counts
+  // **graded claims**, which is what a grade is a property of — see its own header.
+  const record = await analystRecord();
 
   const card = (r: Row, kind: 'forecast' | 'rehearsal' | 'offchain') => {
     const spec = JSON.parse(r.spec_json) as Spec;
@@ -257,11 +259,9 @@ export default async function MarketIndex() {
 
       <div className="results-meta">
         <span>The analyst&rsquo;s record</span>
-        <span>
-          {scored.length === 0
-            ? 'no forecast has settled yet'
-            : `${scored.length} settled — ${right} right, ${wrong} wrong`}
-        </span>
+        {/* ⚠️ The same string `/analyst` renders, from the same function, so they cannot word it
+            differently either. */}
+        <span>{recordLine(record)}</span>
         <span>rehearsals excluded</span>
       </div>
 

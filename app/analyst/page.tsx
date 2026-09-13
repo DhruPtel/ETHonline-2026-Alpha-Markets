@@ -78,7 +78,7 @@
 
 import {ethers} from 'ethers';
 import {ContextBlock} from './ContextBlock.js';
-import {GradeMarker, gradesFor} from '../components/GradeMarker.js';
+import {GradeMarker, analystRecord, gradesFor, recordLine, settledOnChain} from '../components/GradeMarker.js';
 import {ArrowUpRight} from '../components/Icons.js';
 import {ANALYSTS} from '../../src/config/analysts.js';
 import {isRehearsal} from '../../src/arc/rehearsal.js';
@@ -167,10 +167,13 @@ export default async function Analyst() {
   // and left out of the counts. Hiding them would make the counts unauditable.
   // ⚠️ `isRehearsal` is imported, not re-spelled in this query. See `src/arc/rehearsal.ts`.
   const graded = scores.filter((s) => !isRehearsal(s.observation_end, s.created_at));
-  const right = graded.filter((s) => s.forecast_correct === true).length;
-  const wrong = graded.filter((s) => s.forecast_correct === false).length;
-  const voided = graded.filter((s) => s.forecast_correct === null).length;
   const rehearsed = scores.length - graded.length;
+
+  // ⚠️ **The counts come from `analystRecord()`, the same call `/markets` makes**, rather than from
+  // the rows above. The two pages contradicted each other while each counted for itself; one
+  // function is what stops that recurring. The table still renders its own rows — it needs the
+  // detail — but it no longer owns the arithmetic.
+  const record = await analystRecord();
 
   // ── 2 · Holdings. ⚠️ `balanceOf` on chain, never `report_tokens.transfer_tx`. ──────────────────
   // The column records what we last sent; the chain records what is. A token can also be sent
@@ -252,11 +255,8 @@ export default async function Analyst() {
           `/markets` uses. Never one percentage. */}
       <div className="results-meta">
         <span>The record</span>
-        <span>
-          {graded.length === 0
-            ? 'no claim has been graded yet'
-            : `${graded.length} settled — ${right} right, ${wrong} wrong, ${voided} voided`}
-        </span>
+        {/* ⚠️ One function, both record surfaces, one wording. */}
+        <span>{recordLine(record)}</span>
         <span>rehearsals excluded{rehearsed > 0 ? ` · ${rehearsed} not counted` : ''}</span>
       </div>
 
@@ -320,6 +320,11 @@ export default async function Analyst() {
                         </span>
                         {isRehearsal(s.observation_end, s.created_at)
                           && <span className="holdings-sub">rehearsal · not counted</span>}
+                        {/* ⚠️ **From the absence of chain evidence, not the id prefix.** No chain
+                            market id and no settlement transaction means there is nothing a reader
+                            could follow — which is what makes it test data. A real grade never
+                            shows this, including markets 6 and 7 when they land. */}
+                        {!settledOnChain(s) && <span className="holdings-sub">test data</span>}
                       </td>
                       <td>
                         <a href={`/report/${s.report_hash}`}>
