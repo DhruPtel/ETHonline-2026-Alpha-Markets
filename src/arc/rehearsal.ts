@@ -61,6 +61,11 @@
 // evict a real forecast from the five. Both halves were reproduced against fixtures before the fix
 // and are gone after it.
 
+// ⚠️ `spec.ts` owns the day arithmetic and does not import this file, so the dependency runs one
+// way only. A second `dayStart` here would be a second opinion about when a day begins, on the one
+// comparison that decides whether a market counts.
+import { dayStart } from './spec.js';
+
 /**
  * True when the market's observation window had already closed by the time it was created — so the
  * answer was knowable at commit time and the market is a rehearsal, not a forecast.
@@ -75,4 +80,40 @@ export function isRehearsal(observationEnd: Date, createdAt: Date): boolean {
 /** The other half, named so a caller reads as what it means rather than as a negation. */
 export function isForecast(observationEnd: Date, createdAt: Date): boolean {
   return !isRehearsal(observationEnd, createdAt);
+}
+
+// ── ⚠️ THE THIRD CATEGORY, AND IT IS NOT A FLAG ─────────────────────────────────────────────────
+//
+// **A market whose staking was still open during or after the day it measures is past-posted.** The
+// answer was already published when the position was taken, so being right about it says nothing
+// about judgment — the same objection `isRehearsal` exists to raise, arriving by a different route.
+//
+// ⚠️ **AND `isRehearsal` DOES NOT CATCH THESE. That is the whole reason this function exists.** A
+// demo market's `observationEnd` is a couple of minutes AFTER its `createdAt`, so the rehearsal
+// arithmetic says *forecast* and lets it straight into the record. The door is already open; this
+// is what closes it. PHASE-8 §2.2 calls it the single easiest thing in the phase to get wrong,
+// because it fails silently into an inflated record rather than into an error.
+//
+// ⚠️ **`GradeMarker.settledOnChain()` does not catch them either**, and for a different reason: that
+// test is *absence of chain evidence*, and a demo market genuinely settles on chain with a real
+// `chain_market_id` and a real arcscan link. The two predicates are independent and a surface needs
+// both — `settledOnChain` for seeded rows that never touched a chain, this for real rows whose
+// question was already answered.
+//
+// ⚠️ **Arithmetic over two stored columns, exactly like `isRehearsal`** — `markets.close_time` and
+// `markets.observed_day`. It cannot be set by a naming convention, cannot be turned off by a flag on
+// a call site, and cannot be faked by a market that did not do it. `spec.ts::demoQuestionCore` is
+// the only way to create one and it refuses anything else; this is the read-side half of that pair.
+
+/**
+ * True when staking was still open at or after the start of the day being measured — so the outcome
+ * was already partly or wholly published when the position was taken.
+ *
+ * ⚠️ **`>`, not `>=`, and the boundary is the mirror of `questionCore`'s.** That function permits
+ * `closeTime <= dayStart`, so a market closing exactly at midnight is a legitimate forecast and must
+ * not read as past-posted here. The two comparisons are complements on purpose: every market either
+ * satisfies `questionCore`'s rule or this one, and none satisfies both.
+ */
+export function pastPosted(closeTime: Date, observedDay: string): boolean {
+  return Math.floor(closeTime.getTime() / 1000) > dayStart(observedDay);
 }

@@ -781,3 +781,77 @@ without `CRON_SECRET`, which is a different mechanism for a caller that is never
 **Affects.** `app/api/console/{source,generate,tokenize,transfer,report,accounts}/route.ts`,
 `app/api/console/lock.ts`, `app/components/{AtlasPanel,ConsoleSecret,ConsoleViewer}.tsx`.
 PHASE-6 D1 is superseded for the duration: the field exists but is not rendered.
+
+---
+
+## 2026-09-13 — the demo market path: a sibling entry point, and a retirement window sized by the reveal
+
+**What we're doing.** Three additions that make a past-day market stakeable, and one deliberate
+inversion of a rule this project enforces everywhere else.
+
+1. `spec.ts::demoQuestionCore(spec, {closeTime, observationEnd, resolveDeadline})` — a **sibling of
+   `questionCore`, never a flag on it.** It permits what `questionCore` forbids: `closeTime` after
+   the observed day. `observationEnd` is an **argument** here rather than derived from the spec's
+   day, which is the whole mechanism — the reveal unlocks minutes from now while the question
+   measures a day that finished hours ago.
+2. `market.ts::prepareDemo()` — a second public entry beside `prepare()`, sharing one private body
+   through a `buildCore` callback so the nine numbered guards do not move.
+3. `rehearsal.ts::pastPosted(closeTime, observedDay)` — the read-side half, arithmetic over two
+   stored columns.
+
+**Why.** The deployed contract refuses the demo outright: `_open` requires `now < closeTime` for
+both `commitPrediction` and `stake`, and `createMarket` requires `closeTime < observationEnd`, so
+for a genuinely past day staking always reverts. The contract's own header says it never checks the
+three timestamps against the day the question names and that this policy lives in `spec.ts`. So the
+escape is a past-day spec on future times, and `spec.ts` is where it has to be written down.
+
+**What we give up, plainly.** `questionCore`'s rule is **past-posting prevention**, with a racing
+citation and a research note behind it. The demo market is past-posting, deliberately, and there is
+no version of this feature that is not. The judge bets on a settled race. The cost is contained by
+`pastPosted`, not by good intentions: Task 2 applies it to every record surface and to
+`context.ts::build()`, and until it does, a demo grade counts as a real one.
+
+**Alternatives rejected.**
+
+- **A boolean on `questionCore`.** A flag that switches off past-posting prevention is one somebody
+  eventually passes by accident. Two names cannot be confused at a call site.
+- **Hand-building a `MarketPlan` in the script and calling `create()` directly**, to avoid touching
+  `market.ts`. Rejected: guard 8 is the admission check, the thing that stops a commit against a
+  report that was never tokenized, and a demo path that skipped it would be a second, weaker way
+  onto the chain. Saving one file is not worth a parallel route to the chain with fewer guards.
+- **Validating the spec inside each wrapper** rather than through a callback. It would hoist guard 2
+  above guard 1, and this repo has lost four negative tests to a refusal firing one guard above the
+  one under test.
+
+**⚠️ `MIN_RESOLVE_LEAD_SECONDS` is dropped for demo markets and replaced by
+`DEMO_RETIREMENT_SECONDS = 900`.** The two-day rule exists because the resolver is a daily cron with
+no retry, so one transient miss would void a real forecast for a reason unrelated to its question.
+**A demo market is resolved by hand seconds after `observationEnd`, and the day it measures finished
+hours ago** — a snapshot missing at reveal time will still be missing in two days. There is no
+transient miss to wait out, and waiting would only mean a judge who staked on a dead day cannot be
+refunded until Thursday. Fifteen minutes is sized by the reveal path itself: `settle()`,
+`recordSettlement`, `resolve.ts::prepare()`'s three `eth_call`s, and a Circle submit waited on for a
+receipt for up to 120s — about three minutes worst case, so this is five times it.
+
+**⚠️ Checked rather than assumed: a short deadline cannot turn a reveal into a void.** `resolve()`
+carries no deadline guard at all, and `resolve.ts` guard 8 — the only thing that ever votes for a
+void — fires solely on `evidence.outcome === null`. A market with a real outcome resolves whether or
+not its deadline passed. What the window buys is margin against the permissionless `voidMarket`.
+
+**What stops an abandoned demo market sitting open forever — two things, and the first needs no new
+code.** `marketsAwaitingResolve` filters only on `observation_end <= asOf` and the two landmarks, with
+no `landed_at` or `directed_at` predicate, so the 02:00Z resolve cron picks up any unresolved demo
+market two minutes after it is created and resolves it normally. `--retire` is the backstop for the
+one case the cron cannot fix: a day with no snapshot, where guard 8 retries until `resolveDeadline`
+and voids after it. Voiding refunds every staker their own stake (`if (m.voided) return onTrue +
+onFalse`), so that path is how a judge gets their money back, not merely tidying.
+
+**⚠️ The judge commits their own claim (PHASE-8 §2.3), settled in chat.** It is their wallet, their
+report, their bet; staking alongside the analyst's claim would mean picking a side rather than a
+report, and the report is the point. **Accepted consequence, which goes on the page rather than being
+hidden:** `context.ts` filters by author, so the judge's claim never reaches the planning prompt —
+correct, because a past-posted result is one whose answer was public before the position was taken.
+
+**Affects.** `src/arc/spec.ts`, `src/arc/market.ts`, `src/arc/rehearsal.ts`,
+`scripts/ops/demo-market.ts`. PHASE-8 Task 1's file list gains `market.ts`, agreed in chat before
+the work started. §2.8's `--retire` is re-scoped from "tidying" to the refund path for a dead day.

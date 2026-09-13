@@ -23,7 +23,7 @@ import { ALPHA_MARKET_ABI } from './abi.js';
 import { type BindingEvidence, checkBinding, recordArcTransaction, recordBinding } from './admission.js';
 import { analystIdentity, arcProvider, submit, usdcFromNative } from './arc.js';
 import { SettlementTooEarly, settle } from './settle.js';
-import { type MarketSpec, type QuestionCore, holds, metricFromFactId, questionCore, specHash, validateSpec } from './spec.js';
+import { type MarketSpec, type QuestionCore, demoQuestionCore, holds, metricFromFactId, questionCore, specHash, validateSpec } from './spec.js';
 import { analystByArcAddress, type AnalystConfig } from '../config/analysts.js';
 import { hashCanonical } from '../domain/canonical.js';
 import { load } from '../store/reports.js';
@@ -217,21 +217,76 @@ function idempotencyKeyFor(scope: string, body: string): string {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
+/** What both paths need. ⚠️ **The TIMES are deliberately not here** — they are the only difference. */
+interface PlanInput {
+  readonly reportHash: string;
+  readonly spec: Omit<MarketSpec, 'schema'>;
+  /** 18-dp native, as a decimal string. ⚠️ No default — nobody commits a default stake size. */
+  readonly amount: string;
+}
+
+/**
+ * Plan a real market. ⚠️ **Touches no chain state and spends nothing.**
+ *
+ * `questionCore` enforces past-posting prevention — `closeTime <= dayStart(observedDay)` — so every
+ * market this can build is a genuine forecast about a day that has not started.
+ */
+export async function prepare(input: PlanInput & {
+  readonly closeTime: number;
+  readonly resolveDeadline: number;
+}): Promise<MarketPlan> {
+  return planWith(input, (spec) =>
+    questionCore(spec, { closeTime: input.closeTime, resolveDeadline: input.resolveDeadline }));
+}
+
+/**
+ * Plan a **demo** market — a past-day question carried on future times, so a judge can stake on it
+ * and settle it in minutes. ⚠️ **Past-posted by construction; never a forecast.**
+ *
+ * ⚠️ **A SIBLING OF `prepare`, NEVER A FLAG ON IT**, for the reason `spec.ts` gives at
+ * `demoQuestionCore`: a boolean that switches off past-posting prevention is one somebody passes by
+ * accident, and two names cannot be confused at a call site.
+ *
+ * ⚠️ **It runs every one of `prepare`'s nine guards, in the same order, and that is the point of
+ * routing through here rather than hand-building a `MarketPlan` in a script.** Guard 8 is the
+ * admission check — the thing that stops a commit against a report that was never tokenized — and a
+ * demo path that skipped it would be a second, weaker way onto the chain. The only thing that
+ * differs is which function builds step 3's `QuestionCore`.
+ *
+ * ⚠️ **`decideSide` still runs, and for a demo market it reads a DIFFERENT day than settlement
+ * will.** The rule is "what settlement would decide for the most recent finished day", so the
+ * analyst's side comes from yesterday while the question is about a day further back. That is not a
+ * fault to fix here: the analyst is not forecasting, and the side it takes may well be wrong — which
+ * is the honest thing for a demo whose answer was published before anyone staked.
+ */
+export async function prepareDemo(input: PlanInput & {
+  readonly closeTime: number;
+  readonly observationEnd: number;
+  readonly resolveDeadline: number;
+}): Promise<MarketPlan> {
+  return planWith(input, (spec) => demoQuestionCore(spec, {
+    closeTime: input.closeTime,
+    observationEnd: input.observationEnd,
+    resolveDeadline: input.resolveDeadline,
+  }));
+}
+
 /**
  * Every read-only check that can stop the run. ⚠️ **Touches no chain state and spends nothing.**
  *
  * ⚠️ **Ids are derived, not random**, so a retry after a crash lands on the same rows rather than
  * creating a second market for one question. The market id is the question and the contract; the
  * claim id is the market and the author, which mirrors the contract's one-claim-per-author rule.
+ *
+ * ⚠️ **`buildCore` is a callback so the NUMBERED GUARD ORDER below does not move.** Validating the
+ * spec in each wrapper instead would hoist step 2 above step 1, and this file's own header plus four
+ * broken negative tests say what that costs: a refusal that fires one guard above the one being
+ * tested looks exactly like a passing test.
  */
-export async function prepare(input: {
-  readonly reportHash: string;
-  readonly spec: Omit<MarketSpec, 'schema'>;
-  readonly closeTime: number;
-  readonly resolveDeadline: number;
-  /** 18-dp native, as a decimal string. ⚠️ No default — nobody commits a default stake size. */
-  readonly amount: string;
-}): Promise<MarketPlan> {
+async function planWith(
+  input: PlanInput,
+  buildCore: (spec: MarketSpec) => QuestionCore,
+): Promise<MarketPlan> {
   const contractAddress = requiredEnv('ARC_MARKET_ADDRESS', 'Deployed by Unit 6.');
 
   // 1 · the report loads and passes its own hash check (`load` throws if it does not).
@@ -252,8 +307,10 @@ export async function prepare(input: {
 
   // 2 · the spec validates — legal metric, live deployment, decimal threshold, real date.
   const spec = validateSpec(input.spec);
-  // 3 · the times are legal: staking closes before the observed day, deadline two days after it.
-  const core = questionCore(spec, { closeTime: input.closeTime, resolveDeadline: input.resolveDeadline });
+  // 3 · the times are legal. ⚠️ Which rules apply is the caller's choice of entry point, and each
+  //     builder throws its own sentence: `questionCore` refuses a closeTime inside the observed day,
+  //     `demoQuestionCore` refuses one before that day was settleable.
+  const core = buildCore(spec);
 
   // 4 · the analyst row resolves AND matches the Circle wallet (Unit 4's guard throws on mismatch).
   const identity = await analystIdentity();

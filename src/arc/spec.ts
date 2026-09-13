@@ -355,3 +355,114 @@ export function questionCore(
 
   return { specHash: specHash(spec), closeTime: times.closeTime, observationEnd: end, resolveDeadline: times.resolveDeadline };
 }
+
+// ─── The demo core — ⚠️ past-posting, deliberately, and it says so ───────────────────────────────
+//
+// ⚠️ **READ THIS BEFORE USING IT. This function permits the exact thing `questionCore` exists to
+// forbid**, and it is a separate name rather than a flag on that function for one reason: a boolean
+// that switches off past-posting prevention is a boolean somebody eventually passes by accident,
+// and two functions with different names cannot be confused at a call site.
+//
+// **Why it has to exist.** The deployed contract refuses the demo outright: `_open` requires
+// `now < closeTime` for both `commitPrediction` and `stake`, and `createMarket` requires
+// `closeTime < observationEnd`. For a genuinely past day `observationEnd` is behind us, so
+// `closeTime` is further behind, so **staking always reverts**. The contract's own header says it
+// stores the three timestamps and never checks them against the day the question names, and that
+// `Policy about closeTime versus the observed day lives in spec.ts`. This is that policy, written
+// down for the one case where it is knowingly inverted.
+//
+// **So a demo market is a past-day spec carried on future times.** Staking works because `closeTime`
+// is ahead of now; settlement works because `settle()` reads the day the spec names, which finished
+// hours ago. The judge is betting on a settled race — that is the point, and it is why nothing built
+// on this may ever be presented as a forecast or folded into the analyst's record.
+// `rehearsal.ts::pastPosted` is the read-side half that keeps it out.
+//
+// ⚠️ **STILL PURE — no clock.** Every rule below is arithmetic over the arguments, so this cannot
+// check that `closeTime` is a couple of minutes from *now*; it guarantees the SHAPE (past-posted,
+// and settleable the instant the reveal runs) and the caller owns the TIMING. `scripts/ops/
+// demo-market.ts` is where the two meet.
+
+/**
+ * ⚠️ **How long past `observationEnd` a demo market may be voided by anyone, replacing
+ * `MIN_RESOLVE_LEAD_SECONDS` — whose reason does not hold here.**
+ *
+ * The two-day rule exists because the resolver is a **daily cron with no retry**, so one transient
+ * miss would void a real forecast for a reason unrelated to its question. **A demo market is
+ * resolved by hand, on the spot, seconds after `observationEnd`** — and the day it measures finished
+ * hours ago, so a snapshot missing at reveal time will still be missing in two days. There is no
+ * transient miss to wait out, and waiting two days would only mean a judge who staked on a dead day
+ * cannot get their money back until Thursday.
+ *
+ * ⚠️ **Fifteen minutes is sized by the reveal path, not chosen round.** From `observationEnd` the
+ * reveal runs `settle()` (a subgraph read), `recordSettlement`, `resolve.ts::prepare()` (three
+ * `eth_call`s) and a Circle submit that returns at SENT and is then waited on for a receipt for up
+ * to 120s — about three minutes in the worst realistic case. This is five times that.
+ *
+ * ⚠️ **A short deadline cannot turn a reveal into a void, and that was checked rather than assumed.**
+ * `resolve()` carries no deadline guard at all, and `resolve.ts`'s guard 8 — the only thing that ever
+ * votes for a void — fires solely on `evidence.outcome === null`, a MISSING_OBSERVATION. A market
+ * with a real outcome resolves whether or not its deadline has passed. What the window actually
+ * buys is margin against the permissionless `voidMarket`, which nobody is watching a demo market to
+ * call.
+ */
+export const DEMO_RETIREMENT_SECONDS = 900;
+
+/**
+ * Build and check the timing around a **demo** spec. ⚠️ **Past-posted by construction.**
+ *
+ * ⚠️ **`observationEnd` is an ARGUMENT here, where `questionCore` derives it from the spec's day.**
+ * That is the whole mechanism: the contract's `observationEnd` is when the reveal unlocks, a couple
+ * of minutes from now, while the day the question measures is long over. The two are unrelated for
+ * a demo market and pretending otherwise is what makes it unbuildable.
+ */
+export function demoQuestionCore(
+  spec: MarketSpec,
+  times: {
+    readonly closeTime: number;
+    readonly observationEnd: number;
+    readonly resolveDeadline: number;
+  },
+): QuestionCore {
+  const dayEnd = dayStart(spec.observedDay) + DAY_SECONDS;
+  const settleable = dayEnd + FRESHNESS_MARGIN_SECONDS;
+
+  // ⚠️ **The inverse of `questionCore`'s rule, and it is a REQUIREMENT rather than an absence.** Not
+  // checking past-posting would let this function build an ordinary forecast on mangled times; this
+  // insists the market really is the thing it claims to be. The margin is what makes the reveal
+  // immediate: the settlement read happens at or after `observationEnd`, which is after `closeTime`,
+  // so requiring `closeTime` past the day's end plus the freshness margin means `settle()` cannot
+  // come back `SettlementTooEarly` and leave a judge staring at a button that does nothing.
+  if (times.closeTime < settleable) {
+    throw new Error(
+      `closeTime ${times.closeTime} is before ${settleable}, an hour after ${spec.observedDay} ends ` +
+      `at ${dayEnd}. A demo market must close staking on a day that is already settleable — if the ` +
+      'day were still running this would be an ordinary forecast with its times mangled, and the ' +
+      'reveal would come back SettlementTooEarly. Use questionCore() for a real market.',
+    );
+  }
+
+  // ⚠️ The contract's `BadTimes`, reached here so it costs nothing. Gas on Arc is USDC.
+  if (times.closeTime >= times.observationEnd) {
+    throw new Error(
+      `closeTime ${times.closeTime} is not before observationEnd ${times.observationEnd}; the ` +
+      'contract reverts BadTimes. The reveal cannot unlock until staking has closed — that ordering ' +
+      'is the parimutuel rule and it is what sets the demo loop at ~3 minutes rather than one.',
+    );
+  }
+
+  if (times.resolveDeadline < times.observationEnd + DEMO_RETIREMENT_SECONDS) {
+    throw new Error(
+      `resolveDeadline ${times.resolveDeadline} is less than ${DEMO_RETIREMENT_SECONDS}s after ` +
+      `observationEnd ${times.observationEnd}. The earliest legal value is ` +
+      `${times.observationEnd + DEMO_RETIREMENT_SECONDS} — see DEMO_RETIREMENT_SECONDS for why this ` +
+      'window is minutes rather than the two days a real forecast gets.',
+    );
+  }
+
+  return {
+    specHash: specHash(spec),
+    closeTime: times.closeTime,
+    observationEnd: times.observationEnd,
+    resolveDeadline: times.resolveDeadline,
+  };
+}

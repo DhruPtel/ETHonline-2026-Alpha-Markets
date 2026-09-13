@@ -16365,3 +16365,294 @@ saying how many of the five lines above it are test data.
 
 Store unchanged by this task: `scores 5`, markets 6/7/11/12 still `resolved_at null, void_tx null`.
 `npx next build` after `rm -rf .next` — **passes**.
+
+---
+
+## 2026-09-13 — PHASE-8 planned: the demo market, and a contract guard that refuses the brief
+
+One new file, `tracking/phases/PHASE-8-demo-market.md`. No code, no page changes.
+
+### ⚠️ The finding that reshaped the plan: the deployed contract refuses the central mechanic
+
+**A market about a past day cannot be staked on.** Not awkward — it reverts.
+
+```solidity
+_open():       if (block.timestamp >= m.closeTime) revert StakingClosed(m.closeTime);
+createMarket(): if (q.closeTime >= q.observationEnd …) revert BadTimes();
+```
+
+Both `commitPrediction` and `stake` go through `_open`. Staking needs `now < closeTime`; creation
+needs `closeTime < observationEnd`. For a past day `observationEnd` is already behind us, so
+`closeTime` is further behind, so **`_open` always reverts.**
+
+⚠️ **This is why no rehearsal has ever been staked** — markets 8, 9 and 10 were created and settled by
+the deployer and nothing was ever staked on them because nothing could be. `stakes` agrees: every row
+is on markets 6, 11 and 12, all genuine forecasts. **The brief's design is not buildable as written**,
+and the plan says so in §0 rather than discovering it in Task 1.
+
+**The escape:** the contract stores three timestamps and never checks them against the day the spec
+names — its own header says exactly that. So a demo market has a **past-day spec** with
+`closeTime`/`observationEnd` a couple of minutes in the **future**. Staking works; `settle()` reads
+the long-finished day and its freshness rule passes instantly.
+
+⚠️ **And that is precisely what `spec.ts` exists to forbid.** `questionCore()` enforces
+`closeTime <= dayStart(observedDay)` — past-posting prevention, with a racing citation behind it.
+**The demo is past-posting by construction and there is no version of it that is not.** Everything
+else in the plan follows from that.
+
+### The brief's assumption about the record was backwards
+
+It expected `isRehearsal()` to exclude these and asked for an exception. ⚠️ **No exception is needed,
+and that is the problem.** A demo market's `observationEnd` is ~100 seconds *after* its `createdAt`,
+so the arithmetic says **forecast** and admits it straight into the record. The door is already open.
+
+So: a third predicate on the same footing — `pastPosted = closeTime > dayStart(observedDay)`.
+Arithmetic over columns already stored, unfakeable, no flags. *"What stops a real rehearsal sneaking
+through the same door?"* — **nothing needs to, because no door is opened.**
+
+⚠️ **And the `settledOnChain()` marker shipped yesterday does NOT catch these.** That rule is absence
+of chain evidence, and a demo market genuinely settles on chain with a real arcscan link. It would
+read as a real grade. **The easiest thing in the phase to get wrong, and it fails silently into an
+inflated record.**
+
+### Two places the plan pushes back on the brief
+
+**Step 5 — "enters the analyst's record and the context block" — is wrong twice over.** The judge
+commits from their own wallet, so the claim is theirs, not the analyst's; and `context.ts` already
+filters by author, so it is excluded from the planning prompt **automatically**. It also *should* be:
+a past-posted result is a question whose answer was published before the position was taken, which
+`context.ts`'s own header calls *"learning from nothing"*. The honest version shows the judge their
+graded claim marked `demo`, beside a context block that says in so many words why it is not in there
+— **the product refusing to contaminate its own signal, in public.**
+
+**"A minute" is about three.** `closeTime < observationEnd` means the judge cannot reveal until
+staking has closed, and that ordering is the parimutuel rule working. ~30s for `createMarket` to land
+through Circle, a ~90s staking window, then reveal. ⚠️ **Pre-creating a pool does not help** — a
+market created an hour ago has a `closeTime` an hour ago and is unstakeable, and refreshing every few
+minutes is impossible on Hobby's daily cron. So creation is on demand, and it costs gas per judge.
+
+### The rest of the decisions
+
+**One payout, the real one.** The ten simulated participants render as pool *shape* only and no money
+is ever derived from them — two money numbers that should agree is how they stop agreeing. ⚠️ And the
+real number is boring: the judge is usually the only real staker, so `payoutOf` returns their stake
+back either way. **The page says that before they see it**, so arcscan confirms rather than contradicts.
+
+**The answer is not hidden and the page admits it.** The snapshot is public and anyone can look it up
+in thirty seconds. Commit-reveal was considered and rejected as theatre — the outcome is a public
+fact neither party controls, so there was never anything to change our mind about. What settlement
+proves is that the figure was *read after the commit* and hashed on chain, not that it was secret.
+
+**Six preset questions**, thresholds pinned at build time around a figure read from The Graph, two
+each side and two within 2%. Free-typed thresholds cost a transaction per session and resolve the
+boring way.
+
+⚠️ **Watch-it-run with no wallet is the DEFAULT path, not the fallback.** The first thing a judge does
+is press the button and a wallet prompt there loses most of them. A missing USDC balance is detected
+**before** the market is created, never after — charging our gas and then refusing them is the demo
+failing at step one.
+
+### Tasks
+
+```
+1  demo spec path + one market on chain, staked      ~120 lines   ⚠️ the risk; proves §0's escape
+2  pastPosted applied everywhere, incl. context.ts    ~90 lines   ⚠️ before Task 3, not after
+3  /demo, three states                               ~280 lines
+4  the result panel + arcscan                        ~110 lines
+5  /markets' third section + retire                   ~70 lines   extra
+```
+
+**Minimum: 1, 2 and 3.** Task 1 is the only one that is not a surface over machinery that already
+runs, and it is the one that finds out whether the escape survives `prepare()`'s ten guards.
+
+⚠️ **One decision the plan will not take alone:** whether the judge commits their own claim
+(recommended) or stakes alongside the analyst's. It changes who the record belongs to, whether
+`context.ts` needs a filter at all, and what the judge picks on screen — a different build either way.
+Raised in chat; Task 1 should not start until it is answered.
+
+---
+
+## 2026-09-13 — orientation before PHASE-8 Task 1: the store read, and what the plan's file list is missing
+
+No code. A read-only sweep of the repo, the store and the Arc contract to establish what is actually
+true before Task 1 starts. Both checks pass: `npx next build` after `rm -rf .next` compiles clean
+(24 routes, no `/demo` yet); `migrate.ts` is a clean no-op at nine migrations.
+
+### Markets 6 and 7 are NOT resolved — and they became resolvable 47 minutes ago
+
+Chain and store agree: `resolved=false, voided=false` on chain, `resolved_at`/`resolve_tx`/`void_tx`
+all null in the store. Their `observationEnd` is 2026-09-13T00:00Z, which passed, and the freshness
+rule needs `observationEnd + 3600` = 01:00Z, which also passed. Read at 01:47Z, so **they are ripe
+right now** and `resolveDeadline` is 2026-09-15T00:00Z — about 46 hours of room before they become
+voidable instead.
+
+⚠️ **The settlement read was run (read-only, nothing written) and both settle TRUE.**
+`aave-v3-ethereum.totalDepositBalanceUSD` on 2026-09-12 reads **24,604,743,245.52…**, against
+thresholds of 24,387,198,586 (market 6) and 23,834,027,938 (market 7). Both claims are `side=true`,
+so both score **correct** when the resolve cron fires. That is the "both TRUE" branch yesterday's
+entry predicted: the record becomes `7 settled — 4 right, 2 wrong, 1 voided · 5 test data`.
+
+The resolve cron is `0 2 * * *`, so the next scheduled attempt is 02:00Z today — thirteen minutes
+after this read. Pools are 1.01 USDC on market 6 (the human's stake plus the analyst's 0.01) and
+0.01 on market 7; both are entirely on TRUE, so `payoutOf`'s `winningPool > 0` branch pays out and
+the human gets their dollar back plus the analyst's stake.
+
+### `scores` has no real rows yet — all five are the seeded demo record
+
+Every row joins to an `m/demo-*` market with `chain_market_id` null and no resolve or void
+transaction, so `settledOnChain()` is false for all five and the record reads
+`5 settled — 2 right, 2 wrong, 1 voided · 5 test data` on both surfaces. ⚠️ **The seeds are not
+past-posted** — their `close_time` is 2026-09-09T23:59Z against a `dayStart` of 2026-09-10T00:00Z —
+so PHASE-8's new `pastPosted` predicate will correctly leave them in the `test data` column where
+`settledOnChain()` already puts them. The two categories do not collide.
+
+Also confirmed by reading rather than assuming: two market rows really do share `chain_market_id`
+'8' (`m/rehearsal-5e…` and `m/rehearsal-re…`, the reconcile pair), and the seeded store-only market
+`m/9e1469c4…` is present and now inside the resolve route's case-3 window, which that route already
+refuses by name.
+
+### ⚠️ The thing Task 1's file list does not cover: `prepare()` hardcodes `questionCore()`
+
+PHASE-8 Task 1 names `rehearsal.ts`, `spec.ts` and a new `scripts/ops/demo-market.ts`. But
+`market.ts::prepare()` calls `questionCore(spec, {closeTime, resolveDeadline})` directly at step 3
+and derives `observationEnd` from the spec's own day — **there is no seam for a demo core to enter
+through.** `commit-market.ts` already wrote the consequence down in its own header: *"`questionCore`
+requires `closeTime <= dayStart(observedDay)` and the contract's `_open` requires `closeTime > now`,
+so `dayStart(observedDay) > now` always. A commit through market.ts is always about a future day."*
+
+So a demo market cannot be created through the path every real market uses. Either the script
+hand-builds a `MarketPlan` and calls `create()` directly — which skips prepare()'s nine guards,
+including the admission check — or `market.ts` gains a demo-aware entry point, and that is a file
+outside Task 1's list. **Raised in chat rather than decided here.**
+
+Two smaller shape questions fall out of the same place: `demoQuestionCore` has to take
+`observationEnd` as an argument rather than deriving it, and it is undecided whether it keeps the
+two-day `MIN_RESOLVE_LEAD_SECONDS` rule — keeping it means an abandoned demo market cannot be
+retired for two days, which is exactly what §2.8's `--retire` path is for.
+
+### The day is served, so §2.5's build-time pin is safe
+
+Checked against the live deployment rather than assumed: 2026-09-05, 09-08, 09-10, 09-11 and 09-12
+all return a `financialsDailySnapshot` with a real figure. A demo market on any recent past day
+settles instantly, which is what makes the ~3-minute loop possible.
+
+### Still open, and Task 1 is blocked on it
+
+§2.3's question is unanswered: does the judge commit their own claim, or stake alongside the
+analyst's? The plan says explicitly that Task 1 should not start until it is. Nothing was started.
+
+---
+
+## 2026-09-13 — PHASE-8 Task 1: a past-day market, staked. §0's escape survives the contract.
+
+**Chain market 13 exists, is open for staking, and carries a committed claim on a question about
+2026-09-11 — a day that finished two days ago.** That is the thing PHASE-8 §0 said the contract
+refuses, and the escape it proposed works. Task 1 was the risk in the phase; it is retired.
+
+Four files: `spec.ts` gains `demoQuestionCore` and `DEMO_RETIREMENT_SECONDS`, `rehearsal.ts` gains
+`pastPosted`, `market.ts` gains `prepareDemo`, and `scripts/ops/demo-market.ts` is new with
+`--list`, `--create` and `--retire`. Decisions in `DECISIONS.md`; the reasoning is not repeated here.
+
+### What it cost and what landed
+
+```
+createMarket        0x875addbabff9754d3df1961111ae6e0d450c29c6de5d541fde0cff82d9744cde   chain market 13
+commitPrediction    0x3de690a01accbda549740b1b228a40b882291a1892bc5804ee7f3b4c75a962c9   chain claim 10
+                    0.019824374446 USDC total (0.01 stake + ~0.0098 gas)
+```
+
+The question is `aave-v3-ethereum.totalDepositBalanceUSD above 24315301463 on 2026-09-11`, against a
+day that actually posted **24,560,910,569.10…** — so it resolves TRUE, and the threshold was derived
+from the snapshot series rather than from the report, which is the mismatch `commit-market.ts` paid
+for once already. Staking closed 02:05:26Z; the reveal unlocked one second later; it is retirable
+from 02:20:27Z.
+
+### ⚠️ The market.ts seam, taken rather than reached around
+
+Task 1's file list did not include `market.ts`, and it had to. `prepare()` calls `questionCore()`
+directly at step 3 and derives `observationEnd` from the spec's own day, so there was no seam for a
+demo core to enter through — `commit-market.ts` had already written the consequence in its own
+header: *"a commit through market.ts is always about a future day."*
+
+The alternative was hand-building a `MarketPlan` in the script and calling `create()` directly.
+**Rejected, and the reason is guard 8:** the admission check is what stops a commit against a report
+that was never tokenized, and a demo path that skipped it would be a second, weaker way onto the
+chain. Saving one file is not worth a parallel route with fewer guards. Raised in chat before any
+code was written; `market.ts` was added to the task's list.
+
+⚠️ **The shared body takes a `buildCore` callback rather than having each wrapper validate its own
+spec**, so the nine numbered guards do not move. Validating in the wrapper would hoist guard 2 above
+guard 1, and this repo has lost four negative tests to a refusal firing one guard above the one under
+test. `prepare()`'s public signature is byte-identical; nothing that calls it changed.
+
+### The refusals, each proved at its own guard
+
+Nine checks, all passing, before anything was sent:
+
+- `demoQuestionCore` refuses a day not yet settleable, `closeTime >= observationEnd` (the contract's
+  `BadTimes`), and a retirement window one second short — each with its own sentence.
+- ⚠️ **`questionCore` is unchanged and still refuses the demo shape** with *"inside or after the
+  observed day"*. Past-posting prevention did not get weaker; it got a sibling.
+- `pastPosted`'s boundary is the exact complement of `questionCore`'s: `closeTime` at `dayStart` is a
+  forecast, one second later is past-posted. Every market satisfies one rule or the other, never both.
+- ⚠️ **`isRehearsal` returns FALSE for the demo market we built** — confirming §2.2's central claim
+  by running it. The rehearsal arithmetic calls a demo market a forecast and lets it into the record.
+  That is the door `pastPosted` closes, and it was open.
+
+### ⚠️ `pastPosted` found zero of the fifteen existing markets, which is the right answer
+
+`--list` before the create returned **0 past-posted**, and that is the predicate working rather than
+failing. The five seeded demo rows close at 2026-09-09T23:59Z against a `dayStart` of
+2026-09-10T00:00Z, so they are **not** past-posted — they stay in the `test data` column that
+`settledOnChain()` already puts them in. The two predicates are independent and do not collide.
+
+⚠️ **Markets 6, 7, 11 and 12 are excluded by the arithmetic, not by a denylist.** Each closed staking
+before the day it measures began, which is what makes it a forecast. `--retire` therefore cannot
+reach them and there is no id list to keep in sync. The script asserts it aloud anyway and stops the
+run if `pastPosted` ever matches a protected id, because the cost of being wrong is somebody's dollar.
+
+### The loop, end to end, on the clock
+
+```
+01:58:26  createMarket submitted        chain market 13
+01:59     commitPrediction landed       chain claim 10, 0.01 USDC on TRUE
+02:05:26  closeTime — staking shut
+02:05:27  reveal unlocked
+02:05:32  settle() read 2026-09-11      TRUE on an observed 24,560,910,569.10…
+02:06:04  resolve() landed              0x6ada14d7…  gas 0.001423622288 USDC
+```
+
+⚠️ **The settle-and-resolve half took 37 seconds**, which is what "settles instantly" actually means
+in wall-clock terms. The whole loop was eight minutes only because this run used a **420s** staking
+window — `drive-market.ts`'s measured figure — rather than the ~120s §2.6 budgets. At the planned
+window the loop is the ~3 minutes the plan claims.
+
+⚠️ **The novel half was checked before it was paid for.** `resolve.ts` guard 9 compares the chain
+clock against the market's `observationEnd` (02:05:27Z, minutes old) while `settle()` reads the day
+the spec names (2026-09-11, two days finished). **Those two instants diverging has never happened
+before** — on every previous market they are the same day's end. `prepare()` was run first, for free,
+and returned `action: "resolve"`; only then was the transaction sent.
+
+### ⚠️ The record is still correct on screen — but the exposure is armed
+
+**`scores` still has exactly five rows and the record still reads `5 settled — 2 right, 2 wrong, 1
+voided · 5 test data`.** Market 13 resolved but has **not been scored**, because `scoreSettled()`
+runs only from the resolve cron or `scripts/ops/score.ts` by hand, and neither has run.
+
+⚠️ **So the moment anything scores, the record inflates.** Market 13's claim passes both existing
+filters — `isRehearsal` says forecast, `settledOnChain` says real — and `context.ts::build()` admits
+it too, because on this market the claim's author **is** the analyst. **Do not run `score.ts` until
+Task 2 lands.** This is exactly the exposure §2.2 and §2.7 predicted, it is no longer hypothetical,
+and the window to close it cleanly is open right now.
+
+### ⚠️ The resolve cron does not appear to be firing, and markets 6 and 7 are on a clock
+
+Markets 6 and 7 became resolvable at 2026-09-13T01:00:00Z (`observationEnd` plus the freshness
+margin). The cron is scheduled `0 2 * * *`. At 02:02Z both were still `resolved=false, voided=false`
+on chain, and market 13's resolve had to be driven by hand. **Nothing scheduled has run.**
+
+Their `resolveDeadline` is **2026-09-15T00:00:00Z**, which leaves at most one more scheduled attempt
+(02:00Z on the 14th). ⚠️ **If nothing fires before the deadline they become permissionlessly
+voidable, and the first real grades this project has ever had — both of which settle TRUE on a read
+today — turn into voids that count neither way.** Not investigated here; flagged because it is a
+deadline, not a preference.
